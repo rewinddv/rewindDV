@@ -37,8 +37,8 @@ conditions and disclaimer are reproduced in [ThirdPartyNotices.txt](ThirdPartyNo
 [DVRescue](https://github.com/mipops/dvrescue), from Moving Image Preservation
 of Puget Sound and its contributors, is credited for the `tools/dvloupe` nominal
 DV25 block-geometry adaptation at `5cead7a5dae4ec7ffdf24115c8e3bc6d9c05c033`.
-The development tests also use its report schema and an interoperability fixture
-at that revision; those test sources are not shipped in this binary package.
+Public source tests retain its report schema at that revision and use a
+project-authored synthetic report. The identifying upstream report is excluded.
 
 The DVRescue runtime, capture backend and merger are not bundled. The applicable
 BSD 3-Clause copyright, conditions and disclaimer are reproduced in

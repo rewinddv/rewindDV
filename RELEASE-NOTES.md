@@ -71,8 +71,8 @@ which reduces macOS security.
 Alpha 0.0.77 / Driver Build183 is intended for experienced users and dedicated/test systems.
 
 - Canonical source: https://github.com/rewinddv/rewindDV
-- [Installation and checksum verification](https://github.com/rewinddv/rewindDV/blob/main/INSTALL.md)
-- [Uninstall, rollback and restore security](https://github.com/rewinddv/rewindDV/blob/main/UNINSTALL.md)
+- [Installation and checksum verification](https://github.com/rewinddv/rewindDV/blob/alpha-0.0.77/INSTALL.md)
+- [Uninstall, rollback and restore security](https://github.com/rewinddv/rewindDV/blob/alpha-0.0.77/UNINSTALL.md)
 - [Sanitized issue reports](https://github.com/rewinddv/rewindDV/issues)
 
 Download **rewindDV-Alpha-0.0.77-Build183-AdHoc.zip** and its `.sha256` sidecar.
