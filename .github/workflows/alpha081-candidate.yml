@@ -1,0 +1,30 @@
+name: Alpha 0.0.81 engineering candidate
+on:
+  push:
+    branches: [main]
+    paths:
+      - release/alpha081-source.json
+      - tools/build-alpha081.py
+      - .github/workflows/alpha081-candidate.yml
+permissions:
+  contents: read
+jobs:
+  candidate:
+    runs-on: xcode-27
+    timeout-minutes: 25
+    steps:
+      - name: Read exact release tooling revision
+        shell: bash
+        run: |
+          git clone --quiet https://github.com/rewinddv/rewindDV-LAB.git "$RUNNER_TEMP/hub"
+          git -C "$RUNNER_TEMP/hub" checkout --quiet --detach "$GITHUB_SHA"
+      - name: Build pinned source and preserve signed driver
+        shell: bash
+        run: python3 "$RUNNER_TEMP/hub/tools/build-alpha081.py" "$RUNNER_TEMP/alpha081"
+      - name: Retain sealed candidate for independent verification
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: alpha081-sealed-candidate
+          path: ${{ runner.temp }}/alpha081/output/*
+          if-no-files-found: error
+          retention-days: 30
