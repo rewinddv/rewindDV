@@ -17,35 +17,17 @@
 > **[Sponsor rewindDV on Ko-fi →](https://ko-fi.com/rewinddv)**
 >
 > Help us gather funds to acquire the necessary IEC standards documents, additional decks and broader Mac testing.
-> Every contribution supports development; downloading and testing remain free.
+> Every contribution supports development.
 
-> [!WARNING]
-> **Experimental engineering alpha — not a production release.** This ad-hoc-signed,
-> non-notarized build requires disabling System Integrity Protection (SIP) and
-> enabling system-extension developer mode. That reduces security across your Mac.
-> Use a backed-up test Mac and non-critical tapes, not your only archival copy.
-> If you cannot accept those risks, wait for a properly entitled, signed and
-> notarized production release. Read the complete installation and removal guides
-> **before** changing any security settings.
+## Release status
 
-## Download
+Alpha 0.0.63 / Driver B178 is an older development build and has been withdrawn from distribution.
 
-**Alpha 0.0.63 · Driver B178 — public engineering alpha.**
+There is currently no active public binary release.
 
-[**Download the app ZIP**](https://github.com/rewinddv/rewindDV-LAB/releases/download/alpha-0.0.63/rewindDV-LAB-Alpha-0.0.63-AdHoc.zip)
-and its [SHA-256 checksum](https://github.com/rewinddv/rewindDV-LAB/releases/download/alpha-0.0.63/rewindDV-LAB-Alpha-0.0.63-AdHoc.zip.sha256).
-Read the [release notes, known issues and qualification limits](RELEASE-NOTES.md).
-rewindDV has been successfully tested locally with **Sony HVR-M15U,
-Sony HVR-M25AJ, and JVC DV-BR600 MiniDV decks**.
-
-The ZIP contains the app with its embedded driver, readable installation/removal
-instructions, optional local support tools, and third-party notices. No Apple
-Developer account, Xcode or device registration is needed to test it.
-
-**This repository is a downloads and documentation hub, not the application
-source repository.** GitHub's automatic “Source code” ZIP/tar links contain
-only this hub's documentation and assets; they do **not** contain the app.
-Choose the explicitly named **AdHoc.zip** release asset.
+This repository preserves project documentation and release history.
+GitHub’s automatic “Source code” archives contain this hub’s documentation and
+assets; they do not contain the application.
 
 ## What rewindDV does
 
@@ -108,15 +90,11 @@ lossless acquisition.** Known loss and uncertainty remain visible. Preserve
 your original tapes and acquisition evidence; never replace a master with a
 recovery derivative merely because it looks better.
 
-## Install, test and report
+## Existing installations and reports
 
-1. Read [Installation](INSTALL.md) and [Remove & restore security](UNINSTALL.md).
-2. Download the named release ZIP and verify its checksum.
-3. Follow the deliberate Recovery/Terminal steps, install the app in Applications,
-   activate driver extension build 178 in Diagnostics, and verify readiness after any requested reboot.
-4. Start with two short Play/Stop cycles, then a short manual capture and saved-file
-   playback. Only then try supervised whole-tape capture.
-5. Use the [test report template](TEST-REPORT.md), including successful tests.
+For an existing installation, see [Remove & restore security](UNINSTALL.md).
+The [test report template](TEST-REPORT.md) remains available for reports about
+earlier tests.
 
 Public [issues](https://github.com/rewinddv/rewindDV-LAB/issues) are for sanitized
 bug summaries and compatibility reports. **Do not attach support ZIPs, raw logs,
@@ -143,7 +121,6 @@ help us make preservation decisions with evidence rather than guesswork.
 
 ### [Support rewindDV on Ko-fi →](https://ko-fi.com/rewinddv)
 
-No payment is required to download or test
-this alpha. Contributions will not buy guaranteed compatibility, recovery,
+Contributions will not buy guaranteed compatibility, recovery,
 Apple entitlement approval or a release date. Purchased standards will not be
 redistributed through this repository.

@@ -1,4 +1,5 @@
-# Alpha 0.0.63 · Driver B178 — engineering alpha
+# Alpha 0.0.63 / Driver B178
 
-Engineering alpha, September 22, 2026. Ad-hoc signed; not notarized or approved
-for normal production distribution. Read the installation/security instructions.
+Alpha 0.0.63 / Driver B178 is an older development build and has been withdrawn from distribution.
+
+There is currently no active public binary release.
