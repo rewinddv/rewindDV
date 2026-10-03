@@ -9,15 +9,13 @@
   <a href="https://github.com/rewinddv/rewindDV-LAB/releases">Releases</a> ·
   <a href="INSTALL.md">Installation</a> ·
   <a href="UNINSTALL.md">Remove & restore security</a> ·
-  <a href="https://ko-fi.com/rewinddv"><strong>♥ Sponsor this project</strong></a>
+  <a href="https://ko-fi.com/rewinddv"><strong>Support on Ko-fi</strong></a>
 </p>
 
-> [!TIP]
-> ### [![♥ Help fund IEC standards acquisition to further development](assets/sponsor-heading.svg)](https://ko-fi.com/rewinddv)
-> **[Sponsor rewindDV on Ko-fi →](https://ko-fi.com/rewinddv)**
->
-> Help us gather funds to acquire the necessary IEC standards documents, additional decks and broader Mac testing.
-> Every contribution supports development.
+> **Help fund the standards behind tape metadata.** Funds raised go toward
+> purchasing IEC standards to research all the metadata these tapes can contain
+> and expand what rewindDV can decode.
+> [**Support on Ko-fi →**](https://ko-fi.com/rewinddv)
 
 ## Release status
 
@@ -128,9 +126,9 @@ See [Acknowledgments](ACKNOWLEDGMENTS.md), [Apache-2.0 license](ASFireWire-LICEN
 
 ## ♥ Sponsor this project
 
-Help fund access to **IEC technical standards**, additional decks/camcorders,
-adapters and cross-Mac testing. Better references and broader physical tests
-help us make preservation decisions with evidence rather than guesswork.
+Funds raised go toward purchasing **IEC standards** to research all the metadata
+these tapes can contain and expand what rewindDV can decode. These primary
+references help us interpret recorded packs and fields against documented requirements.
 
 ### [Support rewindDV on Ko-fi →](https://ko-fi.com/rewinddv)
 
