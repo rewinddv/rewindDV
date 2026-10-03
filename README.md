@@ -6,7 +6,7 @@
 <p align="center"><strong>Preserve the tape. Inspect the evidence.</strong><br>Native MiniDV ingest, playback and preservation tools for Apple Silicon running macOS 26 Tahoe and beyond.</p>
 
 <p align="center">
-  <a href="https://github.com/bdubs426/rewindDV-LAB/releases">Releases</a> ·
+  <a href="https://github.com/rewinddv/rewindDV-LAB/releases">Releases</a> ·
   <a href="INSTALL.md">Installation</a> ·
   <a href="UNINSTALL.md">Remove & restore security</a> ·
   <a href="https://ko-fi.com/rewinddv"><strong>♥ Sponsor this project</strong></a>
@@ -32,8 +32,8 @@
 
 **Alpha 0.0.63 · Driver B178 — public engineering alpha.**
 
-[**Download the app ZIP**](https://github.com/bdubs426/rewindDV-LAB/releases/download/alpha-0.0.63/rewindDV-LAB-Alpha-0.0.63-AdHoc.zip)
-and its [SHA-256 checksum](https://github.com/bdubs426/rewindDV-LAB/releases/download/alpha-0.0.63/rewindDV-LAB-Alpha-0.0.63-AdHoc.zip.sha256).
+[**Download the app ZIP**](https://github.com/rewinddv/rewindDV-LAB/releases/download/alpha-0.0.63/rewindDV-LAB-Alpha-0.0.63-AdHoc.zip)
+and its [SHA-256 checksum](https://github.com/rewinddv/rewindDV-LAB/releases/download/alpha-0.0.63/rewindDV-LAB-Alpha-0.0.63-AdHoc.zip.sha256).
 Read the [release notes, known issues and qualification limits](RELEASE-NOTES.md).
 rewindDV has been successfully tested locally with **Sony HVR-M15U,
 Sony HVR-M25AJ, and JVC DV-BR600 MiniDV decks**.
@@ -118,7 +118,7 @@ recovery derivative merely because it looks better.
    playback. Only then try supervised whole-tape capture.
 5. Use the [test report template](TEST-REPORT.md), including successful tests.
 
-Public [issues](https://github.com/bdubs426/rewindDV-LAB/issues) are for sanitized
+Public [issues](https://github.com/rewinddv/rewindDV-LAB/issues) are for sanitized
 bug summaries and compatibility reports. **Do not attach support ZIPs, raw logs,
 private footage, personal paths or deck identifiers publicly.** Ask for a private
 transfer channel first. See [Privacy & support evidence](PRIVACY.md).

@@ -37,7 +37,7 @@ shasum -a 256 -c rewindDV-LAB-Alpha-0.0.63-AdHoc.zip.sha256
 ```
 
 It must say `OK`. Download only from the official
-[rewindDV LAB releases](https://github.com/bdubs426/rewindDV-LAB/releases).
+[rewindDV LAB releases](https://github.com/rewinddv/rewindDV-LAB/releases).
 A checksum included with a ZIP detects corruption, not replacement of both files.
 Expand the ZIP. Open Terminal in the extracted `rewindDV-LAB-Alpha-0.0.63` folder:
 
@@ -156,7 +156,7 @@ unavailable or empty; command outcomes and export omissions remain visible.
 
 Review the ZIP and send it over the private channel you arranged.
 If you do not have a private channel, open a minimal, sanitized
-[GitHub issue](https://github.com/bdubs426/rewindDV-LAB/issues) to request one.
+[GitHub issue](https://github.com/rewinddv/rewindDV-LAB/issues) to request one.
 **Never attach support ZIPs, raw logs, private paths, deck serials/GUIDs or
 footage to a public GitHub issue.**
 Also complete `TEST REPORT.md`. Reports can contain usernames/paths, deck GUIDs,
