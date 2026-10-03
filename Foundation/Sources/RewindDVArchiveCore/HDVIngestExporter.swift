@@ -170,74 +170,80 @@ public enum HDVIngestExporter {
       }
     }
 
-    while let header = try reader.readExactly(64) {
-      try Task.checkCancellation()
-      let sequence = integer(header, 0, UInt64.self)
-      let epoch = integer(header, 8, UInt64.self)
-      let transferStatus = integer(header, 32, UInt16.self)
-      let payloadCount = integer(header, 36, UInt32.self)
-      let observed = integer(header, 40, UInt64.self)
-      let loss = integer(header, 48, UInt64.self)
-      guard records < UInt64.max, sequence == records + 1, epoch == journal.status.epoch,
-        payloadCount <= 4_096, integer(header, 56, UInt32.self) == 1,
-        integer(header, 60, UInt32.self) == 0, observed > lastObserved,
-        loss >= lastLoss, observed >= sequence, observed - sequence == loss,
-        sequence <= journal.status.write, loss <= journal.status.drops else {
-        throw HDVIngestError.invalidEvidence("record sequence, epoch, loss or header guard failed")
-      }
-      guard let payload = try reader.readExactly(Int(payloadCount)) else {
-        throw HDVIngestError.invalidEvidence("missing record payload")
-      }
-      rawHash.update(data: header)
-      rawHash.update(data: payload)
-      let rawPayloadOffset = try adding(try adding(8, recordBytes, "raw offset"), 64, "raw offset")
-      recordBytes = try adding(recordBytes, UInt64(64 + payload.count), "raw record byte count")
-      records = sequence
-
-      if loss != lastLoss {
-        rawGapEvents &+= 1
-        try recordDiagnostics(assembler.markTransportGap(recordSequence: sequence,
-          rawPayloadByteOffset: rawPayloadOffset))
-      }
-      lastObserved = observed
-      lastLoss = loss
-
-      if isNonemptyDVPacket(payload, transferStatus: transferStatus,
-        expectedSourceNode: journal.status.node) {
-        throw HDVIngestError.invalidEvidence(
-          "valid nonempty DV media was observed; mixed DV/HDV native export is unsupported and raw evidence is retained")
-      }
-
-      let consumed = assembler.consumePreservedPacket(payload,
-        transferStatus: transferStatus, expectedSourceNode: journal.status.node,
-        recordSequence: sequence, rawPayloadByteOffset: rawPayloadOffset)
-      try recordDiagnostics(consumed.diagnostics)
-      for unit in consumed.units {
-        let unitOutputOffset = outputBytes
-        if outputHandle == nil {
-          outputHandle = try exclusiveWriter(directoryFD: directoryFD,
-            name: outputName + ".partial")
+    // Drain read, assembly and metadata temporaries per record; retain only streaming state.
+    while true {
+      let processed = try autoreleasepool { () throws -> Bool in
+        guard let header = try reader.readExactly(64) else { return false }
+        try Task.checkCancellation()
+        let sequence = integer(header, 0, UInt64.self)
+        let epoch = integer(header, 8, UInt64.self)
+        let transferStatus = integer(header, 32, UInt16.self)
+        let payloadCount = integer(header, 36, UInt32.self)
+        let observed = integer(header, 40, UInt64.self)
+        let loss = integer(header, 48, UInt64.self)
+        guard records < UInt64.max, sequence == records + 1, epoch == journal.status.epoch,
+          payloadCount <= 4_096, integer(header, 56, UInt32.self) == 1,
+          integer(header, 60, UInt32.self) == 0, observed > lastObserved,
+          loss >= lastLoss, observed >= sequence, observed - sequence == loss,
+          sequence <= journal.status.write, loss <= journal.status.drops else {
+          throw HDVIngestError.invalidEvidence("record sequence, epoch, loss or header guard failed")
         }
-        try outputHandle!.write(contentsOf: unit.transportPacket)
-        outputHash.update(data: unit.transportPacket)
-        outputBytes = try adding(outputBytes, UInt64(unit.transportPacket.count), "MPEG-2 output byte count")
-        let line = try encode(ManifestEvent(unit: unit,
-          outputByteOffset: unitOutputOffset)) + Data([10])
-        try manifestHandle.write(contentsOf: line)
-        manifestHash.update(data: line)
-        manifestBytes = try adding(manifestBytes, UInt64(line.count), "manifest byte count")
-      }
-      if recordBytes >= nextProgressBoundary || recordBytes == journal.closed.recordBytes {
-        progress?(.init(phase: .reconstructingMPEG2Transport,
-          completedBytes: min(recordBytes, journal.closed.recordBytes),
-          totalBytes: journal.closed.recordBytes,
-          overallCompletedBytes: min(recordBytes, estimatedTotal), overallTotalBytes: estimatedTotal))
-        while nextProgressBoundary <= recordBytes {
-          let next = nextProgressBoundary.addingReportingOverflow(1_048_576)
-          nextProgressBoundary = next.overflow ? UInt64.max : next.partialValue
-          if nextProgressBoundary == UInt64.max { break }
+        guard let payload = try reader.readExactly(Int(payloadCount)) else {
+          throw HDVIngestError.invalidEvidence("missing record payload")
         }
+        rawHash.update(data: header)
+        rawHash.update(data: payload)
+        let rawPayloadOffset = try adding(try adding(8, recordBytes, "raw offset"), 64, "raw offset")
+        recordBytes = try adding(recordBytes, UInt64(64 + payload.count), "raw record byte count")
+        records = sequence
+
+        if loss != lastLoss {
+          rawGapEvents &+= 1
+          try recordDiagnostics(assembler.markTransportGap(recordSequence: sequence,
+            rawPayloadByteOffset: rawPayloadOffset))
+        }
+        lastObserved = observed
+        lastLoss = loss
+
+        if isNonemptyDVPacket(payload, transferStatus: transferStatus,
+          expectedSourceNode: journal.status.node) {
+          throw HDVIngestError.invalidEvidence(
+            "valid nonempty DV media was observed; mixed DV/HDV native export is unsupported and raw evidence is retained")
+        }
+
+        let consumed = assembler.consumePreservedPacket(payload,
+          transferStatus: transferStatus, expectedSourceNode: journal.status.node,
+          recordSequence: sequence, rawPayloadByteOffset: rawPayloadOffset)
+        try recordDiagnostics(consumed.diagnostics)
+        for unit in consumed.units {
+          let unitOutputOffset = outputBytes
+          if outputHandle == nil {
+            outputHandle = try exclusiveWriter(directoryFD: directoryFD,
+              name: outputName + ".partial")
+          }
+          try outputHandle!.write(contentsOf: unit.transportPacket)
+          outputHash.update(data: unit.transportPacket)
+          outputBytes = try adding(outputBytes, UInt64(unit.transportPacket.count), "MPEG-2 output byte count")
+          let line = try encode(ManifestEvent(unit: unit,
+            outputByteOffset: unitOutputOffset)) + Data([10])
+          try manifestHandle.write(contentsOf: line)
+          manifestHash.update(data: line)
+          manifestBytes = try adding(manifestBytes, UInt64(line.count), "manifest byte count")
+        }
+        if recordBytes >= nextProgressBoundary || recordBytes == journal.closed.recordBytes {
+          progress?(.init(phase: .reconstructingMPEG2Transport,
+            completedBytes: min(recordBytes, journal.closed.recordBytes),
+            totalBytes: journal.closed.recordBytes,
+            overallCompletedBytes: min(recordBytes, estimatedTotal), overallTotalBytes: estimatedTotal))
+          while nextProgressBoundary <= recordBytes {
+            let next = nextProgressBoundary.addingReportingOverflow(1_048_576)
+            nextProgressBoundary = next.overflow ? UInt64.max : next.partialValue
+            if nextProgressBoundary == UInt64.max { break }
+          }
+        }
+        return true
       }
+      if !processed { break }
     }
     if journal.status.drops > lastLoss {
       rawGapEvents &+= 1
@@ -448,39 +454,45 @@ public enum HDVIngestExporter {
     try handle.seek(toOffset: 0)
     var buffer = Data(), hash = SHA256()
     var startRoute: Data?, final: JournalEvent?, finalWire: Data?, closed: JournalEvent?
-    while let chunk = try handle.read(upToCount: 65_536), !chunk.isEmpty {
-      try Task.checkCancellation()
-      hash.update(data: chunk); buffer.append(chunk)
-      while let newline = buffer.firstIndex(of: 10) {
-        guard closed == nil else { throw HDVIngestError.invalidEvidence("journal events follow receive_closed") }
-        let line = Data(buffer[..<newline])
-        buffer = Data(buffer[buffer.index(after: newline)...])
-        guard line.count <= 1_048_576 else { throw HDVIngestError.invalidEvidence("oversized journal event") }
-        let event: JournalEvent
-        do { event = try JSONDecoder().decode(JournalEvent.self, from: line) }
-        catch { throw HDVIngestError.invalidEvidence("journal JSON is invalid") }
-        guard event.schemaVersion == 1, let wire = Data(base64Encoded: event.wireBase64) else {
-          throw HDVIngestError.invalidEvidence("journal schema or base64 mismatch")
-        }
-        guard final == nil || event.event == "receive_closed" else {
-          throw HDVIngestError.invalidEvidence("intervening event follows final status")
-        }
-        if event.event == "receive_start_intent" {
-          guard startRoute == nil, wire.count == 48 else {
-            throw HDVIngestError.invalidEvidence("duplicate or invalid receive start intent")
+    // The read and all line/JSON work belong to the same bounded cleanup scope.
+    while true {
+      let processed = try autoreleasepool { () throws -> Bool in
+        guard let chunk = try handle.read(upToCount: 65_536), !chunk.isEmpty else { return false }
+        try Task.checkCancellation()
+        hash.update(data: chunk); buffer.append(chunk)
+        while let newline = buffer.firstIndex(of: 10) {
+          guard closed == nil else { throw HDVIngestError.invalidEvidence("journal events follow receive_closed") }
+          let line = Data(buffer[..<newline])
+          buffer = Data(buffer[buffer.index(after: newline)...])
+          guard line.count <= 1_048_576 else { throw HDVIngestError.invalidEvidence("oversized journal event") }
+          let event: JournalEvent
+          do { event = try JSONDecoder().decode(JournalEvent.self, from: line) }
+          catch { throw HDVIngestError.invalidEvidence("journal JSON is invalid") }
+          guard event.schemaVersion == 1, let wire = Data(base64Encoded: event.wireBase64) else {
+            throw HDVIngestError.invalidEvidence("journal schema or base64 mismatch")
           }
-          startRoute = wire
-        } else if event.event == "receive_final_status" {
-          guard final == nil, wire.count == 128 else {
-            throw HDVIngestError.invalidEvidence("duplicate or invalid final status")
+          guard final == nil || event.event == "receive_closed" else {
+            throw HDVIngestError.invalidEvidence("intervening event follows final status")
           }
-          final = event; finalWire = wire
-        } else if event.event == "receive_closed" {
-          guard closed == nil else { throw HDVIngestError.invalidEvidence("duplicate receive_closed") }
-          closed = event
+          if event.event == "receive_start_intent" {
+            guard startRoute == nil, wire.count == 48 else {
+              throw HDVIngestError.invalidEvidence("duplicate or invalid receive start intent")
+            }
+            startRoute = wire
+          } else if event.event == "receive_final_status" {
+            guard final == nil, wire.count == 128 else {
+              throw HDVIngestError.invalidEvidence("duplicate or invalid final status")
+            }
+            final = event; finalWire = wire
+          } else if event.event == "receive_closed" {
+            guard closed == nil else { throw HDVIngestError.invalidEvidence("duplicate receive_closed") }
+            closed = event
+          }
         }
+        guard buffer.count <= 1_048_576 else { throw HDVIngestError.invalidEvidence("oversized journal event") }
+        return true
       }
-      guard buffer.count <= 1_048_576 else { throw HDVIngestError.invalidEvidence("oversized journal event") }
+      if !processed { break }
     }
     guard buffer.isEmpty, let final, let finalWire, let closed else {
       throw HDVIngestError.invalidEvidence("missing final status/closure or truncated journal")
@@ -505,7 +517,8 @@ public enum HDVIngestExporter {
       var result = Data(); result.reserveCapacity(count)
       while result.count < count {
         if cursor == buffer.count {
-          buffer = try handle.read(upToCount: 1_048_576) ?? Data(); cursor = 0
+          // The owned Data survives this scope; autoreleased read temporaries do not.
+          buffer = try autoreleasepool { try handle.read(upToCount: 1_048_576) ?? Data() }; cursor = 0
           if buffer.isEmpty {
             if result.isEmpty { return nil }
             throw HDVIngestError.invalidEvidence("truncated raw record")
@@ -557,25 +570,34 @@ public enum HDVIngestExporter {
       }
     }
     var hash = SHA256(), bytes: UInt64 = 0
-    while let chunk = try handle.read(upToCount: 1_048_576), !chunk.isEmpty {
-      try Task.checkCancellation()
-      hash.update(data: chunk); bytes = try adding(bytes, UInt64(chunk.count), "reread byte count")
-      progress?(bytes)
+    // Include the read itself, hashing and progress in each synchronous chunk scope.
+    while true {
+      let processed = try autoreleasepool { () throws -> Bool in
+        guard let chunk = try handle.read(upToCount: 1_048_576), !chunk.isEmpty else { return false }
+        try Task.checkCancellation()
+        hash.update(data: chunk); bytes = try adding(bytes, UInt64(chunk.count), "reread byte count")
+        progress?(bytes)
+        return true
+      }
+      if !processed { break }
     }
     return (bytes, hex(hash.finalize()))
   }
 
   private static func readExactly(_ handle: FileHandle, count: Int) throws -> Data? {
-    var result = Data()
-    while result.count < count {
-      let chunk = try handle.read(upToCount: count - result.count) ?? Data()
-      if chunk.isEmpty {
-        if result.isEmpty { return nil }
-        throw HDVIngestError.invalidEvidence("truncated file")
+    // Callers request bounded magic/report data, never a capture-sized result.
+    return try autoreleasepool {
+      var result = Data()
+      while result.count < count {
+        let chunk = try handle.read(upToCount: count - result.count) ?? Data()
+        if chunk.isEmpty {
+          if result.isEmpty { return nil }
+          throw HDVIngestError.invalidEvidence("truncated file")
+        }
+        result.append(chunk)
       }
-      result.append(chunk)
+      return result
     }
-    return result
   }
 
   private static func requireSameFile(

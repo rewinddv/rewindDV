@@ -1,7 +1,7 @@
 # Source and binary installation scope
 
 This repository provides source and unsigned build instructions. The separate
-[Alpha 0.0.77 / Driver Build183 engineering alpha](https://github.com/rewinddv/rewindDV-LAB/releases/tag/alpha-0.0.77)
+[Alpha 0.0.81 / Driver Build183 engineering alpha](https://github.com/rewinddv/rewindDV-LAB/releases/tag/alpha-0.0.81)
 is ad-hoc signed and not notarized.
 
 rewindDV currently uses an ad-hoc-signed DriverKit extension.

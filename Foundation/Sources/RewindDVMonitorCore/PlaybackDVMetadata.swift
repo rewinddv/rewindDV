@@ -8,7 +8,15 @@ import RewindDVArchiveCore
 /// One utility worker plus one replaceable pending frame. The renderer only
 /// lends immutable source bytes; metadata never restarts or waits for playback.
 @MainActor public final class PlaybackDVMetadata: ObservableObject {
-  @Published public private(set) var report: DVPackSemanticReport?
+  public struct Snapshot: Sendable {
+    public let report: DVPackSemanticReport
+    public let specifications: DVTechnicalSpecifications?
+    public let geometry: DVAppleGeometry?
+  }
+  @Published public private(set) var snapshot: Snapshot?
+  public var report: DVPackSemanticReport? { snapshot?.report }
+  public var specifications: DVTechnicalSpecifications? { snapshot?.specifications }
+  public var geometry: DVAppleGeometry? { snapshot?.geometry }
   @Published public private(set) var recordedClock: DVTechnicalSpecifications.Row?
   public private(set) var recordedClockFrameOrdinal: UInt64?
   @Published public private(set) var status = "Waiting for displayed DV frame"
@@ -18,6 +26,7 @@ import RewindDVArchiveCore
     let bytes: Data
     let ordinal: UInt64
     let offset: UInt64?
+    let geometry: DVAppleGeometry?
     let generation: UUID
     let immediate: Bool
     let selectionOnly: Bool
@@ -26,7 +35,9 @@ import RewindDVArchiveCore
   private var generation = UUID()
   private var latest: Request?
   private var worker: Task<Void, Never>?
+  private var delay: Task<Void, Never>?
   private var lastOrdinal: UInt64?
+  private var sourceFrameSize: Int?
   private var sampledAt: ContinuousClock.Instant?
   public var presentationStatus: String {
     guard let sampledAt, report != nil else { return status }
@@ -34,17 +45,29 @@ import RewindDVArchiveCore
     return status + " · sampled \(seconds)s ago"
   }
   private var lastStarted: ContinuousClock.Instant?
-  private let analyze: @Sendable (Data, UInt64, UInt64?) async throws -> DVPackSemanticReport
+  private let analyze: @Sendable (Data, UInt64, UInt64?) async throws -> Snapshot
 
-  public init(analyze: @escaping @Sendable (Data, UInt64, UInt64?) async throws -> DVPackSemanticReport = { bytes, ordinal, offset in
-    DVPackSemanticReport.inspect(try DVMetadataInventory.inspect(frame: bytes, ordinal: ordinal,
-      byteOffset: offset ?? 0), absoluteOffsetsKnown: offset != nil)
-  }) { self.analyze = analyze }
+  public init(analyze: (@Sendable (Data, UInt64, UInt64?) async throws -> DVPackSemanticReport)? = nil) {
+    if let analyze {
+      self.analyze = { bytes, ordinal, offset in
+        Snapshot(report: try await analyze(bytes, ordinal, offset), specifications: nil, geometry: nil)
+      }
+    } else {
+      self.analyze = { bytes, ordinal, offset in
+        let inventory = try DVMetadataInventory.inspect(frame: bytes, ordinal: ordinal, byteOffset: offset ?? 0)
+        let specs = DVTechnicalSpecifications.make(path: "", byteCount: UInt64(bytes.count),
+          inventory: inventory, absoluteOffsetsKnown: offset != nil)
+        guard let report = specs.semanticReport else { throw CocoaError(.fileReadCorruptFile) }
+        return Snapshot(report: report, specifications: specs, geometry: nil)
+      }
+    }
+  }
 
   /// Called for every file/seek generation before any frame is presented.
   public func reset() {
-    generation = UUID(); latest = nil; lastOrdinal = nil
-    report = nil; sampledAt = nil; status = "Waiting for displayed DV frame"
+    delay?.cancel()
+    generation = UUID(); latest = nil; lastOrdinal = nil; sourceFrameSize = nil
+    snapshot = nil; sampledAt = nil; status = "Waiting for displayed DV frame"
     clearRecordedClock()
     // Do not clear worker: its old result will be rejected, then it drains the
     // new latest slot. Resetting cannot create overlapping utility parses.
@@ -69,14 +92,23 @@ import RewindDVArchiveCore
 
   /// A paused offer is accepted only after the renderer confirms its pixel
   /// buffer. Playing samples are explicitly clock-associated, not display proof.
-  public func offer(_ bytes: Data, ordinal: UInt64, byteOffset: UInt64? = nil, paused: Bool, presentationConfirmed: Bool = false, selectionConfirmed: Bool = false, observedAt: ContinuousClock.Instant = .now) {
+  public func offer(_ bytes: Data, ordinal: UInt64, byteOffset: UInt64? = nil, geometry: DVAppleGeometry? = nil, paused: Bool, presentationConfirmed: Bool = false, selectionConfirmed: Bool = false, observedAt: ContinuousClock.Instant = .now) {
     guard !paused || presentationConfirmed || selectionConfirmed else {
       unavailable("Waiting for renderer-confirmed paused frame")
       return
     }
+    if let sourceFrameSize, sourceFrameSize != bytes.count {
+      // Reject an in-flight report from the preceding system immediately.
+      // Preserve the one-worker bound while admitting this transition promptly.
+      delay?.cancel()
+      generation = UUID(); latest = nil; lastOrdinal = nil; lastStarted = nil
+      snapshot = nil; sampledAt = nil; status = "Reading metadata for the new source format"
+    }
+    if paused { delay?.cancel() }
+    sourceFrameSize = bytes.count
     guard lastOrdinal != ordinal || latest != nil else { return }
     if latest?.ordinal == ordinal && latest?.generation == generation { return }
-    latest = Request(bytes: bytes, ordinal: ordinal, offset: byteOffset, generation: generation, immediate: paused, selectionOnly: paused && !presentationConfirmed, observedAt: observedAt)
+    latest = Request(bytes: bytes, ordinal: ordinal, offset: byteOffset, geometry: geometry, generation: generation, immediate: paused, selectionOnly: paused && !presentationConfirmed, observedAt: observedAt)
     maxPendingFrames = max(maxPendingFrames, 1)
     guard worker == nil else { return }
     worker = Task { [weak self] in await self?.drain() }
@@ -87,13 +119,18 @@ import RewindDVArchiveCore
     while latest != nil {
       if latest?.immediate == false, let started = lastStarted {
         let remaining = Duration.milliseconds(500) - (ContinuousClock.now - started)
-        if remaining > .zero { try? await Task.sleep(for: remaining) }
+        if remaining > .zero {
+          let wait = Task<Void, Never> { try? await Task.sleep(for: remaining) }
+          delay = wait
+          await wait.value
+          delay = nil
+        }
       }
       guard let request = latest else { return }
       latest = nil; lastStarted = .now
       let analyze = analyze
       let result = await Task.detached(priority: .utility) {
-        do { return Result<DVPackSemanticReport, Error>.success(try await analyze(request.bytes, request.ordinal, request.offset)) }
+        do { return Result<Snapshot, Error>.success(try await analyze(request.bytes, request.ordinal, request.offset)) }
         catch { return .failure(error) }
       }.value
       guard request.generation == generation else { continue }
@@ -102,10 +139,10 @@ import RewindDVArchiveCore
       lastOrdinal = request.ordinal; sampledFrames += 1
       switch result {
       case .success(let value):
-        report = value; sampledAt = request.observedAt
+        snapshot = Snapshot(report: value.report, specifications: value.specifications, geometry: request.geometry); sampledAt = request.observedAt
         status = "Frame \(request.ordinal) · " + (request.selectionOnly ? "selected source frame; renderer association unavailable" : request.immediate ? "displayed source frame" : "sampled playback clock; display association unverified")
       case .failure:
-        report = nil; status = "Unavailable — displayed source frame failed metadata validation"
+        snapshot = nil; status = "Unavailable — displayed source frame failed metadata validation"
       }
     }
   }

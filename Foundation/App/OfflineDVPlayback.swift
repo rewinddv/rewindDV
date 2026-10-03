@@ -6,6 +6,7 @@ import CoreMedia
 import CoreVideo
 import Foundation
 import IOSurface
+import OSLog
 
 #if canImport(RewindDVMonitorCore)
   import RewindDVMonitorCore
@@ -43,6 +44,7 @@ struct OfflineDVDecodedAudioFormat: Equatable, Sendable {
 
 enum OfflineDVSourceAudioStatus: Equatable, Sendable {
   case unverified
+  case perFrame
   case verifying
   case verified(sampleRate: Int, frameCount: UInt64)
   case conflicting
@@ -78,6 +80,7 @@ final class OfflineDVPlaybackModel: ObservableObject {
   private var sourceFileAuditTask: Task<Void, Never>?
   @Published private(set) var technicalSpecifications: DVTechnicalSpecifications?
   @Published private(set) var appleGeometry: DVAppleGeometry?
+  private(set) var appleGeometryFrameOrdinal: UInt64?
   @Published private(set) var technicalSpecificationsStatus = "No file selected"
   private var technicalSpecificationsTask: Task<Void, Never>?
   @Published private(set) var durationSeconds = 0.0
@@ -143,6 +146,7 @@ final class OfflineDVPlaybackModel: ObservableObject {
   let displayLayer = AVSampleBufferDisplayLayer()
 
   var hasLoadedFile: Bool { inspection != nil }
+  var sourceTimeline: DVPlaybackTimeline? { inspection?.timeline }
   var isLoading: Bool { state == .loading }
   var canPlay: Bool {
     switch state {
@@ -152,7 +156,7 @@ final class OfflineDVPlaybackModel: ObservableObject {
   }
   var canPause: Bool { state == .playing }
   var displayAspectRatio: CGFloat { CGFloat(displayAspect.ratio) }
-  var rasterHeight: Int { inspection?.rasterHeight ?? 480 }
+  var rasterHeight: Int { inspection?.timeline.frame(currentFrameOrdinal).isPAL == true ? 576 : 480 }
   var frameCounterDescription: String {
     "\(frameCounterIsEstimated ? "Estimated frame" : "Source frame") \(currentFrameOrdinal)"
   }
@@ -160,6 +164,7 @@ final class OfflineDVPlaybackModel: ObservableObject {
   var sourceAudioDescription: String {
     switch sourceAudioStatus {
     case .unverified: "Source audio unverified — playback muted"
+    case .perFrame: "Audio checked per source frame; unavailable audio leaves a timed gap"
     case .verifying: "Verifying every raw DV frame — playback muted"
     case .verified(let sampleRate, let frameCount):
       "Raw DV verified at \(Self.rateText(Double(sampleRate))) across \(frameCount.formatted()) frames"
@@ -222,7 +227,7 @@ final class OfflineDVPlaybackModel: ObservableObject {
     let lease = SecurityScopedURLLease(url: url)
     activeLease = lease
     sourceURL = url
-    sourceAudioStatus = .verifying
+    sourceAudioStatus = .perFrame
     videoDescription = "Inspecting \(url.lastPathComponent)"
     audioDescription = "Awaiting decoded PCM — muted"
     state = .loading
@@ -266,27 +271,6 @@ final class OfflineDVPlaybackModel: ObservableObject {
       }
     }
 
-    verificationTask = Task { [weak self, lease] in
-      let scan = Task.detached(priority: .utility) {
-        _ = lease
-        return try SourceAudioVerifier.verify(url: url)
-      }
-      let result: SourceAudioVerification
-      do {
-        result = try await withTaskCancellationHandler {
-          try await scan.value
-        } onCancel: {
-          scan.cancel()
-        }
-      } catch is CancellationError {
-        return
-      } catch {
-        result = .unavailable(error.localizedDescription)
-      }
-      guard let self, self.sessionID == id else { return }
-      self.acceptSourceAudioVerification(result)
-    }
-
     loadTask = Task { [weak self, lease] in
       _ = lease
       do {
@@ -294,6 +278,7 @@ final class OfflineDVPlaybackModel: ObservableObject {
         try Task.checkCancellation()
         guard let self, self.sessionID == id else { return }
         self.inspection = loaded
+        self.frameCounterIsEstimated = false
         self.appleGeometry = loaded.appleGeometry
         self.displayAspect = .initial(reportedRatio: Double(loaded.displayAspectRatio))
         self.durationSeconds = loaded.durationSeconds
@@ -352,7 +337,7 @@ final class OfflineDVPlaybackModel: ObservableObject {
     if state == .playing { updateClockSnapshot() }
     let base = state == .playing ? currentFrameOrdinal : requestedFrameOrdinal
     let frame = min(max(0, base + delta), inspection.estimatedFrameCount - 1)
-    startRenderSession(at: Double(frame) * inspection.frameDurationSeconds, autoplay: false)
+    startRenderSession(at: inspection.timeline.frame(frame).seconds, autoplay: false)
   }
 
   /// Freezes the offline renderer without releasing the selected file. This is
@@ -389,6 +374,7 @@ final class OfflineDVPlaybackModel: ObservableObject {
     technicalSpecificationsTask = nil
     technicalSpecifications = nil
     appleGeometry = nil
+    appleGeometryFrameOrdinal = nil
     technicalSpecificationsStatus = "No file selected"
     frameDecoder = LiveDVFrameDecoder()
     renderGeneration &+= 1
@@ -445,9 +431,7 @@ final class OfflineDVPlaybackModel: ObservableObject {
     guard absolute.isFinite else { return }
     let relative = clampedTime(absolute - inspection.timelineStartSeconds)
     currentTimeSeconds = relative
-    currentFrameOrdinal = min(
-      max(0, Int(floor(relative / effectiveFrameDuration(inspection) + 0.000_001))),
-      max(0, inspection.estimatedFrameCount - 1))
+    currentFrameOrdinal = inspection.timeline.frame(at: relative).ordinal
     updateSourceTimecode(at: relative, frameDuration: effectiveFrameDuration(inspection))
     sampleMetadata(at: relative, frameDuration: effectiveFrameDuration(inspection), paused: false)
     meterPresentation = meter.presentation(at: relative)
@@ -462,10 +446,9 @@ final class OfflineDVPlaybackModel: ObservableObject {
     let id = sessionID
     // A reader range beginning exactly at the exclusive duration has no frame.
     // Clamp transport requests to the last source-frame interval instead.
-    let targetFrame = min(
-      max(0, Int(floor(clampedTime(seconds) / inspection.frameDurationSeconds + 0.000_001))),
-      inspection.estimatedFrameCount - 1)
-    let relativeStart = Double(targetFrame) * inspection.frameDurationSeconds
+    let selected = inspection.timeline.frame(at: clampedTime(seconds))
+    let targetFrame = selected.ordinal
+    let relativeStart = selected.seconds
     requestedFrameOrdinal = targetFrame
     renderGeneration &+= 1
     let generation = renderGeneration
@@ -519,7 +502,7 @@ final class OfflineDVPlaybackModel: ObservableObject {
         try await readers.prepare(
           inspection: inspection,
           relativeStart: relativeStart,
-          includeAudio: inspection.audioTrackID != nil && autoplay)
+          includeAudio: inspection.hasAudio && autoplay)
         try await self.pump(
           readers: readers,
           inspection: inspection,
@@ -547,7 +530,7 @@ final class OfflineDVPlaybackModel: ObservableObject {
     renderGeneration generation: UInt64
   ) async throws {
     var videoDone = false
-    var audioDone = inspection.audioTrackID == nil || !autoplay
+    var audioDone = !inspection.hasAudio || !autoplay
     var firstVideoQueued = false
     var firstAudioSeen = false
     var pendingAudioSample: CMSampleBuffer?
@@ -593,7 +576,7 @@ final class OfflineDVPlaybackModel: ObservableObject {
           if let bytes = packet.sourceBytes {
             let time = CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(sample)) - inspection.timelineStartSeconds
             if time.isFinite, time >= 0 {
-              let ordinal = UInt64(max(0, (time / inspection.frameDurationSeconds).rounded()))
+              let ordinal = UInt64(inspection.timeline.frame(at: time).ordinal)
               if let pixelBuffer = CMSampleBufferGetImageBuffer(sample) {
                 metadataWindow.append((time, ordinal, bytes, pixelBuffer, packet.sourceClock))
               }
@@ -623,14 +606,17 @@ final class OfflineDVPlaybackModel: ObservableObject {
 
       if !audioDone {
         if pendingAudioSample == nil {
-          pendingAudioSample = try await readers.nextAudio()?.sample
+          let audioRead = try await readers.nextAudio()
+          switch audioRead {
+          case .sample(let sample): pendingAudioSample = sample
+          case .gap: firstAudioSeen = true; progressed = true
+          case .end: audioDone = true
+          }
           try Task.checkCancellation()
           guard self.sessionID == id, self.renderGeneration == generation else { return }
           if pendingAudioSample != nil {
             firstAudioSeen = true
             progressed = true
-          } else {
-            audioDone = true
           }
         }
         if let sample = pendingAudioSample {
@@ -694,9 +680,7 @@ final class OfflineDVPlaybackModel: ObservableObject {
     }
 
     guard firstVideoQueued else { throw OfflineDVPlaybackError.noDecodedVideo }
-    if inspection.audioTrackID != nil, !firstAudioSeen {
-      throw OfflineDVPlaybackError.noDecodedAudio
-    }
+    // Unusable source audio leaves a timed gap; it must not abort good video.
     try await readers.checkCompletion()
 
     while state == .playing, sessionID == id {
@@ -727,10 +711,11 @@ final class OfflineDVPlaybackModel: ObservableObject {
       metadata.unavailable("Unavailable — no source sample near the playback clock")
       return
     }
-    // AVFoundation source sample bytes are exact. A durable file-byte offset
-    // is not claimed from a presentation timestamp or an assumed container.
+    // The validated raw timeline binds each source ordinal to its byte offset.
     acceptRecordedClock(frame.clock, ordinal: frame.ordinal, association: "playback-clock-associated source sample; display association unverified")
-    metadata.offer(frame.bytes, ordinal: frame.ordinal, paused: paused)
+    acceptGeometry(frame.pixelBuffer, ordinal: frame.ordinal)
+    metadata.offer(frame.bytes, ordinal: frame.ordinal,
+      byteOffset: inspection?.timeline.frame(Int(frame.ordinal)).byteOffset, geometry: appleGeometry, paused: paused)
   }
 
   private func samplePausedMetadata() {
@@ -744,7 +729,9 @@ final class OfflineDVPlaybackModel: ObservableObject {
         return
       }
       acceptRecordedClock(frame.clock, ordinal: frame.ordinal, association: "renderer-confirmed displayed source frame")
-      metadata.offer(frame.bytes, ordinal: frame.ordinal, paused: true, presentationConfirmed: true)
+      acceptGeometry(frame.pixelBuffer, ordinal: frame.ordinal)
+      metadata.offer(frame.bytes, ordinal: frame.ordinal,
+        byteOffset: inspection?.timeline.frame(Int(frame.ordinal)).byteOffset, geometry: appleGeometry, paused: true, presentationConfirmed: true)
       return
     }
     // copyDisplayedPixelBuffer is optional (also unavailable offscreen). A sole
@@ -759,7 +746,9 @@ final class OfflineDVPlaybackModel: ObservableObject {
       return
     }
     acceptRecordedClock(frame.clock, ordinal: frame.ordinal, association: "selected source frame; renderer association unavailable")
-    metadata.offer(frame.bytes, ordinal: frame.ordinal, paused: true, selectionConfirmed: true)
+    acceptGeometry(frame.pixelBuffer, ordinal: frame.ordinal)
+    metadata.offer(frame.bytes, ordinal: frame.ordinal,
+        byteOffset: inspection?.timeline.frame(Int(frame.ordinal)).byteOffset, geometry: appleGeometry, paused: true, selectionConfirmed: true)
   }
 
   /// Apple's renderer may return a different CVPixelBuffer wrapper for the
@@ -785,6 +774,12 @@ final class OfflineDVPlaybackModel: ObservableObject {
     let next = DVTechnicalSpecifications.Row(label: clock.label, value: clock.value,
       evidence: "Frame \(ordinal) · " + association + ". " + clock.evidence)
     metadata.setRecordedClock(next, ordinal: ordinal)
+  }
+
+  private func acceptGeometry(_ pixel: CVPixelBuffer, ordinal: UInt64) {
+    let geometry = DVAppleGeometry.inspect(imageBuffer: pixel)
+    appleGeometryFrameOrdinal = ordinal
+    if geometry != appleGeometry { appleGeometry = geometry }
   }
 
   private func recordSourceTimecode(
@@ -876,9 +871,8 @@ final class OfflineDVPlaybackModel: ObservableObject {
       return false
     }
     if let existing = decodedAudioFormat, existing != decoded.format {
-      decodedAudioHasConflict = true
-      audioDescription = "Decoded PCM format changed — playback muted"
-      audioRenderer.flush()
+      decodedAudioFormat = decoded.format
+      audioDescription = Self.description(for: decoded.format)
     } else if decodedAudioFormat == nil {
       decodedAudioFormat = decoded.format
       audioDescription = Self.description(for: decoded.format)
@@ -908,11 +902,6 @@ final class OfflineDVPlaybackModel: ObservableObject {
       audioRenderer.flush()
       return false
     }
-    if case .formatChanged = report.resetReason {
-      decodedAudioHasConflict = true
-      audioDescription = "Decoded PCM format changed — playback muted"
-      audioRenderer.flush()
-    }
     if report.discardedPastFrames > 0 || report.discardedFutureFrames > 0 {
       decodedAudioHasConflict = true
       audioDescription = "Decoded PCM fell outside the bounded meter horizon — playback muted"
@@ -931,30 +920,12 @@ final class OfflineDVPlaybackModel: ObservableObject {
   }
 
   private var audioMayPlay: Bool {
+    if sourceAudioStatus == .perFrame { return !decodedAudioHasConflict }
     guard !decodedAudioHasConflict,
       let decodedAudioFormat,
       case .verified(let rate, _) = sourceAudioStatus
     else { return false }
     return abs(decodedAudioFormat.sampleRate - Double(rate)) < 0.5
-  }
-
-  private func acceptSourceAudioVerification(_ result: SourceAudioVerification) {
-    let shouldResumeAudibly = state == .playing && !audioMayPlay
-    switch result {
-    case .verified(let sampleRate, let frameCount):
-      sourceAudioStatus = .verified(sampleRate: sampleRate, frameCount: frameCount)
-    case .conflicting:
-      sourceAudioStatus = .conflicting
-    case .unavailable(let reason):
-      sourceAudioStatus = .unavailable(reason)
-    }
-    reconcileAudioTruth()
-    if shouldResumeAudibly, audioMayPlay {
-      // The initial session was deliberately video-only while raw source audio
-      // was unverified. Restart at the presented clock so newly verified audio
-      // begins on a clean renderer boundary instead of joining mid-buffer.
-      startRenderSession(at: currentTimeSeconds, autoplay: true)
-    }
   }
 
   private func reconcileAudioTruth() {
@@ -987,13 +958,14 @@ final class OfflineDVPlaybackModel: ObservableObject {
   }
 
   private func effectiveFrameDuration(_ inspection: AssetInspection) -> Double {
-    inspection.frameDurationSeconds
+    Double(inspection.timeline.frame(currentFrameOrdinal).durationTicks) / 30_000
   }
 
   private func fail(_ error: Error) {
     synchronizer.rate = 0
     playbackTask?.cancel()
     playbackPumpIsActive = false
+    Logger(subsystem: "net.rewinddigital.RewindDV", category: "Playback").error("Playback failed: \(String(reflecting: error), privacy: .public)")
     state = .failed(error.localizedDescription)
   }
 
@@ -1094,349 +1066,172 @@ private struct DecodedPacket: @unchecked Sendable {
   var sourceClock: DVTechnicalSpecifications.Row? = nil
 }
 
+private enum AudioRead: @unchecked Sendable {
+  case sample(CMSampleBuffer)
+  case gap
+  case end
+}
+
 private actor RenderReaders {
   private let inspectionDecoder: LiveDVFrameDecoder
   init(inspectionDecoder: LiveDVFrameDecoder) { self.inspectionDecoder = inspectionDecoder }
-  // Compile the shared Metal pipeline before starting the presentation clock,
-  // not on the first mid-playback toggle. Standard remains available if Metal
-  // cannot initialize; an explicit inspection request reports that error.
-  private var pictureProcessor: Result<DVMetalFieldProcessor, Error>?
-  private var inspectionSourceFormat: CMVideoFormatDescription?
-  private var reader: AVAssetReader?
-  private var videoOutput: AVAssetReaderTrackOutput?
-  private var audioOutput: AVAssetReaderTrackOutput?
+  private var inspection: AssetInspection?
+  private var videoHandle: FileHandle?
+  private var audioHandle: FileHandle?
+  private var videoOrdinal = 0
+  private var audioOrdinal = 0
+  private var nextAudioTime: CMTime?
+  private var previousAudioRate: Int?
+  private var previousAudioPAL: Bool?
 
-  func prepare(inspection: AssetInspection, relativeStart: Double, includeAudio: Bool) async throws
-  {
+  func prepare(inspection: AssetInspection, relativeStart: Double, includeAudio: Bool) throws {
     try Task.checkCancellation()
-    pictureProcessor = Result { try DVMetalFieldProcessor() }
-    guard
-      let videoTrack = try await inspection.asset.loadTrack(withTrackID: inspection.videoTrackID)
-    else {
-      throw OfflineDVPlaybackError.noVideoTrack
-    }
-    inspectionSourceFormat = try await videoTrack.load(.formatDescriptions).first
-    let reader = try AVAssetReader(asset: inspection.asset)
-    self.reader = reader
-    let frame = Int64((relativeStart / inspection.frameDurationSeconds).rounded())
-    let start = CMTimeAdd(
-      inspection.timelineStart, CMTimeMultiply(inspection.frameDuration, multiplier: Int32(frame)))
-    reader.timeRange = CMTimeRange(
-      start: start, end: CMTimeAdd(inspection.timelineStart, inspection.duration))
-    let video = AVAssetReaderTrackOutput(
-      track: videoTrack,
-      outputSettings: nil)
-    video.alwaysCopiesSampleData = false
-    guard reader.canAdd(video) else { throw OfflineDVPlaybackError.readerConfiguration }
-    reader.add(video)
-    videoOutput = video
-    if includeAudio, let trackID = inspection.audioTrackID,
-      let track = try await inspection.asset.loadTrack(withTrackID: trackID)
-    {
-      let audio = AVAssetReaderTrackOutput(
-        track: track, outputSettings: OfflineDVPlaybackModel.pcmOutputSettings)
-      audio.alwaysCopiesSampleData = false
-      guard reader.canAdd(audio) else { throw OfflineDVPlaybackError.readerConfiguration }
-      reader.add(audio)
-      audioOutput = audio
-    }
-    guard reader.startReading() else {
-      throw reader.error ?? OfflineDVPlaybackError.readerDidNotStart
-    }
+    try inspection.timeline.verifyUnchanged(url: inspection.url)
+    self.inspection = inspection
+    videoOrdinal = inspection.timeline.frame(at: relativeStart).ordinal
+    audioOrdinal = videoOrdinal
+    videoHandle = try FileHandle(forReadingFrom: inspection.url)
+    if includeAudio { audioHandle = try FileHandle(forReadingFrom: inspection.url) }
   }
 
   func nextVideo(viewingMode: DVViewingMode, extremeZebras: Bool) async throws -> DecodedPacket? {
     try Task.checkCancellation()
-    var next = videoOutput?.copyNextSampleBuffer()
-    do {
-      // Match the existing compressed-source reader: AVFoundation can emit
-      // zero-byte range-start timing markers before the actual DV sample.
-      for _ in 0..<8 {
-        guard let sample = next, CMSampleBufferGetTotalSampleSize(sample) == 0 else { break }
-        try Task.checkCancellation()
-        next = videoOutput?.copyNextSampleBuffer()
-      }
+    guard let inspection, let videoHandle, videoOrdinal < inspection.timeline.frameCount else { return nil }
+    let frame = inspection.timeline.frame(videoOrdinal)
+    let bytes = try autoreleasepool { try inspection.timeline.readFrame(videoOrdinal, from: videoHandle) }
+    videoOrdinal += 1
+    let text = MonitorSourceTimecode.display(nativeDVFrame: bytes)
+    // The importer may describe only the first system in a raw file. Never
+    // attach NTSC geometry/color metadata to a PAL frame (or the reverse).
+    let sourceFormat = inspection.sourceFormat.flatMap {
+      CMVideoFormatDescriptionGetDimensions($0.value).height == (frame.isPAL ? 576 : 480) ? $0 : nil
     }
-    guard let sample = next else {
-      try checkCompletion()
-      return nil
-    }
-    do {
-      guard let block = CMSampleBufferGetDataBuffer(sample) else {
-        throw DVMetalFieldProcessor.Failure("The native reader returned no compressed DV data.")
-      }
-      guard let format = CMSampleBufferGetFormatDescription(sample) ?? inspectionSourceFormat else {
-        throw DVMetalFieldProcessor.Failure("The native reader returned no DV format metadata.")
-      }
-      let count = CMBlockBufferGetDataLength(block)
-      guard count == 120_000 || count == 144_000 else { throw LiveDVDecodeError.malformedFrame }
-      var bytes = Data(count: count)
-      let copied = bytes.withUnsafeMutableBytes {
-        CMBlockBufferCopyDataBytes(block, atOffset: 0, dataLength: count, destination: $0.baseAddress!)
-      }
-      guard copied == noErr else { throw LiveDVDecodeError.nativeFailure("read native DV sample", copied) }
-      let text = OfflineDVPlaybackModel.validatedSourceTimecode(from: sample)
-      // One persistent both-fields decoder for every display policy. Standard
-      // hands its tagged native YCbCr image to Apple's compositor unchanged;
-      // inspection produces a display-only derivative, never a source edit.
-      let decoded = try await inspectionDecoder.decode(bytes, ordinal: 0, timecode: text,
-        sourceFormat: DVInspectionSourceFormat(value: format))
-      try Task.checkCancellation()
-      guard let pictureProcessor else { throw OfflineDVPlaybackError.readerConfiguration }
-      let pixel = viewingMode == .standard && !extremeZebras
-        ? decoded.pixelBuffer
-        : try pictureProcessor.get().process(decoded.pixelBuffer,
-          mode: viewingMode, extremeZebras: extremeZebras)
-      var description: CMVideoFormatDescription?
-      guard CMVideoFormatDescriptionCreateForImageBuffer(allocator: kCFAllocatorDefault,
-        imageBuffer: pixel, formatDescriptionOut: &description) == noErr,
-        let description else { throw LiveDVDecodeError.noDecodedImage }
-      var timing = CMSampleTimingInfo(duration: CMSampleBufferGetDuration(sample),
-        presentationTimeStamp: CMSampleBufferGetPresentationTimeStamp(sample), decodeTimeStamp: .invalid)
-      var presented: CMSampleBuffer?
-      guard CMSampleBufferCreateReadyWithImageBuffer(allocator: kCFAllocatorDefault,
-        imageBuffer: pixel, formatDescription: description, sampleTiming: &timing,
-        sampleBufferOut: &presented) == noErr, let presented else { throw LiveDVDecodeError.noDecodedImage }
-      return DecodedPacket(sample: presented, sourceTimecode: text, sourceBytes: bytes, sourceClock: DVTechnicalSpecifications.frameRecordedClock(bytes))
-    }
-  }
-
-  func nextAudio() throws -> DecodedPacket? {
+    let decoded = try await inspectionDecoder.decode(bytes, ordinal: 0, timecode: text,
+      viewingMode: viewingMode, sourceFormat: sourceFormat, extremeZebras: extremeZebras)
     try Task.checkCancellation()
-    guard let sample = audioOutput?.copyNextSampleBuffer() else {
-      try checkCompletion()
-      return nil
-    }
-    return DecodedPacket(sample: sample, sourceTimecode: nil)
+    var format: CMVideoFormatDescription?
+    let pixel = decoded.pixelBuffer
+    guard CMVideoFormatDescriptionCreateForImageBuffer(allocator: kCFAllocatorDefault,
+      imageBuffer: pixel, formatDescriptionOut: &format) == noErr, let format
+    else { throw LiveDVDecodeError.noDecodedImage }
+    var timing = CMSampleTimingInfo(duration: CMTime(value: frame.durationTicks, timescale: 30_000),
+      presentationTimeStamp: CMTime(value: frame.startTick, timescale: 30_000), decodeTimeStamp: .invalid)
+    var sample: CMSampleBuffer?
+    guard CMSampleBufferCreateReadyWithImageBuffer(allocator: kCFAllocatorDefault,
+      imageBuffer: pixel, formatDescription: format, sampleTiming: &timing,
+      sampleBufferOut: &sample) == noErr, let sample else { throw LiveDVDecodeError.noDecodedImage }
+    return DecodedPacket(sample: sample, sourceTimecode: text, sourceBytes: bytes,
+      sourceClock: DVTechnicalSpecifications.frameRecordedClock(bytes))
   }
 
+  func nextAudio() throws -> AudioRead {
+    guard let inspection, let audioHandle,
+      audioOrdinal < inspection.timeline.frameCount else { return .end }
+    do {
+      try Task.checkCancellation()
+      let frame = inspection.timeline.frame(audioOrdinal)
+      audioOrdinal += 1
+      let sample: CMSampleBuffer? = try autoreleasepool {
+        let bytes = try inspection.timeline.readFrame(frame.ordinal, from: audioHandle)
+        // The existing monitor decoder refuses conflicting/unsupported packs,
+        // error-coded PCM and unavailable channels; none are filled with silence.
+        guard let media = LiveDVMedia(frame: bytes), let audio = media.audio,
+          stride(from: 0, to: bytes.count, by: 12_000).allSatisfy({ bytes[$0 + 5] & 0x80 == 0 }),
+          let pcm = media.pcm16(frame: bytes) else { return nil }
+        let sourceTime = CMTime(value: frame.startTick, timescale: 30_000)
+        var time = sourceTime
+        if let nextAudioTime, previousAudioRate == audio.sampleRate,
+          previousAudioPAL == frame.isPAL,
+          abs(CMTimeGetSeconds(CMTimeSubtract(nextAudioTime, sourceTime))) < 0.05 {
+          time = nextAudioTime
+        }
+        // A system boundary can differ from the preceding declared PCM end
+        // by a fraction of a sample. Preserve all samples without overlap.
+        if let nextAudioTime, CMTimeCompare(time, nextAudioTime) < 0 {
+          time = nextAudioTime
+        }
+        previousAudioRate = audio.sampleRate; previousAudioPAL = frame.isPAL
+        nextAudioTime = CMTimeAdd(time, CMTime(value: Int64(audio.samplesPerChannel), timescale: Int32(audio.sampleRate)))
+        return try Self.makePCM(pcm, rate: audio.sampleRate, channels: audio.channelCount, time: time)
+      }
+      if let sample { return .sample(sample) }
+      nextAudioTime = nil
+      return .gap
+    }
+  }
+
+  private static func makePCM(_ pcm: [Int16], rate: Int, channels: Int, time: CMTime) throws -> CMSampleBuffer {
+    let stride = channels * MemoryLayout<Int16>.size
+    var asbd = AudioStreamBasicDescription(mSampleRate: Double(rate), mFormatID: kAudioFormatLinearPCM,
+      mFormatFlags: kAudioFormatFlagIsSignedInteger | kAudioFormatFlagIsPacked,
+      mBytesPerPacket: UInt32(stride), mFramesPerPacket: 1, mBytesPerFrame: UInt32(stride),
+      mChannelsPerFrame: UInt32(channels), mBitsPerChannel: 16, mReserved: 0)
+    var format: CMAudioFormatDescription?
+    try check(CMAudioFormatDescriptionCreate(allocator: kCFAllocatorDefault, asbd: &asbd,
+      layoutSize: 0, layout: nil, magicCookieSize: 0, magicCookie: nil, extensions: nil,
+      formatDescriptionOut: &format))
+    var block: CMBlockBuffer?
+    try check(CMBlockBufferCreateWithMemoryBlock(allocator: kCFAllocatorDefault,
+      memoryBlock: nil, blockLength: pcm.count * 2, blockAllocator: kCFAllocatorDefault,
+      customBlockSource: nil, offsetToData: 0, dataLength: pcm.count * 2, flags: 0, blockBufferOut: &block))
+    guard let format, let block else { throw OfflineDVPlaybackError.unsupportedDecodedAudio }
+    try pcm.withUnsafeBytes {
+      try check(CMBlockBufferReplaceDataBytes(with: $0.baseAddress!, blockBuffer: block,
+        offsetIntoDestination: 0, dataLength: $0.count))
+    }
+    var timing = CMSampleTimingInfo(duration: CMTime(value: 1, timescale: Int32(rate)),
+      presentationTimeStamp: time, decodeTimeStamp: .invalid)
+    var size = stride, sample: CMSampleBuffer?
+    try check(CMSampleBufferCreateReady(allocator: kCFAllocatorDefault, dataBuffer: block,
+      formatDescription: format, sampleCount: pcm.count / channels, sampleTimingEntryCount: 1,
+      sampleTimingArray: &timing, sampleSizeEntryCount: 1, sampleSizeArray: &size, sampleBufferOut: &sample))
+    guard let sample else { throw OfflineDVPlaybackError.unsupportedDecodedAudio }
+    return sample
+  }
+  private static func check(_ status: OSStatus) throws {
+    guard status == noErr else { throw LiveDVDecodeError.nativeFailure("prepare source PCM", status) }
+  }
   func checkCompletion() throws {
-    if let reader, reader.status != .reading && reader.status != .completed {
-      throw reader.error ?? OfflineDVPlaybackError.readerDidNotComplete
-    }
+    if let inspection { try inspection.timeline.verifyUnchanged(url: inspection.url) }
   }
-
   func cancel() {
-    reader?.cancelReading()
+    try? videoHandle?.close(); videoHandle = nil
+    try? audioHandle?.close(); audioHandle = nil
   }
 }
 
 private struct AssetInspection: Sendable {
-  let appleGeometry: DVAppleGeometry
-  let asset: AVURLAsset
-  let videoTrackID: CMPersistentTrackID
-  let audioTrackID: CMPersistentTrackID?
-  let timelineStartSeconds: Double
-  let timelineStart: CMTime
-  let duration: CMTime
-  let frameDuration: CMTime
-  let durationSeconds: Double
-  let frameDurationSeconds: Double
-  let estimatedFrameCount: Int
-  let displayAspectRatio: CGFloat
-  let rasterHeight: Int
-  let videoDescription: String
-  let decodedAudioFormat: OfflineDVDecodedAudioFormat?
-  let decodedAudioDescription: String
+  let url: URL
+  let timeline: DVPlaybackTimeline
+  let sourceFormat: DVInspectionSourceFormat?
+  var appleGeometry: DVAppleGeometry? { sourceFormat.map { DVAppleGeometry.inspect(format: $0.value) } }
+  var timelineStartSeconds: Double { 0 }
+  var timelineStart: CMTime { .zero }
+  var duration: CMTime { CMTime(value: timeline.durationTicks, timescale: 30_000) }
+  var frameDuration: CMTime { CMTime(value: timeline.frame(0).durationTicks, timescale: 30_000) }
+  var durationSeconds: Double { timeline.durationSeconds }
+  var frameDurationSeconds: Double { CMTimeGetSeconds(frameDuration) }
+  var estimatedFrameCount: Int { timeline.frameCount }
+  var displayAspectRatio: CGFloat { CGFloat(appleGeometry?.displayRatio ?? 4.0 / 3.0) }
+  var hasAudio: Bool { true } // Frame-local qualification decides whether PCM can be emitted.
+  var decodedAudioFormat: OfflineDVDecodedAudioFormat? { nil }
+  var decodedAudioDescription: String { "Source PCM checked per frame" }
+  var videoDescription: String {
+    let systems = Set(timeline.runs.map(\.isPAL))
+    if systems.count > 1 { return "NTSC / PAL • \(timeline.runs.count) format runs • exact source-frame timeline" }
+    return systems.contains(true) ? "720 × 576 • 25 fps • PAL" : "720 × 480 • 29.970 fps • NTSC"
+  }
 
   static func load(url: URL) async throws -> AssetInspection {
-    let asset = AVURLAsset(url: url)
-    guard try await asset.load(.isPlayable) else { throw OfflineDVPlaybackError.notPlayable }
-    guard let video = try await asset.loadTracks(withMediaType: .video).first else {
-      throw OfflineDVPlaybackError.noVideoTrack
-    }
-    let audio = try await asset.loadTracks(withMediaType: .audio).first
-    let timeRange = try await video.load(.timeRange)
-    let duration = CMTimeGetSeconds(timeRange.duration)
-    let start = CMTimeGetSeconds(timeRange.start)
-    guard duration.isFinite, duration > 0, start.isFinite else {
-      throw OfflineDVPlaybackError.invalidDuration
-    }
-    let frameRate = try await video.load(.nominalFrameRate)
-    guard frameRate.isFinite, frameRate > 0 else { throw OfflineDVPlaybackError.invalidFrameRate }
-    // Raw DV's track-level minFrameDuration may be invalid even when each
-    // native sample has exact 1001/30000 or 1/25 timing. Read sample timing,
-    // never reconstruct NTSC cadence from the rounded nominalFrameRate Float.
-    let frameDuration = try nativeFrameDuration(asset: asset, track: video)
-    guard frameDuration.isNumeric, CMTimeGetSeconds(frameDuration) > 0 else {
-      throw OfflineDVPlaybackError.invalidFrameRate
-    }
-    let size = try await video.load(.naturalSize)
-    guard let format = try await video.load(.formatDescriptions).first else {
-      throw OfflineDVPlaybackError.noVideoFormat
-    }
-    let pixelAspect = pixelAspectRatio(from: format) ?? 1
-    let aspect =
-      size.width > 0 && size.height > 0
-      ? (size.width / size.height) * pixelAspect : (4.0 / 3.0)
-    let fieldCount =
-      (CMFormatDescriptionGetExtension(
-        format, extensionKey: kCMFormatDescriptionExtension_FieldCount) as? NSNumber)?.intValue
-    let fieldText: String
-    switch fieldCount {
-    case 2: fieldText = "2 fields/frame (native decoder presentation)"
-    case 1: fieldText = "1 field/frame"
-    default: fieldText = "field structure unknown"
-    }
-    let rateText = String(format: "%.3f", frameRate)
-
-    let decodedFormat = audio.flatMap { try? firstDecodedAudioFormat(asset: asset, track: $0) }
-    let playableAudioTrack = decodedFormat == nil ? nil : audio
-    return AssetInspection(
-      appleGeometry: DVAppleGeometry.inspect(format: format),
-      asset: asset,
-      videoTrackID: video.trackID,
-      audioTrackID: playableAudioTrack?.trackID,
-      timelineStartSeconds: start,
-      timelineStart: timeRange.start,
-      duration: timeRange.duration,
-      frameDuration: frameDuration,
-      durationSeconds: duration,
-      frameDurationSeconds: CMTimeGetSeconds(frameDuration),
-      estimatedFrameCount: max(1, Int((duration / CMTimeGetSeconds(frameDuration)).rounded())),
-      displayAspectRatio: aspect,
-      rasterHeight: Int(CMVideoFormatDescriptionGetDimensions(format).height),
-      videoDescription: "\(Int(size.width)) × \(Int(size.height)) • \(rateText) fps • \(fieldText)",
-      decodedAudioFormat: decodedFormat,
-      decodedAudioDescription: decodedFormat.map(OfflineDVPlaybackModel.description(for:))
-        ?? (audio == nil
-          ? "No audio track — video-only playback" : "Audio could not be decoded safely — muted"))
-  }
-
-  private static func firstDecodedAudioFormat(asset: AVAsset, track: AVAssetTrack) throws
-    -> OfflineDVDecodedAudioFormat?
-  {
-    let reader = try AVAssetReader(asset: asset)
-    let output = AVAssetReaderTrackOutput(
-      track: track, outputSettings: OfflineDVPlaybackModel.pcmOutputSettings)
-    output.alwaysCopiesSampleData = false
-    guard reader.canAdd(output) else { throw OfflineDVPlaybackError.readerConfiguration }
-    reader.add(output)
-    guard reader.startReading() else {
-      throw reader.error ?? OfflineDVPlaybackError.readerDidNotStart
-    }
-    defer { reader.cancelReading() }
-    guard let sample = output.copyNextSampleBuffer() else { return nil }
-    return try OfflineDVPlaybackModel.decodedPCM(from: sample).format
-  }
-
-  private static func nativeFrameDuration(asset: AVAsset, track: AVAssetTrack) throws -> CMTime {
-    let reader = try AVAssetReader(asset: asset)
-    let output = AVAssetReaderTrackOutput(track: track, outputSettings: nil)
-    guard reader.canAdd(output) else { throw OfflineDVPlaybackError.readerConfiguration }
-    reader.add(output)
-    guard reader.startReading() else {
-      throw reader.error ?? OfflineDVPlaybackError.readerDidNotStart
-    }
-    defer { reader.cancelReading() }
-    var firstPTS: CMTime?
-    for _ in 0..<8 {
-      guard let sample = output.copyNextSampleBuffer() else { break }
-      guard CMSampleBufferGetTotalSampleSize(sample) > 0 else { continue }
-      let duration = CMSampleBufferGetDuration(sample)
-      if duration.isNumeric, CMTimeGetSeconds(duration) > 0 { return duration }
-      let pts = CMSampleBufferGetPresentationTimeStamp(sample)
-      if let firstPTS, pts.isNumeric, CMTimeCompare(pts, firstPTS) > 0 {
-        return CMTimeSubtract(pts, firstPTS)
-      }
-      if pts.isNumeric { firstPTS = pts }
-    }
-    throw OfflineDVPlaybackError.invalidFrameRate
-  }
-
-  private static func pixelAspectRatio(from format: CMFormatDescription) -> CGFloat? {
-    guard
-      let dictionary = CMFormatDescriptionGetExtension(
-        format, extensionKey: kCMFormatDescriptionExtension_PixelAspectRatio)
-        as? [CFString: NSNumber],
-      let horizontal = dictionary[kCMFormatDescriptionKey_PixelAspectRatioHorizontalSpacing]?
-        .doubleValue,
-      let vertical = dictionary[kCMFormatDescriptionKey_PixelAspectRatioVerticalSpacing]?
-        .doubleValue,
-      horizontal.isFinite, vertical.isFinite, horizontal > 0, vertical > 0
-    else { return nil }
-    return CGFloat(horizontal / vertical)
-  }
-}
-
-private enum SourceAudioVerification: Sendable {
-  case verified(sampleRate: Int, frameCount: UInt64)
-  case conflicting
-  case unavailable(String)
-}
-
-private enum SourceAudioVerifier {
-  private static let ntscFrameBytes = 120_000
-  private static let palFrameBytes = 144_000
-
-  static func verify(url: URL) throws -> SourceAudioVerification {
-    let values = try url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey])
-    guard values.isRegularFile == true, let fileSize = values.fileSize, fileSize > 0 else {
-      return .unavailable("not a non-empty regular file")
-    }
-    let handle = try FileHandle(forReadingFrom: url)
-    defer { try? handle.close() }
-
-    let probe = try read(upTo: palFrameBytes, from: handle)
+    let scan = Task.detached(priority: .userInitiated) { try DVPlaybackTimeline.read(url: url) }
+    let timeline = try await withTaskCancellationHandler { try await scan.value } onCancel: { scan.cancel() }
     try Task.checkCancellation()
-    let probeManifest = DVCaptureMetadataEpochAnalyzer.analyze(data: probe)
-    guard let first = probeManifest.frames.first,
-      first.fileByteOffset == 0,
-      first.byteCount == UInt64(ntscFrameBytes) || first.byteCount == UInt64(palFrameBytes)
-    else { return .unavailable("raw DV frame alignment could not be verified") }
-    let frameBytes = Int(first.byteCount)
-    guard fileSize.isMultiple(of: frameBytes) else {
-      return .unavailable("the source ends with an incomplete DV frame")
-    }
-
-    try handle.seek(toOffset: 0)
-    var establishedRate: Int?
-    var frameCount: UInt64 = 0
-    while frameCount < UInt64(fileSize / frameBytes) {
-      try Task.checkCancellation()
-      let frame = try read(upTo: frameBytes, from: handle)
-      guard frame.count == frameBytes else {
-        return .unavailable("the source changed or became unreadable during verification")
-      }
-      let manifest = DVCaptureMetadataEpochAnalyzer.analyze(data: frame)
-      guard manifest.frames.count == 1,
-        manifest.unclassifiedExtents.isEmpty,
-        let metadata = manifest.frames.first,
-        metadata.fileByteOffset == 0,
-        metadata.byteCount == UInt64(frameBytes)
-      else {
-        return .unavailable("a raw DV frame has absent or malformed audio metadata")
-      }
-      let rate: Int
-      switch metadata.audioSampleRate {
-      case .known32000Hz: rate = 32_000
-      case .known44100Hz: rate = 44_100
-      case .known48000Hz: rate = 48_000
-      case .conflicting: return .conflicting
-      case .absent, .malformed:
-        return .unavailable("a raw DV frame has absent or malformed audio metadata")
-      }
-      if let establishedRate, establishedRate != rate { return .conflicting }
-      establishedRate = rate
-      frameCount += 1
-    }
-    guard let establishedRate, frameCount > 0 else {
-      return .unavailable("no complete DV frames were verified")
-    }
-    return .verified(sampleRate: establishedRate, frameCount: frameCount)
-  }
-
-  private static func read(upTo byteCount: Int, from handle: FileHandle) throws -> Data {
-    var result = Data()
-    result.reserveCapacity(byteCount)
-    while result.count < byteCount {
-      try Task.checkCancellation()
-      guard let chunk = try handle.read(upToCount: byteCount - result.count), !chunk.isEmpty else {
-        break
-      }
-      result.append(chunk)
-    }
-    return result
+    // Optional native metadata only. Apple’s raw importer is never authority
+    // for mixed-system frame boundaries, duration, seeking or decoded audio.
+    let asset = AVURLAsset(url: url)
+    let track = try? await asset.loadTracks(withMediaType: .video).first
+    let format = try? await track?.load(.formatDescriptions).first
+    return Self(url: url, timeline: timeline, sourceFormat: format.map { DVInspectionSourceFormat(value: $0) })
   }
 }
 

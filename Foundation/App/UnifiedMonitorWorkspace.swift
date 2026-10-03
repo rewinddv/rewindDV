@@ -120,11 +120,11 @@ private struct PlaybackTechnicalSpecificationsPanel: View {
           .accessibilityIdentifier("playback-metadata-position")
       }
       if let specs = playback.technicalSpecifications {
-        let current = specs.playbackReport(clock: playback.recordedClock, motion: metadata.report)
-        Text("File facts; recording clock follows playback; sampled evidence below").font(.caption)
-        TechnicalSpecificationRows(sections: current.inspectorSections(apple: playback.appleGeometry,
+        let current = specs.playbackReport(sampledFrame: metadata.specifications, timeline: playback.sourceTimeline)
+        Text("Source values follow the identified frame").font(.caption)
+        TechnicalSpecificationRows(sections: current.inspectorSections(apple: metadata.geometry,
           preview: playback.displayAspect == .standard ? "4:3" : "16:9",
-          appleScope: "Selected file's first Apple video-track format description; not whole-file uniformity.")
+          appleScope: "Apple decoder output for playback frame \(metadata.report?.frameOrdinal.description ?? "unknown"); not whole-file uniformity.")
             + (playback.sourceFileAudit?.sections ?? [.init(title: "Source error summary", rows: [.init(label: "Source audit", value: playback.sourceFileAuditStatus, evidence: "Background read-only assessment; never blocks playback.")])]),
           coverage: current.coverage, metadata: metadata.report)
           .accessibilityIdentifier("playback-technical-specifications")
@@ -584,7 +584,8 @@ struct UnifiedMonitorWorkspace: View {
         }
         if source == .file && playback.isLoading { ProgressView().controlSize(.large).tint(.white) }
       }
-      .frame(width: 720, height: (source == .file ? playback.rasterHeight : liveRasterHeight) == 576 ? 576 : 480)
+      // A source-system change affects decoded pixels, never the playback layout.
+      .frame(width: 720, height: source == .file ? 576 : (liveRasterHeight == 576 ? 576 : 480))
       .clipShape(RoundedRectangle(cornerRadius: 12))
       .contentShape(Rectangle())
       .onTapGesture {

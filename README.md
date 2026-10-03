@@ -1,13 +1,18 @@
-# rewindDV — Alpha 0.0.77 source snapshot
+# rewindDV — Alpha 0.0.81 source snapshot
 
 This is the canonical open-source repository for rewindDV. Visit the
 [project website](https://rewinddv.com) or the
 [testing and release hub](https://github.com/rewinddv/rewindDV-LAB).
-An interim [Alpha 0.0.77 / Driver Build183 engineering alpha](https://github.com/rewinddv/rewindDV-LAB/releases/tag/alpha-0.0.77) is available separately. It is ad-hoc signed, not notarized, and requires disabling SIP, which reduces macOS security. See [installation scope](INSTALLATION-PLAN.md).
+An interim [Alpha 0.0.81 / Driver Build183 engineering alpha](https://github.com/rewinddv/rewindDV-LAB/releases/tag/alpha-0.0.81) is available separately. It is ad-hoc signed, not notarized, and requires disabling SIP, which reduces macOS security. See [installation scope](INSTALLATION-PLAN.md).
 
 rewindDV is a macOS FireWire DV/HDV preservation project. This package contains
-the tested Alpha 0.0.77 application source and unchanged Build183 driver inputs.
+the tested Alpha 0.0.81 application source and unchanged Build183 driver inputs.
 It is a source package, not an official installable binary release.
+
+Alpha 0.0.81 adds bounded-memory DV/HDV post-capture processing, raw DV25
+NTSC/PAL playback transitions, source-frame inspector values and a fixed playback
+viewport. These improvements are offline validated; they do not extend physical
+PAL/HDV qualification. See [current release notes](Foundation/Docs/Alpha081ReleaseNotes.md).
 
 The application reserves capture-start ownership before waiting for an existing
 device query. A cancelled waiting request cannot later start capture. Rejection

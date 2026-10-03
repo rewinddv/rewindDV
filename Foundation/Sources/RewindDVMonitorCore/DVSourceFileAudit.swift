@@ -55,16 +55,18 @@ public struct DVSourceFileAudit: Sendable, Equatable {
     var audit = Self(), offset: UInt64 = 0
     while true {
       try Task.checkCancellation()
-      let header = try handle.read(upToCount: 80) ?? Data()
-      if header.isEmpty { break }
-      guard header.count == 80 else { audit.incompleteBytes = header.count; break }
-      let size = header[3] & 0x80 == 0 ? 120_000 : 144_000
-      let bytes = header + (try handle.read(upToCount: size - 80) ?? Data())
-      guard bytes.count == size else { audit.incompleteBytes = bytes.count; break }
-      try autoreleasepool {
+      let complete = try autoreleasepool { () throws -> Bool in
+        let header = try handle.read(upToCount: 80) ?? Data()
+        if header.isEmpty { return false }
+        guard header.count == 80 else { audit.incompleteBytes = header.count; return false }
+        let size = header[3] & 0x80 == 0 ? 120_000 : 144_000
+        let bytes = header + (try handle.read(upToCount: size - 80) ?? Data())
+        guard bytes.count == size else { audit.incompleteBytes = bytes.count; return false }
         audit.append(try DVFrameForensics.inspect(frame: bytes, ordinal: audit.frames, offset: offset))
+        offset += UInt64(size)
+        return true
       }
-      offset += UInt64(size)
+      if !complete { break }
     }
     guard before == (try identity()) else { throw CocoaError(.fileReadCorruptFile) }
     return audit

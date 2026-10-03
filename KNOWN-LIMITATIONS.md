@@ -1,5 +1,19 @@
 # Known limits
 
+Current: Alpha 0.0.81 / Build183. The earlier hardware evidence below is retained
+as historical scope, not expanded qualification.
+
+- Saved raw DV25 NTSC/PAL playback and transitions are validated offline. Physical
+  PAL capture, HDV playback and broader device/audio-format transitions remain
+  unqualified. Invalid DV boundaries are rejected rather than guessed past.
+- Inspector source fields share an identified sampled frame (twice per second
+  while playing, immediately invalidated at a system change). Pause to inspect
+  the selected frame. Missing or conflicting metadata remains unavailable.
+- Post-capture DV/HDV processing bounds temporary lifetimes. This does not promise
+  a fixed total app footprint or zero system swap. The cancelled receive-task
+  Stop path can suppress intermediate processing progress; the final result
+  still arrives.
+
 The targeted Alpha 0.0.77 scenarios passed on the configuration in
 [COMPATIBILITY](COMPATIBILITY.md). This is not complete driver qualification.
 

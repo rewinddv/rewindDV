@@ -528,3 +528,47 @@ func ingestExportsExactNTSCAndPALAndVerifiesReread(pal: Bool) throws {
   let result = try DVIngestExporter.exportClosedFlight(at: fixture.url)
   #expect(result.completeDVFrames == 1 && result.integritySHA256Verified && result.nativeDVRereadVerified)
 }
+
+// Mutate only disposable fixtures after reconstruction. Independent rereads must
+// still catch changes even when the first-pass hash and journal agreed.
+@Test(arguments: ["receive.records.raw", "capture.dv.partial", "flight.ndjson", "frames.ndjson.partial"])
+func ingestDetectsChangeBetweenReconstructionAndReread(name: String) throws {
+  let fixture = try IngestFixture(packets: ingestPackets(ingestFrame(pal: true)))
+  defer { fixture.cleanup() }
+  #expect(throws: DVIngestError.self) {
+    try DVIngestExporter.exportClosedFlight(at: fixture.url) { update in
+      if update.phase == .rereadingNativeDV && update.completedBytes == 0 {
+        let handle = try! FileHandle(forUpdating: fixture.url.appendingPathComponent(name))
+        defer { try? handle.close() }
+        let end = try! handle.seekToEnd()
+        try! handle.seek(toOffset: end - 1)
+        let byte = try! handle.read(upToCount: 1)!.first!
+        try! handle.seek(toOffset: end - 1)
+        try! handle.write(contentsOf: Data([byte ^ 1]))
+        try! handle.synchronize()
+      }
+    }
+  }
+  #expect(!FileManager.default.fileExists(atPath: fixture.url.appendingPathComponent("verification.json").path))
+}
+
+@Test(arguments: [false, true])
+func ingestJournalSpansReadBoundariesAndRejectsTruncatedLine(truncated: Bool) throws {
+  let fixture = try IngestFixture(packets: ingestPackets(ingestFrame(pal: false)))
+  defer { fixture.cleanup() }
+  let url = fixture.url.appendingPathComponent("flight.ndjson")
+  let original = try Data(contentsOf: url)
+  let line = try JSONSerialization.data(withJSONObject: ["schemaVersion": 1, "event": "diagnostic",
+    "wireBase64": "", "recordBytes": 0, "recordSHA256": "", "padding": String(repeating: "x", count: 70_000)],
+    options: [.sortedKeys]) + Data([10])
+  var journal = line + original
+  if truncated { journal.removeLast() }
+  try journal.write(to: url)
+  if truncated {
+    #expect(throws: DVIngestError.self) { try DVIngestExporter.exportClosedFlight(at: fixture.url) }
+  } else {
+    let result = try DVIngestExporter.exportClosedFlight(at: fixture.url)
+    #expect(result.completeDVFrames == 1 && result.integritySHA256Verified)
+    #expect(result.journalSHA256 == SHA256.hash(data: journal).map { String(format: "%02x", $0) }.joined())
+  }
+}

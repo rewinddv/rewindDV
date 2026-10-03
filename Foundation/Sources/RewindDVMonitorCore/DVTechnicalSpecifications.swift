@@ -177,14 +177,64 @@ public struct DVTechnicalSpecifications: Sendable, Equatable {
       + dates.union(times).map { $0.map { String(format: "%02X", $0) }.joined(separator: " ") }.sorted().joined(separator: "; "))
   }
 
-  /// Dynamic clock replaces the first-observation clock, while file facts keep
-  /// their documented first-frame scope. Motion uses the sampled report.
-  public func playbackReport(clock: Row?, motion: DVPackSemanticReport?) -> Self {
-    let row = clock ?? Row(label: "Recorded date & time", value: "Unavailable — awaiting source frame",
-      evidence: "No confirmed paused frame or clock-associated playing source sample.")
-    let replaced = replacingRecordedDate(row)
-    return Self(sections: replaced.sections + Self.recordedMotionSections(motion),
-      coverage: "File facts and video/audio format summarize the first frame. Recording clock follows the current source sample; motion/lens values are separately sampled. Whole-file source audit has its own coverage. Preview controls never change source bytes.", semanticReport: semanticReport)
+  /// File facts retain file scope; all source-format fields come from one
+  /// validated sampled frame. Missing current evidence never borrows frame zero.
+  public func playbackReport(sampledFrame: Self?, timeline: DVPlaybackTimeline? = nil) -> Self {
+    let fileLabels: Set<String> = ["Complete name", "File size", "Duration", "Overall bit rate mode", "Overall bit rate"]
+    let fileGeneral = sections.first { $0.title == "General" }?.rows ?? []
+    let sampleGeneral = sampledFrame?.sections.first { $0.title == "General" }?.rows ?? []
+    let scope = sampledFrame?.semanticReport.map { "Sampled source frame \($0.frameOrdinal); SHA-256 \($0.frameSHA256). " }
+      ?? "No validated metadata for the current source selection. "
+    func sourceRow(_ row: Row) -> Row {
+      Row(label: row.label == "Time code of first frame" ? "Observed timecode" : row.label,
+        value: sampledFrame == nil ? "Unavailable — awaiting validated source frame" : row.value,
+        evidence: scope + row.evidence.replacingOccurrences(of: "First complete DV frame", with: "Sampled source frame")
+          .replacingOccurrences(of: "Complete first-frame DIF structure", with: "Complete sampled-frame DIF structure"))
+    }
+    let general = Section(title: "General", rows: fileGeneral.map { row in
+      if fileLabels.contains(row.label) { return row }
+      guard let current = sampleGeneral.first(where: { $0.label == row.label }) else {
+        return Row(label: row.label, value: "Unavailable — awaiting validated source frame", evidence: scope)
+      }
+      return sourceRow(current)
+    })
+    let sourceSections = (sampledFrame?.sections ?? sections).filter { $0.title != "General" }.map { section in
+      Section(title: section.title, rows: section.rows.map { row in
+        if row.label == "Stream size" {
+          return Row(label: row.label, value: "Unavailable — requires whole-file stream accounting",
+            evidence: "A sampled frame does not establish a whole-file audio/video payload size.")
+        }
+        return sourceRow(row)
+      })
+    }
+    let observedMotion = sampledFrame?.semanticReport
+    let combined = [general] + sourceSections
+    let sections = combined.map { section -> Section in
+      guard let timeline else { return section }
+      let mixed = timeline.runs.count > 1
+      let evidence = "Whole-file playback timeline: \(timeline.frameCount) structurally validated frames in \(timeline.runs.count) system runs. Exact sum of each stored frame's cadence; no source timecode interpolation."
+      return Section(title: section.title, rows: section.rows.map { row in
+        if row.label == "Duration", section.title == "General" {
+          return Row(label: row.label, value: Self.durationText(timeline.durationSeconds), evidence: evidence)
+        }
+        if section.title.hasPrefix("Audio"), row.label == "Duration" {
+          return Row(label: row.label, value: "Nominal video span: " + Self.durationText(timeline.durationSeconds),
+            evidence: evidence + " Exact recorded audio-sample duration is assessed separately; no audio coverage is inferred.")
+        }
+        if section.title == "General", row.label == "Overall bit rate" {
+          return Row(label: row.label, value: Self.rateText(Double(timeline.byteCount) * 8 / timeline.durationSeconds), evidence: evidence + " Average stored bit rate.")
+        }
+        if mixed, section.title == "General", row.label == "Overall bit rate mode" {
+          return Row(label: row.label, value: "Variable (NTSC / PAL)", evidence: evidence)
+        }
+        if mixed, section.title.hasPrefix("Audio"), row.label == "Stream size" {
+          return Row(label: row.label, value: "Unavailable — mixed source systems", evidence: "No whole-file audio payload estimate is extrapolated from the first frame.")
+        }
+        return row
+      })
+    }
+    return Self(sections: sections + Self.recordedMotionSections(observedMotion),
+      coverage: "Source format, audio, recording clock and pack details describe the identified sampled frame. During playback, samples update twice per second and immediately at a system change; pause for the selected frame. File duration and size describe the whole file. Unknown or conflicting metadata stays unavailable.", semanticReport: observedMotion)
   }
 
   public static func recordedMotionSections(_ report: DVPackSemanticReport?) -> [Section] {

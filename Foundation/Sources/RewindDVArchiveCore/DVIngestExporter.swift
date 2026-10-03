@@ -180,79 +180,85 @@ public enum DVIngestExporter {
       }
       legacyPrefixVerified = true
     }
-    while let header = try reader.readExactly(64) {
-      let sequence = integer(header, 0, UInt64.self)
-      let epoch = integer(header, 8, UInt64.self)
-      let payloadCount = integer(header, 36, UInt32.self)
-      let observed = integer(header, 40, UInt64.self)
-      let loss = integer(header, 48, UInt64.self)
-      guard records < UInt64.max, sequence == records + 1, epoch == terminal.epoch,
-        payloadCount <= 4096, integer(header, 56, UInt32.self) == 1,
-        integer(header, 60, UInt32.self) == 0,
-        observed > lastObserved, loss >= lastLoss,
-        observed >= sequence, observed - sequence == loss,
-        sequence <= terminal.write, loss <= terminal.drops
-      else { throw DVIngestError.invalidEvidence("record sequence, epoch, loss or header guard failed") }
-      let payload = payloadCount == 0 ? Data() : try reader.readExactly(Int(payloadCount))
-      guard let payload else { throw DVIngestError.invalidEvidence("missing record payload") }
-      rawHash.update(data: header)
-      rawHash.update(data: payload)
-      let recordOffset = 8 + recordBytes
-      recordBytes += UInt64(64 + payload.count)
-      if let prefix = journal.legacyPrefix, !legacyPrefixVerified,
-        recordBytes >= prefix.recordBytes {
-        guard recordBytes == prefix.recordBytes,
-          hex(rawHash.finalize()) == prefix.recordSHA256 else {
-          throw DVIngestError.invalidEvidence("legacy stop event prefix boundary or hash mismatch")
+    // Drain read, assembly and metadata temporaries per record; retain only streaming state.
+    while true {
+      let processed = try autoreleasepool { () throws -> Bool in
+        guard let header = try reader.readExactly(64) else { return false }
+        let sequence = integer(header, 0, UInt64.self)
+        let epoch = integer(header, 8, UInt64.self)
+        let payloadCount = integer(header, 36, UInt32.self)
+        let observed = integer(header, 40, UInt64.self)
+        let loss = integer(header, 48, UInt64.self)
+        guard records < UInt64.max, sequence == records + 1, epoch == terminal.epoch,
+          payloadCount <= 4096, integer(header, 56, UInt32.self) == 1,
+          integer(header, 60, UInt32.self) == 0,
+          observed > lastObserved, loss >= lastLoss,
+          observed >= sequence, observed - sequence == loss,
+          sequence <= terminal.write, loss <= terminal.drops
+        else { throw DVIngestError.invalidEvidence("record sequence, epoch, loss or header guard failed") }
+        let payload = payloadCount == 0 ? Data() : try reader.readExactly(Int(payloadCount))
+        guard let payload else { throw DVIngestError.invalidEvidence("missing record payload") }
+        rawHash.update(data: header)
+        rawHash.update(data: payload)
+        let recordOffset = 8 + recordBytes
+        recordBytes += UInt64(64 + payload.count)
+        if let prefix = journal.legacyPrefix, !legacyPrefixVerified,
+          recordBytes >= prefix.recordBytes {
+          guard recordBytes == prefix.recordBytes,
+            hex(rawHash.finalize()) == prefix.recordSHA256 else {
+            throw DVIngestError.invalidEvidence("legacy stop event prefix boundary or hash mismatch")
+          }
+          legacyPrefixVerified = true
         }
-        legacyPrefixVerified = true
+        records = sequence
+        if recordBytes - lastReconstructionProgress >= 1_048_576 {
+          lastReconstructionProgress = recordBytes
+          progress?(DVIngestProgress(phase: .reconstructingNativeDV,
+            completedBytes: min(recordBytes, journal.closed.recordBytes),
+            totalBytes: journal.closed.recordBytes,
+            overallCompletedBytes: min(recordBytes, estimatedOverall),
+            overallTotalBytes: estimatedOverall))
+        }
+        if loss != lastLoss { assembler.markTransportGap(); transportGapEvents += 1 }
+        lastObserved = observed
+        lastLoss = loss
+        let frames = assembler.consumePreservedPacket(payload,
+          transferStatus: integer(header, 32, UInt16.self), expectedSourceNode: terminal.node)
+        for frame in frames {
+          guard frame.count == 120_000 || frame.count == 144_000 else {
+            throw DVIngestError.invalidEvidence("assembler returned a non-DV25 frame")
+          }
+          if dvWriter == nil {
+            dvWriter = try exclusiveWriter(directory.appendingPathComponent("capture.dv.partial"))
+          }
+          let metadata = DVCaptureMetadataEpochAnalyzer.analyze(data: frame)
+          guard metadata.completeFrameCount == 1, let observation = metadata.frames.first else {
+            throw DVIngestError.invalidEvidence("complete frame failed independent DIF structure analysis")
+          }
+          // Per-frame analysis bounds metadata memory regardless of capture length.
+          // Pack offsets are relative to this frame, explicitly recorded below.
+          let entry = FrameEntry(frameOrdinal: frameCount, fileByteOffset: dvBytes,
+            byteCount: UInt64(frame.count), SHA256: hex(SHA256.hash(data: frame)),
+            firstRecordSequence: intervalStart, lastRecordSequence: sequence,
+            rawIntervalStartByteOffset: intervalOffset,
+            rawIntervalEndByteOffsetExclusive: 8 + recordBytes,
+            receiveEpoch: terminal.epoch, routeWireBase64: terminal.route.base64EncodedString(),
+            sourceMetadata: observation)
+          try dvWriter!.write(contentsOf: frame)
+          dvHash.update(data: frame)
+          let frameManifestLine = try encode(entry) + Data([10])
+          try frameWriter.write(contentsOf: frameManifestLine)
+          frameManifestHash.update(data: frameManifestLine)
+          frameManifestBytes += UInt64(frameManifestLine.count)
+          frameCount += 1
+          dvBytes += UInt64(frame.count)
+          // A packet may contain the end of this frame and the next frame's start.
+          intervalStart = sequence
+          intervalOffset = recordOffset
+        }
+        return true
       }
-      records = sequence
-      if recordBytes - lastReconstructionProgress >= 1_048_576 {
-        lastReconstructionProgress = recordBytes
-        progress?(DVIngestProgress(phase: .reconstructingNativeDV,
-          completedBytes: min(recordBytes, journal.closed.recordBytes),
-          totalBytes: journal.closed.recordBytes,
-          overallCompletedBytes: min(recordBytes, estimatedOverall),
-          overallTotalBytes: estimatedOverall))
-      }
-      if loss != lastLoss { assembler.markTransportGap(); transportGapEvents += 1 }
-      lastObserved = observed
-      lastLoss = loss
-      let frames = assembler.consumePreservedPacket(payload,
-        transferStatus: integer(header, 32, UInt16.self), expectedSourceNode: terminal.node)
-      for frame in frames {
-        guard frame.count == 120_000 || frame.count == 144_000 else {
-          throw DVIngestError.invalidEvidence("assembler returned a non-DV25 frame")
-        }
-        if dvWriter == nil {
-          dvWriter = try exclusiveWriter(directory.appendingPathComponent("capture.dv.partial"))
-        }
-        let metadata = DVCaptureMetadataEpochAnalyzer.analyze(data: frame)
-        guard metadata.completeFrameCount == 1, let observation = metadata.frames.first else {
-          throw DVIngestError.invalidEvidence("complete frame failed independent DIF structure analysis")
-        }
-        // Per-frame analysis bounds metadata memory regardless of capture length.
-        // Pack offsets are relative to this frame, explicitly recorded below.
-        let entry = FrameEntry(frameOrdinal: frameCount, fileByteOffset: dvBytes,
-          byteCount: UInt64(frame.count), SHA256: hex(SHA256.hash(data: frame)),
-          firstRecordSequence: intervalStart, lastRecordSequence: sequence,
-          rawIntervalStartByteOffset: intervalOffset,
-          rawIntervalEndByteOffsetExclusive: 8 + recordBytes,
-          receiveEpoch: terminal.epoch, routeWireBase64: terminal.route.base64EncodedString(),
-          sourceMetadata: observation)
-        try dvWriter!.write(contentsOf: frame)
-        dvHash.update(data: frame)
-        let frameManifestLine = try encode(entry) + Data([10])
-        try frameWriter.write(contentsOf: frameManifestLine)
-        frameManifestHash.update(data: frameManifestLine)
-        frameManifestBytes += UInt64(frameManifestLine.count)
-        frameCount += 1
-        dvBytes += UInt64(frame.count)
-        // A packet may contain the end of this frame and the next frame's start.
-        intervalStart = sequence
-        intervalOffset = recordOffset
-      }
+      if !processed { break }
     }
     if terminal.drops > lastLoss { assembler.markTransportGap(); transportGapEvents += 1 }
     assembler.finish()
@@ -560,36 +566,42 @@ public enum DVIngestExporter {
     var closed: Event?, legacyEvent: Event?, intentRoute: Data?, finalEvent: Event?
     var duplicateLegacyStop = false
     var finalWire: Data?
-    while let chunk = try handle.read(upToCount: 65_536), !chunk.isEmpty {
-      hash.update(data: chunk)
-      buffer.append(chunk)
-      while let newline = buffer.firstIndex(of: 10) {
-        guard closed == nil else { throw DVIngestError.invalidEvidence("journal events follow receive_closed") }
-        let line = Data(buffer[..<newline])
-        buffer = Data(buffer[buffer.index(after: newline)...])
-        guard line.count <= 1_048_576 else { throw DVIngestError.invalidEvidence("oversized journal event") }
-        let event = try JSONDecoder().decode(Event.self, from: line)
-        guard event.schemaVersion == 1, let wire = Data(base64Encoded: event.wireBase64) else {
-          throw DVIngestError.invalidEvidence("journal schema or base64 mismatch")
-        }
-        guard finalEvent == nil || event.event == "receive_closed" else {
-          throw DVIngestError.invalidEvidence("duplicate final status or intervening event after final status")
-        }
-        if event.event == "receive_start_intent" { intentRoute = wire }
-        if event.event == "receive_stop_returned" {
-          if legacyEvent != nil { duplicateLegacyStop = true }
-          legacyEvent = event
-        }
-        if event.event == "receive_final_status" {
-          guard wire.count == 128 else {
-            throw DVIngestError.invalidEvidence("final status wire must contain exactly 128 bytes")
+    // The read and all line/JSON work belong to the same bounded cleanup scope.
+    while true {
+      let processed = try autoreleasepool { () throws -> Bool in
+        guard let chunk = try handle.read(upToCount: 65_536), !chunk.isEmpty else { return false }
+        hash.update(data: chunk)
+        buffer.append(chunk)
+        while let newline = buffer.firstIndex(of: 10) {
+          guard closed == nil else { throw DVIngestError.invalidEvidence("journal events follow receive_closed") }
+          let line = Data(buffer[..<newline])
+          buffer = Data(buffer[buffer.index(after: newline)...])
+          guard line.count <= 1_048_576 else { throw DVIngestError.invalidEvidence("oversized journal event") }
+          let event = try JSONDecoder().decode(Event.self, from: line)
+          guard event.schemaVersion == 1, let wire = Data(base64Encoded: event.wireBase64) else {
+            throw DVIngestError.invalidEvidence("journal schema or base64 mismatch")
           }
-          finalEvent = event
-          finalWire = wire
+          guard finalEvent == nil || event.event == "receive_closed" else {
+            throw DVIngestError.invalidEvidence("duplicate final status or intervening event after final status")
+          }
+          if event.event == "receive_start_intent" { intentRoute = wire }
+          if event.event == "receive_stop_returned" {
+            if legacyEvent != nil { duplicateLegacyStop = true }
+            legacyEvent = event
+          }
+          if event.event == "receive_final_status" {
+            guard wire.count == 128 else {
+              throw DVIngestError.invalidEvidence("final status wire must contain exactly 128 bytes")
+            }
+            finalEvent = event
+            finalWire = wire
+          }
+          if event.event == "receive_closed" { closed = event }
         }
-        if event.event == "receive_closed" { closed = event }
+        guard buffer.count <= 1_048_576 else { throw DVIngestError.invalidEvidence("oversized journal event") }
+        return true
       }
-      guard buffer.count <= 1_048_576 else { throw DVIngestError.invalidEvidence("oversized journal event") }
+      if !processed { break }
     }
     guard buffer.isEmpty, let closed else {
       throw DVIngestError.invalidEvidence("missing terminal event/status or truncated journal")
@@ -652,7 +664,8 @@ public enum DVIngestExporter {
       result.reserveCapacity(count)
       while result.count < count {
         if cursor == buffer.count {
-          buffer = try handle.read(upToCount: 1_048_576) ?? Data()
+          // The owned Data survives this scope; autoreleased read temporaries do not.
+          buffer = try autoreleasepool { try handle.read(upToCount: 1_048_576) ?? Data() }
           cursor = 0
           if buffer.isEmpty {
             if result.isEmpty { return nil }
@@ -668,16 +681,19 @@ public enum DVIngestExporter {
   }
 
   private static func readExactly(_ handle: FileHandle, count: Int) throws -> Data? {
-    var result = Data()
-    while result.count < count {
-      let chunk = try handle.read(upToCount: count - result.count) ?? Data()
-      if chunk.isEmpty {
-        if result.isEmpty { return nil }
-        throw DVIngestError.invalidEvidence("truncated raw record")
+    // Callers request bounded magic/report data, never a capture-sized result.
+    return try autoreleasepool {
+      var result = Data()
+      while result.count < count {
+        let chunk = try handle.read(upToCount: count - result.count) ?? Data()
+        if chunk.isEmpty {
+          if result.isEmpty { return nil }
+          throw DVIngestError.invalidEvidence("truncated raw record")
+        }
+        result.append(chunk)
       }
-      result.append(chunk)
+      return result
     }
-    return result
   }
 
   private static func safeProgressTotal(_ values: UInt64...) -> UInt64 {
@@ -699,10 +715,16 @@ public enum DVIngestExporter {
       }
     }
     var hash = SHA256(), count: UInt64 = 0
-    while let data = try handle.read(upToCount: 1_048_576), !data.isEmpty {
-      hash.update(data: data)
-      count += UInt64(data.count)
-      progress?(count)
+    // Include the read itself, hashing and progress in each synchronous chunk scope.
+    while true {
+      let processed = try autoreleasepool { () throws -> Bool in
+        guard let data = try handle.read(upToCount: 1_048_576), !data.isEmpty else { return false }
+        hash.update(data: data)
+        count += UInt64(data.count)
+        progress?(count)
+        return true
+      }
+      if !processed { break }
     }
     return (count, hex(hash.finalize()))
   }

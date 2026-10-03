@@ -21,10 +21,18 @@ struct LiveDVDecodedFrame: @unchecked Sendable {
   let isPAL: Bool
 }
 
-enum LiveDVDecodeError: Error {
+enum LiveDVDecodeError: LocalizedError {
   case malformedFrame
   case nativeFailure(String, OSStatus)
   case noDecodedImage
+
+  var errorDescription: String? {
+    switch self {
+    case .malformedFrame: "The decoder received an incomplete or incorrectly aligned DV frame."
+    case .nativeFailure(let operation, let status): "Native DV decoding failed during \(operation) (status \(status))."
+    case .noDecodedImage: "The native DV decoder returned no picture."
+    }
+  }
 }
 
 /// Serial VideoToolbox ownership; no queued unbounded decode tasks belong here.

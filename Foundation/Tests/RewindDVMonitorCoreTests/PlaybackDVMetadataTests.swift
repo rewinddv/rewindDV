@@ -145,3 +145,25 @@ private actor HeldMetadataAnalyzer {
   #expect(DVMetadataPresentation.inspectorLabel("File size", section: "General") == "[FILE] — File size")
   #expect(DVMetadataPresentation.inspectorLabel("Pixel aspect ratio (PAR / sample AR)", section: "Apple presentation geometry").hasPrefix("[APPLE]"))
 }
+
+@Test @MainActor func playbackSystemChangeRejectsOldFormatAnalysisAndClearsAllFields() async throws {
+  let held = HeldMetadataAnalyzer()
+  let sampler = PlaybackDVMetadata { _, ordinal, _ in try await held.parse(ordinal) }
+  sampler.offer(Data(count: 120_000), ordinal: 5, paused: false)
+  try await eventually { await held.requests == [5] }
+  sampler.offer(Data(count: 144_000), ordinal: 6, paused: false)
+  #expect(sampler.snapshot == nil)
+  await held.release()
+  try await eventually { await held.requests == [5, 6] }
+  #expect(sampler.snapshot == nil)
+  #expect(await held.maximum == 1)
+  await held.release()
+  try await eventually { sampler.report?.frameOrdinal == 6 }
+  sampler.offer(Data(count: 120_000), ordinal: 100, paused: false)
+  #expect(sampler.snapshot == nil)
+  try await eventually { await held.requests == [5, 6, 100] }
+  await held.release()
+  try await eventually { sampler.report?.frameOrdinal == 100 }
+  sampler.reset()
+  #expect(sampler.snapshot == nil && sampler.specifications == nil && sampler.geometry == nil)
+}

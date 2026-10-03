@@ -59,8 +59,8 @@ private func frameBytes(_ inventory: DVMetadataInventory) -> Data {
   }
   let next = DVTechnicalSpecifications.frameRecordedClock(frame)
   #expect(next.value == "Thursday, 28 February 2002 @ 13:09:01")
-  #expect(value(specs.playbackReport(clock: next, motion: nil), "General", "Recorded date & time") == next.value)
-  #expect(value(specs.playbackReport(clock: nil, motion: nil), "General", "Recorded date & time")?.hasPrefix("Unavailable") == true)
+  #expect(value(specs.playbackReport(sampledFrame: DVTechnicalSpecifications.make(path: "", byteCount: 120_000, inventory: try DVMetadataInventory.inspect(frame: frame, ordinal: 1, byteOffset: 120_000))), "General", "Recorded date & time") == next.value)
+  #expect(value(specs.playbackReport(sampledFrame: nil), "General", "Recorded date & time")?.hasPrefix("Unavailable") == true)
   frame[3 * 80 + 20] = 0x82
   #expect(DVTechnicalSpecifications.frameRecordedClock(frame).value.contains("conflicting times"))
   for at in stride(from: 0, to: frame.count, by: 80) where frame[at] >> 5 == 2 {
@@ -664,4 +664,43 @@ private func withClockIssue(_ source: Data, kind: Int) -> Data {
     #expect(raw.allSatisfy { $0.status == "uninterpreted" && $0.confidence == .unknown })
     #expect(DVMetadataPresentation.packFieldLabel(pack.name, packID: header).hasPrefix("[\(header)] — "))
   }
+}
+
+@Test func playbackInspectorFormatAudioAndClockFollowOneSampledFrame() throws {
+  let file = DVTechnicalSpecifications.make(path: "mixed.dv", byteCount: 264_000, inventory: try techFixture())
+  let pal = DVTechnicalSpecifications.make(path: "", byteCount: 144_000,
+    inventory: try techFixture(pal: true, audioCode: 0x11, aspect: 2))
+  let report = file.playbackReport(sampledFrame: pal)
+  #expect(value(report, "General", "Complete name") == "mixed.dv")
+  #expect(value(report, "General", "File size") == value(file, "General", "File size"))
+  #expect(value(report, "Video", "Standard") == "PAL")
+  #expect(value(report, "Video", "Height") == "576 pixels")
+  #expect(value(report, "Video", "Width") == "720 pixels")
+  #expect(value(report, "Video", "Chroma subsampling") == "4:2:0")
+  #expect(value(report, "Video", "Frame rate") == "25.000 (25/1) FPS")
+  #expect(value(report, "Video", "Tape-reported display aspect ratio") == "16:9")
+  #expect(value(report, "Audio 1", "Sampling rate") == "32.0 kHz")
+  #expect(value(report, "Audio 2", "Bit depth") == "12 bits")
+  #expect(value(report, "Video", "Observed timecode") == value(pal, "Video", "Time code of first frame"))
+  let returned = file.playbackReport(sampledFrame: file)
+  #expect(value(returned, "Video", "Standard") == "NTSC")
+  #expect(value(returned, "Video", "Height") == "480 pixels")
+  #expect(value(returned, "Video", "Chroma subsampling") == "4:1:1")
+  #expect(value(returned, "Audio", "Sampling rate") == "48.0 kHz")
+  #expect(!returned.sections.contains { $0.title == "Audio 2" })
+}
+
+@Test func playbackInspectorNeverBorrowsFileFormatWhenCurrentEvidenceIsMissingOrUnknown() throws {
+  let file = DVTechnicalSpecifications.make(path: "mixed.dv", byteCount: 264_000, inventory: try techFixture())
+  let pending = file.playbackReport(sampledFrame: nil)
+  for label in ["Standard", "Height", "Width", "Chroma subsampling", "Frame rate", "Tape-reported display aspect ratio"] {
+    #expect(value(pending, "Video", label)?.hasPrefix("Unavailable") == true)
+  }
+  let invalid = DVTechnicalSpecifications.make(path: "", byteCount: 144_000,
+    inventory: try techFixture(pal: true, invalidVAUX: true))
+  let report = file.playbackReport(sampledFrame: invalid)
+  #expect(value(report, "Video", "Standard") == "PAL")
+  #expect(value(report, "Video", "Height") == "576 pixels")
+  #expect(value(report, "Video", "Chroma subsampling") == "Unknown / conflicting")
+  #expect(value(report, "Video", "Tape-reported display aspect ratio")?.contains("4:3") == false)
 }

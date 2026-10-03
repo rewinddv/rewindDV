@@ -204,3 +204,27 @@ func hdvExporterRejectsSymlinkAndFIFOInput(useFIFO: Bool) throws {
   #expect(try Data(contentsOf: fixture.url.appendingPathComponent("capture.m2t")) == expected)
   print("HDV_SCALE packets=10000 manifestBytes=\(result.packetManifestBytes) bytesPerTS=\(Double(result.packetManifestBytes) / 10_000) elapsed=\(elapsed)")
 }
+
+@Test func hdvExporterCancellationInsideProcessingPreservesRawAndWithholdsCompletion() async throws {
+  let source = hdvSourcePacket(hdvTSPacket())
+  let fixture = try HDVFlightFixture(packets: (0..<5_000).map {
+    hdvCIP(blocks: source, dbc: UInt8(truncatingIfNeeded: $0 * 8))
+  })
+  defer { fixture.cleanup() }
+  let cancelled = await Task.detached {
+    do {
+      _ = try HDVIngestExporter.exportClosedFlight(at: fixture.url) { update in
+        if update.phase == .reconstructingMPEG2Transport && update.completedBytes > 0 {
+          withUnsafeCurrentTask { $0?.cancel() }
+        }
+      }
+      return false
+    } catch is CancellationError { return true }
+    catch { return false }
+  }.value
+  #expect(cancelled)
+  let partial = fixture.url.appendingPathComponent("capture.m2t.partial")
+  #expect((try FileManager.default.attributesOfItem(atPath: partial.path)[.size] as! NSNumber).uint64Value > 0)
+  #expect(try Data(contentsOf: fixture.url.appendingPathComponent("receive.records.raw")) == fixture.raw)
+  #expect(!FileManager.default.fileExists(atPath: fixture.url.appendingPathComponent("hdv-verification.json").path))
+}
