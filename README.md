@@ -2,8 +2,8 @@
 
 This is the canonical open-source repository for rewindDV. Visit the
 [project website](https://rewinddv.com) or the
-[historical testing and release hub](https://github.com/rewinddv/rewindDV-LAB).
-There is currently no active public binary release.
+[testing and release hub](https://github.com/rewinddv/rewindDV-LAB).
+An interim [Alpha 0.0.77 / Driver Build183 engineering alpha](https://github.com/rewinddv/rewindDV-LAB/releases/tag/alpha-0.0.77) is available separately. It is ad-hoc signed, not notarized, and requires disabling SIP, which reduces macOS security. See [installation scope](INSTALLATION-PLAN.md).
 
 rewindDV is a macOS FireWire DV/HDV preservation project. This package contains
 the tested Alpha 0.0.77 application source and unchanged Build183 driver inputs.

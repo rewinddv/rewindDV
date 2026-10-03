@@ -1,19 +1,24 @@
 # Source and binary installation scope
 
-This package provides source for an unsigned build. It contains no official
-installable application or driver download. The privately qualified Alpha 0.0.77
-application and retained Build183 driver are unchanged development-signed
-artifacts; their signing identity and embedded development profiles are not
-approved for public disclosure or general distribution.
+This repository provides source and unsigned build instructions. The separate
+[Alpha 0.0.77 / Driver Build183 engineering alpha](https://github.com/rewinddv/rewindDV-LAB/releases/tag/alpha-0.0.77)
+is ad-hoc signed and not notarized.
 
-A future official binary needs separately approved distribution identity and
-DriverKit entitlement/profile scope, suitable app/driver signing, notarization
-where applicable, privacy review of the final container and an artifact-specific
-installation/upgrade/removal/rollback procedure. These remain account and
-distribution decisions; they do not prevent source-package preparation.
+rewindDV currently uses an ad-hoc-signed DriverKit extension.
+Installation requires disabling System Integrity Protection (SIP).
+Disabling SIP reduces macOS security.
+
+It is intended for experienced users and dedicated/test systems. Use only that
+artifact's [installation/checksum instructions](https://github.com/rewinddv/rewindDV-LAB/blob/main/INSTALL.md)
+and [uninstall/rollback instructions](https://github.com/rewinddv/rewindDV-LAB/blob/main/UNINSTALL.md).
+The repackaged artifact passed offline checks; it has not been installed or
+newly physically qualified. Existing bounded runtime evidence and broader
+qualification limits remain as documented in this source snapshot.
 
 An unsigned source build neither installs nor activates a driver. Do not apply
-historical ad-hoc signing or system-protection instructions to this snapshot.
-A future differently signed artifact has new hashes and needs its own applicable
-verification and authorization. No account, certificate, profile, system security
-or installed software change is authorized by these build instructions.
+binary-installation steps to arbitrary source builds or re-sign a released app.
+No system-security change or installation is performed by these build instructions.
+
+Normal Developer-ID-signed, notarized, SIP-on distribution remains future work
+dependent on Apple distribution prerequisites. That future path is separate
+from the interim ad-hoc engineering alpha. No Apple endorsement is implied.

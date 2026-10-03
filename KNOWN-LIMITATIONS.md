@@ -39,6 +39,7 @@ content. Preview, source metadata, raw transport evidence and human playback
 observations remain distinct. Unknown metadata is not silently repaired or
 selected by majority. Performance superiority has not been established.
 
-Source availability is separate from official binary availability. The qualified
-private candidate uses development signing and profiles and is not approved for
-public distribution. See [INSTALLATION-PLAN](INSTALLATION-PLAN.md).
+A separately packaged ad-hoc engineering alpha is available through LAB. It is
+not notarized and requires disabling SIP, which reduces macOS security. The
+repackaged artifact has not been installed or newly physically qualified.
+See [INSTALLATION-PLAN](INSTALLATION-PLAN.md) for artifact-specific instructions.
