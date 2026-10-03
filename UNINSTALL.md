@@ -1,75 +1,57 @@
-# Remove the engineering alpha and restore security
+# Remove rewindDV and restore security
 
-Do this when testing ends. Export your support ZIP first. These steps do not
-delete captures, app reports or other drivers.
-
-1. Finish capture/verification, stop tape motion, quit rewindDV, stop extended
-   logging (Control-C), and disconnect FireWire.
-2. **Uninstall the driver before deleting its containing app.** With SIP still
-   disabled, inspect the installed extension:
+1. Finish capture and verification, stop tape motion, quit rewindDV and disconnect
+   FireWire. Preserve original captures and any reports you need.
+2. With SIP still disabled, inspect the registered extension:
 
    ```sh
    systemextensionsctl list | grep -F 'net.rewinddigital.RewindDV.Driver'
    ```
 
-   This package uses the ad-hoc team identifier `-`. If a different identity
-   appears, stop and contact support; do not substitute another vendor or team.
-   If no entry is present, skip the uninstall command. Otherwise run:
+   The ad-hoc team identifier is `-`. If a different identity appears, stop and
+   contact info@rewinddv.com. Do not substitute another team or vendor. If no
+   entry is present, skip uninstall. Otherwise run:
 
    ```sh
    sudo systemextensionsctl uninstall - net.rewinddigital.RewindDV.Driver
    ```
 
-   Restart if requested or if marked `terminated waiting for uninstall on reboot`.
-   Check the list again. No output means no registered rewindDV extension was
-   listed. **Never run
-   `systemextensionsctl reset`**, never delete `/Library/SystemExtensions`
-   manually, and never remove another vendor's driver.
-3. After the extension is absent, move **/Applications/rewindDV.app** to Trash
-   using Finder. Deleting the app alone is not proof its driver was removed.
-4. Disable the development setting in normal macOS:
+   Restart when requested or when marked `terminated waiting for uninstall on
+   reboot`. Check the list again. No output means no registered rewindDV
+   extension was listed. Never use `systemextensionsctl reset` or manually
+   delete `/Library/SystemExtensions`.
+3. Once the extension is absent, move **/Applications/RewindDV.app** to Trash
+   in Finder. Deleting the app alone does not prove its driver was removed.
+4. Turn off development mode:
 
    ```sh
    sudo systemextensionsctl developer off
    ```
 
-5. Shut down. Hold power until startup options appear. **Options → Continue →
-   Utilities → Terminal**, then run:
-
-   ```sh
-   csrutil enable
-   ```
-
-   Restart normally. If you separately changed Startup Security policy while
-   troubleshooting, restore your original policy (normally Full Security) using
-   Startup Security Utility. This package did not instruct any AMFI, boot-argument
-   or global Gatekeeper changes.
+5. Shut down. Hold power to startup options, select **Options → Continue**, then
+   **Utilities → Terminal**. Run `csrutil enable` and restart normally. If you
+   independently changed Startup Security policy, restore the original policy
+   using Startup Security Utility.
 6. Verify:
 
    ```sh
    csrutil status
    systemextensionsctl list | grep -F 'net.rewinddigital.RewindDV.Driver'
-   test ! -e '/Applications/rewindDV.app' && echo 'rewindDV app removed'
+   test ! -e '/Applications/RewindDV.app' && echo 'rewindDV app removed'
    ```
 
-   Expect SIP `enabled`, no rewindDV extension entry, and `rewindDV app removed`.
-   Do not resume testing with the ad-hoc driver after restoring SIP.
+   Expect SIP enabled, no rewindDV extension entry and the app-removed message.
+   Do not attempt to run this ad-hoc driver with SIP restored.
 
-## If the Mac cannot start normally
+Capture folders remain at the locations you selected. These removal steps do
+not delete captures or app reports. Do not remove parent Library directories,
+other vendors' drivers or unrelated files.
 
-Disconnect FireWire, then try Safe Mode: shut down, hold power to startup options,
-select the startup disk, hold Shift and choose Continue in Safe Mode. Remove only
-rewindDV as above. Do not
-experiment with boot arguments or erase anything. Keep your backups available.
+For rollback, complete driver removal first, then use a separately retained,
+verified previous package and its instructions. Never use a withdrawn download
+as an assumed supported rollback. This release includes no prior binary.
 
-## Retained data
-
-Capture folders remain wherever you selected them. App evidence is inside:
-`~/Library/Containers/net.rewinddigital.RewindDV/Data/Library/Application Support/RewindDV/`
-
-Optional extended logs are inside:
-`~/Library/Application Support/rewindDV Alpha/SystemLogs/`
-
-After preserving needed evidence, these specific rewindDV-only folders and
-Desktop support ZIPs may be moved to Trash manually. Do not delete the Library,
-Containers, Application Support or Desktop parent directories.
+If the Mac cannot start normally, disconnect FireWire and try Safe Mode: hold
+power to startup options, select the startup disk, hold Shift and choose
+**Continue in Safe Mode**. Remove only rewindDV as above. Do not experiment
+with boot arguments or erase storage.

@@ -23,9 +23,17 @@
 
 Alpha 0.0.63 / Driver B178 is an older development build and has been withdrawn from distribution.
 
-There is currently no active public binary release.
+**[Alpha 0.0.77 / Driver Build183 — engineering alpha](https://github.com/rewinddv/rewindDV-LAB/releases/tag/alpha-0.0.77)** is ad-hoc signed and not notarized.
 
-This is the historical testing and release hub for rewindDV. The
+rewindDV currently uses an ad-hoc-signed DriverKit extension.
+Installation requires disabling System Integrity Protection (SIP).
+Disabling SIP reduces macOS security.
+
+Intended for experienced users and dedicated/test systems. Read the
+[installation and checksum instructions](INSTALL.md) and
+[removal/rollback instructions](UNINSTALL.md) before proceeding.
+
+This is the testing and release hub for rewindDV. The
 [canonical open-source repository](https://github.com/rewinddv/rewindDV) contains
 the current source snapshot, build instructions, and qualification limits. Visit
 the [project website](https://rewinddv.com) for more about the project.
@@ -79,7 +87,7 @@ a single “success” message.
 | Area | Current scope |
 |---|---|
 | Mac | Apple Silicon only; Intel unsupported |
-| macOS | Minimum 26; built with Xcode 27. macOS 27 runtime is not yet qualified |
+| macOS | Minimum 26; built with Xcode 27. bounded runtime evidence on macOS 27.0.1; broader compatibility remains unverified |
 | FireWire controller | Current driver matches PCI **11c1:5901**, used in the tested Apple Thunderbolt-to-FireWire adapter chain |
 | Source | DV25 over IEEE 1394 from a compatible deck/camcorder; select DV output (HDV coming soon; not included in this release) |
 | Other FireWire products | Not an audio-interface or SCSI/storage driver |
