@@ -25,6 +25,11 @@ Alpha 0.0.63 / Driver B178 is an older development build and has been withdrawn 
 
 There is currently no active public binary release.
 
+This is the historical testing and release hub for rewindDV. The
+[canonical open-source repository](https://github.com/rewinddv/rewindDV) contains
+the current source snapshot, build instructions, and qualification limits. Visit
+the [project website](https://rewinddv.com) for more about the project.
+
 This repository preserves project documentation and release history.
 GitHub’s automatic “Source code” archives contain this hub’s documentation and
 assets; they do not contain the application.
