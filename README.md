@@ -1,5 +1,10 @@
 # rewindDV — Alpha 0.0.81 source snapshot
 
+> **Help fund the standards behind tape metadata.** Funds raised go toward
+> purchasing IEC standards to research all the metadata these tapes can contain
+> and expand what rewindDV can decode.
+> [**Support on Ko-fi →**](https://ko-fi.com/rewinddv)
+
 This is the canonical open-source repository for rewindDV. Visit the
 [project website](https://rewinddv.com) or the
 [testing and release hub](https://github.com/rewinddv/rewindDV-LAB).
@@ -45,5 +50,4 @@ The generic source-build icon is intentional; the software license grants no
 project trademark rights. No upstream endorsement is claimed.
 
 See [CONTRIBUTING](CONTRIBUTING.md), [PRIVACY](PRIVACY.md) and
-[BRANDING-AND-FUNDING](BRANDING-AND-FUNDING.md). No account or funding association
-is introduced by this snapshot.
+[BRANDING-AND-FUNDING](BRANDING-AND-FUNDING.md). Optional project support is available through [Ko-fi](https://ko-fi.com/rewinddv).
