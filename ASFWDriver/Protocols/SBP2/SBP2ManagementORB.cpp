@@ -1,0 +1,264 @@
+// SBP-2 Management ORB implementation.
+// Ref: SBP-2 §6 (Task Management)
+
+#include "SBP2ManagementORB.hpp"
+#include <DriverKit/IOLib.h>
+
+#include "../../Async/Interfaces/IFireWireBus.hpp"
+#include "../../Async/Interfaces/IFireWireBusInfo.hpp"
+#include "../../Common/FWCommon.hpp"
+
+namespace ASFW::Protocols::SBP2 {
+
+using namespace ASFW::Protocols::SBP2::Wire;
+
+// ---------------------------------------------------------------------------
+// Construction / Destruction
+// ---------------------------------------------------------------------------
+
+SBP2ManagementORB::SBP2ManagementORB(Async::IFireWireBus& bus,
+                                     Async::IFireWireBusInfo& busInfo,
+                                     AddressSpaceManager& addrMgr, void* owner)
+    : bus_(bus)
+    , busInfo_(busInfo)
+    , addrMgr_(addrMgr)
+    , owner_(owner) {}
+
+SBP2ManagementORB::~SBP2ManagementORB() {
+    if (scheduler_ != nullptr && timeoutToken_ != kInvalidSchedulerToken) {
+        scheduler_->Cancel(timeoutToken_);
+        timeoutToken_ = kInvalidSchedulerToken;
+    }
+    lifetimeToken_.reset();
+    DeallocateResources();
+}
+
+// ---------------------------------------------------------------------------
+// Resource allocation
+// ---------------------------------------------------------------------------
+
+bool SBP2ManagementORB::AllocateResources() noexcept {
+    if (orbHandle_ != 0) {
+        return true; // Already allocated
+    }
+
+    // Allocate ORB address space (32 bytes)
+    auto kr = addrMgr_.AllocateAddressRangeAuto(
+        owner_, 0xFFFF, Wire::TaskManagementORB::kSize,
+        &orbHandle_, &orbMeta_);
+    if (kr != kIOReturnSuccess) {
+        ASFW_LOG(Async, "SBP2ManagementORB: failed to allocate ORB: 0x%08x", kr);
+        return false;
+    }
+
+    // Allocate per-ORB status block address space (32 bytes)
+    kr = addrMgr_.AllocateAddressRangeAuto(
+        owner_, 0xFFFF, Wire::StatusBlock::kMaxSize,
+        &statusBlockHandle_, &statusBlockMeta_);
+    if (kr != kIOReturnSuccess) {
+        ASFW_LOG(Async, "SBP2ManagementORB: failed to allocate status block: 0x%08x", kr);
+        addrMgr_.DeallocateAddressRange(owner_, orbHandle_);
+        orbHandle_ = 0;
+        return false;
+    }
+
+    // Register remote-write callback for the per-ORB status block
+    addrMgr_.SetRemoteWriteCallback(
+        statusBlockHandle_,
+        [this](uint64_t /*handle*/, uint32_t offset, std::span<const uint8_t> payload) {
+            OnStatusBlockWrite(offset, payload);
+        });
+
+    return true;
+}
+
+void SBP2ManagementORB::DeallocateResources() noexcept {
+    if (statusBlockHandle_ != 0) {
+        addrMgr_.DeallocateAddressRange(owner_, statusBlockHandle_);
+        statusBlockHandle_ = 0;
+    }
+    if (orbHandle_ != 0) {
+        addrMgr_.DeallocateAddressRange(owner_, orbHandle_);
+        orbHandle_ = 0;
+    }
+    orbMeta_ = {};
+    statusBlockMeta_ = {};
+}
+
+// ---------------------------------------------------------------------------
+// ORB construction
+// ---------------------------------------------------------------------------
+
+void SBP2ManagementORB::BuildManagementORB() noexcept {
+    std::memset(&orbBuffer_, 0, sizeof(orbBuffer_));
+
+    const uint16_t localNode =
+        NormalizeBusNodeID(static_cast<uint16_t>(busInfo_.GetLocalNodeID().value));
+
+    // Options: notify (bit 15) | function code (low nibble)
+    const auto fn = static_cast<uint16_t>(function_);
+    orbBuffer_.options = OSSwapHostToBigInt16(static_cast<uint16_t>(0x8000u | fn));
+    orbBuffer_.loginID = OSSwapHostToBigInt16(loginID_);
+
+    // For AbortTask: set target ORB address (quadlet-aligned, big-endian)
+    if (function_ == Function::AbortTask) {
+        orbBuffer_.orbOffsetHi = OSSwapHostToBigInt32(targetORBAddressHi_);
+        orbBuffer_.orbOffsetLo = OSSwapHostToBigInt32(targetORBAddressLo_ & 0xFFFFFFFCu);
+    }
+
+    // Status FIFO address
+    orbBuffer_.statusFIFOAddressHi = OSSwapHostToBigInt32(
+        ComposeBusAddressHi(localNode, statusBlockMeta_.addressHi));
+    orbBuffer_.statusFIFOAddressLo = OSSwapHostToBigInt32(statusBlockMeta_.addressLo);
+
+    // Write ORB to address space
+    addrMgr_.WriteLocalData(
+        owner_, orbHandle_, 0,
+        std::span<const uint8_t>{reinterpret_cast<const uint8_t*>(&orbBuffer_),
+                                  sizeof(orbBuffer_)});
+
+    // Build 8-byte management agent write payload: ORB address in BE
+    orbAddressBE_[0] = static_cast<uint8_t>(localNode >> 8);
+    orbAddressBE_[1] = static_cast<uint8_t>(localNode & 0xFF);
+    orbAddressBE_[2] = static_cast<uint8_t>(orbMeta_.addressHi >> 8);
+    orbAddressBE_[3] = static_cast<uint8_t>(orbMeta_.addressHi & 0xFF);
+    const uint32_t addrLoBE = OSSwapHostToBigInt32(orbMeta_.addressLo);
+    std::memcpy(&orbAddressBE_[4], &addrLoBE, sizeof(uint32_t));
+
+    ASFW_LOG(Async,
+             "SBP2ManagementORB: built function=%u loginID=%u ORB at %04x:%08x status at %04x:%08x",
+             fn, loginID_,
+             localNode, orbMeta_.addressLo,
+             localNode, statusBlockMeta_.addressLo);
+}
+
+// ---------------------------------------------------------------------------
+// Execution
+// ---------------------------------------------------------------------------
+
+bool SBP2ManagementORB::Execute() noexcept {
+    if (inProgress_.load(std::memory_order_relaxed)) {
+        ASFW_LOG(Async, "SBP2ManagementORB::Execute: already in progress");
+        return false;
+    }
+
+    if (!AllocateResources()) {
+        return false;
+    }
+
+    BuildManagementORB();
+
+    inProgress_.store(true, std::memory_order_relaxed);
+
+    // Arm the timeout BEFORE the write goes out so it covers the whole
+    // exchange (agent write + status block), not just the wait for status.
+    // Previously armed in OnWriteComplete: a write whose completion never
+    // arrived (wedged target — observed on LS-4000, LUN reset after ORB
+    // timeout) left the management ORB pending forever with no timer running.
+    if (scheduler_ != nullptr && timeoutMs_ > 0) {
+        const std::weak_ptr<int> weakLifetime = lifetimeToken_;
+        const uint64_t delayNs = static_cast<uint64_t>(timeoutMs_) * 1'000'000ULL;
+
+        timeoutToken_ = scheduler_->ScheduleAfter(delayNs, [this, weakLifetime]() {
+            if (weakLifetime.expired()) {
+                return;
+            }
+            timeoutToken_ = kInvalidSchedulerToken;
+            OnTimeout();
+        });
+    }
+
+    // Write ORB address to management agent
+    const FW::Generation gen{generation_};
+    const FW::NodeId node{static_cast<uint8_t>(nodeID_ & 0x3Fu)};
+    const Async::FWAddress mgmtAddr{.nodeID = nodeID_, .addressHi = 0xFFFF,
+        .addressLo = ManagementAgentAddressLo(managementAgentOffset_)};
+    const FW::FwSpeed speed = busInfo_.GetSpeed(node);
+
+    writeHandle_ = bus_.WriteBlock(
+        gen, node, mgmtAddr,
+        std::span<const uint8_t>{orbAddressBE_.data(), orbAddressBE_.size()},
+        speed,
+        [this, weak = std::weak_ptr<int>(lifetimeToken_)](
+            Async::AsyncStatus status, std::span<const uint8_t> response) {
+            // The timeout is armed before this write, so OnTimeout can fire —
+            // and Complete() can destroy the ORB — while the write is still
+            // in flight. Guard like the timer lambda above.
+            if (weak.expired()) {
+                return;
+            }
+            OnWriteComplete(status, response);
+        });
+
+    if (!writeHandle_) {
+        ASFW_LOG(Async, "SBP2ManagementORB::Execute: WriteBlock failed");
+        if (scheduler_ != nullptr && timeoutToken_ != kInvalidSchedulerToken) {
+            scheduler_->Cancel(timeoutToken_);
+            timeoutToken_ = kInvalidSchedulerToken;
+        }
+        inProgress_.store(false, std::memory_order_relaxed);
+        return false;
+    }
+
+    ASFW_LOG(Async, "SBP2ManagementORB::Execute: wrote management ORB to agent");
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// Completion handlers
+// ---------------------------------------------------------------------------
+
+void SBP2ManagementORB::OnWriteComplete(Async::AsyncStatus status,
+                                         std::span<const uint8_t> response) noexcept {
+    if (status != Async::AsyncStatus::kSuccess) {
+        ASFW_LOG(Async, "SBP2ManagementORB::OnWriteComplete: status=%{public}s",
+                 Async::ToString(status));
+        Complete(-1);
+        return;
+    }
+
+    // Management agent write ACK'd; the timeout armed in Execute() keeps
+    // running until the status block arrives.
+    ASFW_LOG(Async, "SBP2ManagementORB: mgmt agent ACK'd, waiting for status block (timeout=%ums)",
+             timeoutMs_);
+}
+
+void SBP2ManagementORB::OnStatusBlockWrite(uint32_t offset,
+                                             std::span<const uint8_t> payload) noexcept {
+    if (!inProgress_.load(std::memory_order_relaxed)) {
+        return;
+    }
+
+    ASFW_LOG(Async, "SBP2ManagementORB: received status block (offset=%u len=%zu)",
+             offset, payload.size());
+
+    Complete(0);
+}
+
+void SBP2ManagementORB::OnTimeout() noexcept {
+    if (!inProgress_.load(std::memory_order_relaxed)) {
+        return;
+    }
+    ASFW_LOG(Async, "SBP2ManagementORB: timeout");
+    Complete(-2);
+}
+
+void SBP2ManagementORB::Complete(int status) noexcept {
+    inProgress_.store(false, std::memory_order_relaxed);
+    if (scheduler_ != nullptr && timeoutToken_ != kInvalidSchedulerToken) {
+        scheduler_->Cancel(timeoutToken_);
+        timeoutToken_ = kInvalidSchedulerToken;
+    }
+
+    // Move out before invoking: the callback may destroy this ORB
+    // (CommandExecutor resets managementORB_ from inside it). Invoking the
+    // member directly would destroy the executing std::function and free its
+    // captures mid-call.
+    auto callback = std::move(completionCallback_);
+    completionCallback_ = nullptr;
+    if (callback) {
+        callback(status);
+    }
+}
+
+} // namespace ASFW::Protocols::SBP2

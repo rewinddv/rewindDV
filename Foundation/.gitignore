@@ -1,0 +1,17 @@
+.build/
+.build-xcode/
+.build-signed/
+.build-*/
+Deliverables/
+*.local.xcconfig
+# Bench media, live raw flights and signed artifacts stay on the local machine.
+*.dv
+*.mov
+*.mp4
+*.mxf
+*.app/
+*.dext/
+*.provisionprofile
+*.p12
+*.pfx
+receive.records.raw

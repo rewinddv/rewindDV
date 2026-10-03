@@ -1,0 +1,12 @@
+rewindDV Alpha 0.0.77 source snapshot
+Application runtime source: 02ebc9eec11448c951fbacdd62b179f28a920f45
+Retained Build183 driver source: 67c5e03f8fd6387a34322d373523f32cf53dc2a5
+Export assembly/draft revision: dd8534f6bdef60eb61f218da5e321c53eedefd05
+Driver inputs match the retained driver source; its existing signed binary was not rebuilt.
+Runtime logic is unchanged from tested source. Export-only changes retain portable signing
+settings, a generic icon, reviewed fixture provenance and updated documentation.
+Qualification: bounded first-attempt app-admission scenarios passed 2026-10-02.
+Physical observer overlap unexercised; physical waiting cancellation not run.
+Source availability does not approve a public signed binary. See COMPATIBILITY.md and KNOWN-LIMITATIONS.md.
+Private branches, tags, Git identity/history, media and signing profiles are excluded.
+Any public Git import is a new snapshot with its own identity; no import exists in this package.

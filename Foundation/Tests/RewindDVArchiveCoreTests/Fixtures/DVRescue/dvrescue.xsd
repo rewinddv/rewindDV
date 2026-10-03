@@ -1,0 +1,690 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xsd:schema xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns="https://mediaarea.net/dvrescue" targetNamespace="https://mediaarea.net/dvrescue" elementFormDefault="qualified" version="1.2.1">
+  <xsd:annotation>
+    <xsd:documentation xml:lang="en">
+      This is the dvrescue XML Schema. A dvrescue XML stores information about the metadata, continuity, errors, and
+      qualities of a DV data stream. More information about the DV stream can be found within
+      http://web.archive.org/web/20060927044735/http://www.smpte.org/smpte_store/standards/pdf/s314m.pdf.
+    </xsd:documentation>
+  </xsd:annotation>
+  <xsd:element name="dvrescue" type="dvrescueType"/>
+  <xsd:complexType name="dvrescueType">
+    <xsd:sequence>
+      <xsd:element name="creator" type="creatorType" minOccurs="1" maxOccurs="1"/>
+      <xsd:element name="media" type="mediaType" minOccurs="1" maxOccurs="1"/>
+    </xsd:sequence>
+    <xsd:attribute name="version" type="xsd:string"/>
+  </xsd:complexType>
+
+  <xsd:element name="creator" type="creatorType"/>
+  <xsd:complexType name="creatorType">
+    <xsd:sequence>
+      <xsd:element name="program" type="xsd:string" minOccurs="1" maxOccurs="1"/>
+      <xsd:element name="version" type="xsd:string" minOccurs="1" maxOccurs="1"/>
+      <xsd:element name="library" type="libraryType" minOccurs="0" maxOccurs="unbounded"/>
+    </xsd:sequence>
+  </xsd:complexType>
+  <xsd:complexType name="libraryType">
+    <xsd:annotation>
+      <xsd:documentation xml:lang="en">
+        References the name and versioning of libraries used by the application listed as creator.
+      </xsd:documentation>
+    </xsd:annotation>
+    <xsd:simpleContent>
+        <xsd:extension base="xsd:string">
+          <xsd:attribute name="version" type="xsd:string"/>
+        </xsd:extension>
+    </xsd:simpleContent>
+  </xsd:complexType>
+
+  <xsd:element name="media" type="mediaType"/>
+  <xsd:complexType name="mediaType">
+    <xsd:annotation>
+      <xsd:documentation xml:lang="en">
+        A media element refers to an input to dvrescue, commonly a file which includes dv data or a piped input.
+      </xsd:documentation>
+    </xsd:annotation>
+    <xsd:sequence>
+      <xsd:element name="stop" type="stopType" minOccurs="0" maxOccurs="1"/>
+      <xsd:element name="source" type="sourceType" minOccurs="0" maxOccurs="1"/>
+      <xsd:element name="frames" type="framesType" minOccurs="0" maxOccurs="unbounded"/>
+    </xsd:sequence>
+    <xsd:attribute name="ref" type="xsd:string">
+      <xsd:annotation>
+        <xsd:documentation xml:lang="en">
+        Reference to the original file path.
+        </xsd:documentation>
+      </xsd:annotation>
+    </xsd:attribute>
+    <xsd:attribute name="fromCapture" type="xsd:string">
+      <xsd:annotation>
+        <xsd:documentation xml:lang="en">
+        Reference to the capture path when the original path is the one of the file being created during analysis.
+        </xsd:documentation>
+      </xsd:annotation>
+    </xsd:attribute>
+    <xsd:attribute name="format" type="xsd:string">
+      <xsd:annotation>
+        <xsd:documentation xml:lang="en">
+        Format of the file, for example DV, AVI, MPEG-4.
+        </xsd:documentation>
+      </xsd:annotation>
+    </xsd:attribute>
+    <xsd:attribute name="size" type="xsd:integer">
+      <xsd:annotation>
+        <xsd:documentation xml:lang="en">
+        File size, in bytes.
+        </xsd:documentation>
+      </xsd:annotation>
+    </xsd:attribute>
+    <xsd:attribute name="error" type="xsd:string">
+      <xsd:annotation>
+        <xsd:documentation xml:lang="en">
+        Provides an error message is there is an issue parsing the file.
+        </xsd:documentation>
+      </xsd:annotation>
+    </xsd:attribute>
+  </xsd:complexType>
+
+  <xsd:complexType name="stopType">
+    <xsd:annotation>
+      <xsd:documentation xml:lang="en">
+        Indicates that the processing of the dv stream has been stopped before it's end.
+      </xsd:documentation>
+    </xsd:annotation>
+    <xsd:attribute name="method" type="xsd:string">
+      <xsd:annotation>
+        <xsd:documentation xml:lang="en">
+          The method used to stop the proccesing.
+        </xsd:documentation>
+      </xsd:annotation>
+    </xsd:attribute>
+    <xsd:attribute name="extra" type="xsd:string">
+      <xsd:annotation>
+        <xsd:documentation xml:lang="en">
+          Additional information specific to the stop method.
+        </xsd:documentation>
+      </xsd:annotation>
+    </xsd:attribute>
+  </xsd:complexType>
+
+  <xsd:complexType name="sourceType">
+    <xsd:annotation>
+      <xsd:documentation xml:lang="en">
+        Capture source parameters for DeckLink devices.
+      </xsd:documentation>
+    </xsd:annotation>
+    <xsd:attribute name="video" type="xsd:string">
+      <xsd:annotation>
+        <xsd:documentation xml:lang="en">
+          Source of the video stream.
+        </xsd:documentation>
+      </xsd:annotation>
+    </xsd:attribute>
+    <xsd:attribute name="audio" type="xsd:string">
+      <xsd:annotation>
+        <xsd:documentation xml:lang="en">
+          Source of the audio stream.
+        </xsd:documentation>
+      </xsd:annotation>
+    </xsd:attribute>
+    <xsd:attribute name="timecode" type="xsd:string">
+      <xsd:annotation>
+        <xsd:documentation xml:lang="en">
+          Origin of the timecode values.
+        </xsd:documentation>
+      </xsd:annotation>
+    </xsd:attribute>
+  </xsd:complexType>
+  <xsd:complexType name="framesType">
+    <xsd:annotation>
+      <xsd:documentation xml:lang="en">
+        As the qualities of a dv stream can change from frame to frame, the frames element groups together frames of like qualities. If a dv frame contains a specific quality that is different than that of the previous frame (such as a change from 4/3 aspect ratio to 16/9 or a change from 48000 Hz audio to 32000 Hz audio), then a new frames element will start.
+      </xsd:documentation>
+    </xsd:annotation>
+    <xsd:sequence>
+      <xsd:element name="frame" type="frameType" minOccurs="0" maxOccurs="unbounded"/>
+    </xsd:sequence>
+    <xsd:attribute name="scan_type" type="xsd:string">
+      <xsd:annotation>
+        <xsd:documentation xml:lang="en">
+          String representing the interlacement pattern of the frame.
+          Options are:
+          T: top, 
+          TT: top field only, 
+          B: bottom, 
+          BB: bottom field only,
+          P: progressive
+        </xsd:documentation>
+      </xsd:annotation>
+    </xsd:attribute>
+    <xsd:attribute name="count" type="xsd:integer">
+      <xsd:annotation>
+        <xsd:documentation xml:lang="en">
+          Frame count within the current frames sequence.
+        </xsd:documentation>
+      </xsd:annotation>
+    </xsd:attribute>
+    <xsd:attribute name="pts" type="xsd:string">
+      <xsd:annotation>
+        <xsd:documentation xml:lang="en">
+          Presentation timestamp for start of sequence.
+        </xsd:documentation>
+      </xsd:annotation>
+    </xsd:attribute>
+    <xsd:attribute name="end_pts" type="xsd:string">
+      <xsd:annotation>
+        <xsd:documentation xml:lang="en">
+          Presentation timestamp for end of sequence.
+        </xsd:documentation>
+      </xsd:annotation>
+    </xsd:attribute>
+    <xsd:attribute name="abst" type="xsd:string">
+      <xsd:annotation>
+        <xsd:documentation xml:lang="en">
+          Absolute Timecode for start of sequence.
+        </xsd:documentation>
+      </xsd:annotation>
+    </xsd:attribute>
+    <xsd:attribute name="end_abst" type="xsd:string">
+      <xsd:annotation>
+        <xsd:documentation xml:lang="en">
+          Absolute Timecode of end of sequence.
+        </xsd:documentation>
+      </xsd:annotation>
+    </xsd:attribute>
+    <xsd:attribute name="size" type="sizeType"/>
+    <xsd:attribute name="pixel_format" type="pixel_formatType"/>
+    <xsd:attribute name="video_rate" type="video_rateType"/>
+    <xsd:attribute name="chroma_subsampling" type="chroma_subsamplingType"/>
+    <xsd:attribute name="aspect_ratio" type="aspect_ratioType"/>
+    <xsd:attribute name="audio_rate" type="audio_rateType"/>
+    <xsd:attribute name="channels" type="channelsType"/>
+    <xsd:attribute name="captions" type="captionsType" default="n"/>
+    <xsd:attribute name="no_sourceorcontrol_aud" type="xsd:boolean">
+      <xsd:annotation>
+        <xsd:documentation xml:lang="en">
+          Boolean that indicates if no audio source and no audio source control pack is present in audio but at least 1 pack is present in audio.
+        </xsd:documentation>
+      </xsd:annotation>
+    </xsd:attribute>
+    <xsd:attribute name="speed" type="xsd:integer">
+      <xsd:annotation>
+        <xsd:documentation xml:lang="en">
+          Integer that indicates the speed stored in the DV frames. Range from -127 to 127. Not provided if value is 31 or 32 (considered as normal playback).
+        </xsd:documentation>
+      </xsd:annotation>
+    </xsd:attribute>
+  </xsd:complexType>
+
+  <xsd:simpleType name="sizeType">
+    <xsd:annotation>
+      <xsd:documentation xml:lang="en">
+        Dimensions of frame represented as width x height in pixels.
+      </xsd:documentation>
+    </xsd:annotation>
+    <xsd:restriction base="xsd:string">
+      <xsd:enumeration value="720x480"/>
+      <xsd:enumeration value="720x486"/>
+      <xsd:enumeration value="720x576"/>
+      <xsd:enumeration value="1280x1080"/>
+      <xsd:enumeration value="1440x1080"/>
+      <xsd:enumeration value="960x720"/>
+    </xsd:restriction>
+  </xsd:simpleType>
+
+  <xsd:simpleType name="pixel_formatType">
+    <xsd:annotation>
+      <xsd:documentation xml:lang="en">
+        Pixel format.
+      </xsd:documentation>
+    </xsd:annotation>
+    <xsd:restriction base="xsd:string">
+      <xsd:enumeration value="uyvy"/>
+      <xsd:enumeration value="v210"/>
+    </xsd:restriction>
+  </xsd:simpleType>
+
+  <xsd:simpleType name="video_rateType">
+    <xsd:annotation>
+      <xsd:documentation xml:lang="en">
+        Frame rate.
+      </xsd:documentation>
+    </xsd:annotation>
+    <xsd:restriction base="xsd:string">
+      <xsd:enumeration value="25"/>
+      <xsd:enumeration value="50"/>
+      <xsd:enumeration value="30000/1001"/>
+      <xsd:enumeration value="60000/1001"/>
+    </xsd:restriction>
+  </xsd:simpleType>
+
+  <xsd:simpleType name="chroma_subsamplingType">
+    <xsd:annotation>
+      <xsd:documentation xml:lang="en">
+        Chroma subsampling value represented in three part ratio notation.
+      </xsd:documentation>
+    </xsd:annotation>
+    <xsd:restriction base="xsd:string">
+      <xsd:enumeration value="4:1:1"/>
+      <xsd:enumeration value="4:2:0"/>
+      <xsd:enumeration value="4:2:2"/>
+    </xsd:restriction>
+  </xsd:simpleType>
+
+  <xsd:simpleType name="aspect_ratioType">
+    <xsd:annotation>
+      <xsd:documentation xml:lang="en">
+            Frame aspect ratio represented in fractional notation.
+      </xsd:documentation>
+    </xsd:annotation>
+    <xsd:restriction base="xsd:string">
+      <xsd:enumeration value="4/3"/>
+      <xsd:enumeration value="16/9"/>
+    </xsd:restriction>
+  </xsd:simpleType>
+
+  <xsd:simpleType name="audio_rateType">
+    <xsd:annotation>
+      <xsd:documentation xml:lang="en">
+        Frame audio rate represented in full integer notation.
+      </xsd:documentation>
+    </xsd:annotation>
+    <xsd:restriction base="xsd:integer">
+      <xsd:enumeration value="32000"/>
+      <xsd:enumeration value="44100"/>
+      <xsd:enumeration value="48000"/>
+    </xsd:restriction>
+  </xsd:simpleType>
+
+  <xsd:simpleType name="channelsType">
+    <xsd:annotation>
+      <xsd:documentation xml:lang="en">
+            Number of audio channels, between 0-8.
+            DV25: 0-2
+            DV50: 0-4
+            DV100: 0-8
+      </xsd:documentation>
+    </xsd:annotation>
+    <xsd:restriction base="xsd:integer">
+      <xsd:minInclusive value="0"/>
+      <xsd:maxInclusive value="8"/>
+    </xsd:restriction>
+  </xsd:simpleType>
+
+  <xsd:simpleType name="captionsType">
+    <xsd:annotation>
+      <xsd:documentation xml:lang="en">
+        Values of 'y' and 'n' indicate whether there is or is not the presence of EIA-608 closed captioning packs with the VAUX section of the DV frames.
+        'p' when some but not all frames have captions; in that case frame/@cap contains information about begin and end of the closed captioning packs presence.
+      </xsd:documentation>
+    </xsd:annotation>
+    <xsd:restriction base="xsd:string">
+      <xsd:enumeration value="y"/>
+      <xsd:enumeration value="n"/>
+      <xsd:enumeration value="p"/>
+    </xsd:restriction>
+  </xsd:simpleType>
+
+  <xsd:complexType name="frameType">
+    <xsd:annotation>
+      <xsd:documentation xml:lang="en">
+        A frame element holds notable information about frames that have been identified to include errors.
+      </xsd:documentation>
+    </xsd:annotation>
+    <xsd:sequence>
+      <xsd:element name="dseq" type="dseqType" minOccurs="0" maxOccurs="unbounded"/>
+      <xsd:element name="sta" type="staType" minOccurs="0" maxOccurs="unbounded"/>
+      <xsd:element name="aud" type="audType" minOccurs="0" maxOccurs="unbounded"/>
+      <xsd:element name="signalstats" type="signalstatsType" minOccurs="0" maxOccurs="unbounded"/>
+    </xsd:sequence>
+    <xsd:attribute name="n" type="xsd:integer">
+      <xsd:annotation>
+        <xsd:documentation xml:lang="en">
+          The number of the DIF sequence within the frame starting from zero.
+        </xsd:documentation>
+      </xsd:annotation>
+    </xsd:attribute>
+    <xsd:attribute name="pos" type="xsd:integer">
+      <xsd:annotation>
+        <xsd:documentation xml:lang="en">
+          Position (byte offset) of the frame.
+        </xsd:documentation>
+      </xsd:annotation>
+    </xsd:attribute>
+    <xsd:attribute name="pts" type="xsd:string">
+      <xsd:annotation>
+        <xsd:documentation xml:lang="en">
+          Presentation timestamp for frame element.
+        </xsd:documentation>
+      </xsd:annotation>
+    </xsd:attribute>
+    <xsd:attribute name="abst" type="xsd:string">
+      <xsd:annotation>
+        <xsd:documentation xml:lang="en">
+          The ABSolute Track number for frame element, which references its corresponding tape position.
+        </xsd:documentation>
+      </xsd:annotation>
+    </xsd:attribute>
+    <xsd:attribute name="abst_r" type="xsd:boolean">
+      <xsd:annotation>
+        <xsd:documentation xml:lang="en">
+          Boolean that indicates if absolute track number is repeating.
+        </xsd:documentation>
+      </xsd:annotation>
+    </xsd:attribute>
+    <xsd:attribute name="abst_nc" type="xsd:boolean">
+      <xsd:annotation>
+        <xsd:documentation xml:lang="en">
+          Boolean that indicates if absolute track number is non-consecutive.
+        </xsd:documentation>
+      </xsd:annotation>
+    </xsd:attribute>
+    <xsd:attribute name="tc" type="xsd:string">
+      <xsd:annotation>
+        <xsd:documentation xml:lang="en">
+          Timecode.
+        </xsd:documentation>
+      </xsd:annotation>
+    </xsd:attribute>
+    <xsd:attribute name="tc_r" type="xsd:boolean">
+      <xsd:annotation>
+        <xsd:documentation xml:lang="en">
+          Boolean that indicates if timecode is repeating.
+        </xsd:documentation>
+      </xsd:annotation>
+    </xsd:attribute>
+    <xsd:attribute name="tc_nc" type="xsd:integer">
+      <xsd:annotation>
+        <xsd:documentation xml:lang="en">
+          A value indicating if timecode is non-consecutive.
+          1: The timecode is non-continuous and the current value is greater than the previous value.
+          2: The timecode is non-continuous and the current value is less than the prev value.
+        </xsd:documentation>
+      </xsd:annotation>
+    </xsd:attribute>
+    <xsd:attribute name="rdt" type="xsd:string">
+      <xsd:annotation>
+        <xsd:documentation xml:lang="en">
+          Recorded Date Time.
+        </xsd:documentation>
+      </xsd:annotation>
+    </xsd:attribute>
+    <xsd:attribute name="rdt_r" type="xsd:boolean">
+      <xsd:annotation>
+        <xsd:documentation xml:lang="en">
+          Boolean that indicates if recorded date time is repeating.
+        </xsd:documentation>
+      </xsd:annotation>
+    </xsd:attribute>
+    <xsd:attribute name="rdt_nc" type="xsd:integer">
+      <xsd:annotation>
+        <xsd:documentation xml:lang="en">
+          A value indicating if recorded date time is non-consecutive.
+          1: The recorded date time is non-continuous and the current value is greater than the previous value.
+          2: The recorded date time is non-continuous and the current value is less than the prev value.
+        </xsd:documentation>
+      </xsd:annotation>
+    </xsd:attribute>
+    <xsd:attribute name="rec_start" type="xsd:boolean">
+      <xsd:annotation>
+        <xsd:documentation xml:lang="en">
+          Recording start.
+        </xsd:documentation>
+      </xsd:annotation>
+    </xsd:attribute>
+    <xsd:attribute name="rec_end" type="xsd:boolean">
+      <xsd:annotation>
+        <xsd:documentation xml:lang="en">
+              Recording end.
+        </xsd:documentation>
+      </xsd:annotation>
+    </xsd:attribute>
+    <xsd:attribute name="arb" type="xsd:string">
+      <xsd:annotation>
+        <xsd:documentation xml:lang="en">
+          Arbitrary data. This attribute is deprecated and superseded by @seqn as IEC61834-4-amd1{ed1.0} references to this values as 'sequence number' (not to be confused with 'DIF sequence number').
+        </xsd:documentation>
+      </xsd:annotation>
+    </xsd:attribute>
+    <xsd:attribute name="arb_r" type="xsd:boolean">
+      <xsd:annotation>
+        <xsd:documentation xml:lang="en">
+          Boolean that indicates if arbitrary data is repeating. This attribute is deprecated and superseded by @seqn_r.
+        </xsd:documentation>
+      </xsd:annotation>
+    </xsd:attribute>
+    <xsd:attribute name="arb_nc" type="xsd:boolean">
+      <xsd:annotation>
+        <xsd:documentation xml:lang="en">
+          Boolean that indicates if arbitrary data is non-consecutive. This attribute is deprecated and superseded by @seqn_nc.
+        </xsd:documentation>
+      </xsd:annotation>
+    </xsd:attribute>
+    <xsd:attribute name="seqn" type="xsd:string">
+      <xsd:annotation>
+        <xsd:documentation xml:lang="en">
+          Sequence number. DVRescue represents this four bit value in hexadecimal. For 525-60 systems values of 0, 2, 4, 6, 8, and A imply the frame is a colour frame A and values of 1, 3, 5, 7, 9, and B imply the frame is a colour frame B. For 625-50 systems values of 0, 4, and 8 imply the frame is field 1 and field 2, values of 1, 5, and 9 imply the frame is field 3 and field 4, values of 2, 6, and A imply the frame is field 5 and field 6, and values of 3, 7, and B imply the frame is field 7 and field 8. Values of C, D, and E are not used and a value of F implies that there is no sequence number information. Generally sequence numbers are recorded in a repeating pattern of 0 through B sequentially.
+        </xsd:documentation>
+      </xsd:annotation>
+    </xsd:attribute>
+    <xsd:attribute name="seqn_r" type="xsd:boolean">
+      <xsd:annotation>
+        <xsd:documentation xml:lang="en">
+          Boolean that indicates if the sequence number is repeating.
+        </xsd:documentation>
+      </xsd:annotation>
+    </xsd:attribute>
+    <xsd:attribute name="seqn_nc" type="xsd:boolean">
+      <xsd:annotation>
+        <xsd:documentation xml:lang="en">
+          Boolean that indicates if the sequence number is non-consecutive.
+        </xsd:documentation>
+      </xsd:annotation>
+    </xsd:attribute>
+    <xsd:attribute name="caption" type="captionType"/>
+    <xsd:attribute name="caption-parity" type="xsd:string">
+      <xsd:annotation>
+        <xsd:documentation xml:lang="en">
+          A value of 'mismatch' indicates that a EIA-608 closed captioning pack is present within the VAUX section of the frame, but that at least one of the contained captioning values fails its parity check.
+        </xsd:documentation>
+      </xsd:annotation>
+    </xsd:attribute>
+    <xsd:attribute name="no_pack" type="xsd:boolean">
+      <xsd:annotation>
+        <xsd:documentation xml:lang="en">
+          Boolean that indicates if no pack is present in subcode/video/audio.
+        </xsd:documentation>
+      </xsd:annotation>
+    </xsd:attribute>
+    <xsd:attribute name="no_pack_sub" type="xsd:boolean">
+      <xsd:annotation>
+        <xsd:documentation xml:lang="en">
+          Boolean that indicates if no pack is present in subcode but at least 1 pack is present is video or audio.
+        </xsd:documentation>
+      </xsd:annotation>
+    </xsd:attribute>
+    <xsd:attribute name="no_pack_vid" type="xsd:boolean">
+      <xsd:annotation>
+        <xsd:documentation xml:lang="en">
+          Boolean that indicates if no pack is present in video but at least 1 pack is present is subcode or audio.
+        </xsd:documentation>
+      </xsd:annotation>
+    </xsd:attribute>
+    <xsd:attribute name="no_pack_aud" type="xsd:boolean">
+      <xsd:annotation>
+        <xsd:documentation xml:lang="en">
+          Boolean that indicates if no pack is present in audio but at least 1 pack is present in subcode or video.
+        </xsd:documentation>
+      </xsd:annotation>
+    </xsd:attribute>
+    <xsd:attribute name="no_sourceorcontrol_vid" type="xsd:boolean">
+      <xsd:annotation>
+        <xsd:documentation xml:lang="en">
+          Boolean that indicates if no video source and no video source control pack is present in video but at least 1 pack is present in video.
+        </xsd:documentation>
+      </xsd:annotation>
+    </xsd:attribute>
+    <xsd:attribute name="no_sourceorcontrol_aud" type="xsd:boolean">
+      <xsd:annotation>
+        <xsd:documentation xml:lang="en">
+          Boolean that indicates if no audio source and no audio source control pack is present in audio but at least 1 pack is present in audio.
+        </xsd:documentation>
+      </xsd:annotation>
+    </xsd:attribute>
+    <xsd:attribute name="full_conceal" type="xsd:boolean">
+      <xsd:annotation>
+        <xsd:documentation xml:lang="en">
+          Boolean that indicates that all video information in frame consists of error concealment, and all audio information consists of audio error codes.
+        </xsd:documentation>
+      </xsd:annotation>
+    </xsd:attribute>
+    <xsd:attribute name="full_conceal_vid" type="xsd:boolean">
+      <xsd:annotation>
+        <xsd:documentation xml:lang="en">
+          Boolean that indicates that all video information in frame consists of error concealment.
+        </xsd:documentation>
+      </xsd:annotation>
+    </xsd:attribute>
+    <xsd:attribute name="full_conceal_aud" type="xsd:boolean">
+      <xsd:annotation>
+        <xsd:documentation xml:lang="en">
+          Boolean that indicates that all audio information in frame consists of error codes.
+        </xsd:documentation>
+      </xsd:annotation>
+    </xsd:attribute>
+    <xsd:attribute name="conceal_aud_type" type="xsd:integer" default="1">
+      <xsd:annotation>
+        <xsd:documentation xml:lang="en">
+          See audType@t.
+        </xsd:documentation>
+      </xsd:annotation>
+    </xsd:attribute>
+    <xsd:attribute name="conceal_aud_value" type="xsd:string" default="1">
+      <xsd:annotation>
+        <xsd:documentation xml:lang="en">
+          See audType@v.
+        </xsd:documentation>
+      </xsd:annotation>
+    </xsd:attribute>
+  </xsd:complexType>
+
+  <xsd:simpleType name="captionType">
+    <xsd:annotation>
+      <xsd:documentation xml:lang="en">
+        When frames/@captions is 'p' (partial), contains information about closed captioning packs presence.
+        'on' at the first (in this 'frames' element) frame starting a closed captioning packs stream.
+        'off' at the first frame without captioning packs when previous frames have it.
+      </xsd:documentation>
+    </xsd:annotation>
+    <xsd:restriction base="xsd:string">
+      <xsd:enumeration value="on"/>
+      <xsd:enumeration value="off"/>
+    </xsd:restriction>
+  </xsd:simpleType>
+
+  <xsd:complexType name="dseqType">
+    <xsd:sequence>
+      <xsd:element name="sta" type="staType" minOccurs="0" maxOccurs="unbounded"/>
+      <xsd:element name="aud" type="audType" minOccurs="0" maxOccurs="unbounded"/>
+    </xsd:sequence>
+    <xsd:attribute name="n" type="xsd:integer">
+      <xsd:annotation>
+        <xsd:documentation xml:lang="en">
+          The number of the DIF sequence within the frame starting from zero. An NTSC DV25 frame will have ten DIF sequences (0-9) and a PAL DV25 frame will have twelve (12) DIF sequences (0-11).
+        </xsd:documentation>
+      </xsd:annotation>
+    </xsd:attribute>
+  </xsd:complexType>
+
+  <xsd:complexType name="staType">
+    <xsd:attribute name="t" type="xsd:integer">
+      <xsd:annotation>
+        <xsd:documentation xml:lang="en">
+          Documents a type of non-zero STA value present in the frame (see table 26 of s314m). For convenience:
+          0 = No error, what a nice DV macroblock.
+          2 = Replaced a macroblock with the one of the same position of the previous frame (guaranteed continuity).
+          4 = Replaced a macroblock with the one of the same position of the next frame (guaranteed continuity).
+          6 = A concealment method is used but not specified (guaranteed continuity).
+          7 = Error with an error code within the macro block. O_O
+         10 = Same as 2 but continuity is not guaranteed.
+         12 = Same as 4 but continuity is not guaranteed.
+         14 = Same as 6 but continuity is not guaranteed.
+         15 = Error with unknown position.
+        </xsd:documentation>
+      </xsd:annotation>
+    </xsd:attribute>
+    <xsd:attribute name="n" type="xsd:integer">
+      <xsd:annotation>
+        <xsd:documentation xml:lang="en">
+          A count of this particular type of STA value within the frame or dseq. Since STA values only apply to video DIF blocks, the maximum value for a DV25 NTSC frame is 1350 (135 video-DIF-blocks * (10 DIF-sequences / NTSC-frame)) and the maximum value for a DV25 is 1620 (135 video-DIF-blocks * (12 DIF-sequences / PAL-frame)).
+        </xsd:documentation>
+      </xsd:annotation>
+    </xsd:attribute>
+    <xsd:attribute name="n_even" type="xsd:integer">
+      <xsd:annotation>
+        <xsd:documentation xml:lang="en">
+          A count of this particular type of STA value within the even-numbered DIF sequences of the frame. @n minus @n_even would provide the count of this particular type of STA value within the odd-numbered DIF sequences of the frame. A discrepancy between the counts within even and odd DIF sequences can indicate that the associated error is from the playback device of the source tape rather than damage to the source tape. The range is 0-675 for NTSC DV25 and 0-810 for PAL DV25.
+        </xsd:documentation>
+      </xsd:annotation>
+    </xsd:attribute>
+  </xsd:complexType>
+
+  <xsd:complexType name="audType">
+    <xsd:attribute name="t" type="xsd:integer" default="1">
+      <xsd:annotation>
+        <xsd:documentation xml:lang="en">
+          Documents the type of audio errors within the frame.
+          1 = An audio DIF block is filled with 0x8000 which indicates an invalid audio sample.
+          2 = An audio DIF block is filled with identical value not 0x8000 which indicates an invalid audio sample (not standard).
+        </xsd:documentation>
+      </xsd:annotation>
+    </xsd:attribute>
+    <xsd:attribute name="v" type="xsd:string">
+      <xsd:annotation>
+        <xsd:documentation xml:lang="en">
+          In case @t is 2, the repeated values, separated by a space; as the test is per block, there may be several values; values may be in hexadecimal (in that case, they are prepended with 0x).
+        </xsd:documentation>
+      </xsd:annotation>
+    </xsd:attribute>
+    <xsd:attribute name="n" type="xsd:integer">
+      <xsd:annotation>
+        <xsd:documentation xml:lang="en">
+          A count of this particular type of audio error within the frame or DIF sequence number (dseq). The maximum value for a DV25 NTSC frame is 90 (9 audio-DIF-blocks * (10 DIF-sequences / NTSC-frame)) and the maximum value for a DV25 is 108 (9 audio-DIF-blocks * (12 DIF-sequences / PAL-frame)).
+        </xsd:documentation>
+      </xsd:annotation>
+    </xsd:attribute>
+    <xsd:attribute name="n_even" type="xsd:integer">
+      <xsd:annotation>
+        <xsd:documentation xml:lang="en">
+          A count of this particular type of audio error within the even-numbered DIF sequences of the frame. @n minus @n_even would provide the count of this particular type of audio error within the odd-numbered DIF sequences of the frame. A discrepancy between the counts within even and odd DIF sequences can indicate that the associated error is from the playback device of the source tape rather than damage to the source tape. The range is 0-45 for NTSC DV25 and 0-54 for PAL DV25.
+        </xsd:documentation>
+      </xsd:annotation>
+    </xsd:attribute>
+  </xsd:complexType>
+
+  <xsd:complexType name="signalstatsType">
+    <xsd:attribute name="satavg" type="xsd:float">
+      <xsd:annotation>
+        <xsd:documentation xml:lang="en">
+          Average saturation of the frame.
+        </xsd:documentation>
+      </xsd:annotation>
+    </xsd:attribute>
+    <xsd:attribute name="sathi" type="xsd:integer">
+      <xsd:annotation>
+        <xsd:documentation xml:lang="en">
+          Highest saturation of the frame excluding the to 10% values.
+        </xsd:documentation>
+      </xsd:annotation>
+    </xsd:attribute>
+    <xsd:attribute name="satmax" type="xsd:integer">
+      <xsd:annotation>
+        <xsd:documentation xml:lang="en">
+          Highest saturation of the frame.
+        </xsd:documentation>
+      </xsd:annotation>
+    </xsd:attribute>
+  </xsd:complexType>
+
+</xsd:schema>

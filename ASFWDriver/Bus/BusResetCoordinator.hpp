@@ -1,0 +1,424 @@
+// Modified by Rewind Digital for rewindDV; changes relative to the retained ASFireWire baseline.
+#pragma once
+
+#include <atomic>
+#include <cstring>
+#include <functional>
+#include <optional>
+#include <string>
+#include <utility>
+
+#include "../Controller/ControllerTypes.hpp"
+#include "../Discovery/DiscoveryTypes.hpp" // For Discovery::Generation
+#include "../Hardware/RegisterMap.hpp"
+#include "BusManager.hpp"
+#include "SelfIDCapture.hpp"
+#include "Timing/PostResetTimingCoordinator.hpp"
+#include "../Shared/Completion/PostedWorkEpoch.hpp"
+
+#ifdef ASFW_HOST_TEST
+#include "../Testing/HostDriverKitStubs.hpp"
+#else
+#include <DriverKit/IODispatchQueue.h>
+#include <DriverKit/IOTimerDispatchSource.h>
+#include <DriverKit/OSSharedPtr.h>
+#endif
+
+namespace ASFW::Driver {
+
+class HardwareInterface;
+class SelfIDCapture;
+class ConfigROMStager;
+class InterruptManager;
+class TopologyManager;
+class BusManager;
+} // namespace ASFW::Driver
+
+namespace ASFW::Async {
+class IAsyncControllerPort;
+}
+
+namespace ASFW::Discovery {
+class ROMScanner;
+}
+
+namespace ASFW::Bus {
+class TopologyMapService;
+}
+
+namespace ASFW::Driver {
+
+#ifdef ASFW_HOST_TEST
+class BusResetCoordinatorTestPeer;
+#endif
+
+/**
+ * @class BusResetCoordinator
+ * @brief Orchestrates bus-reset recovery as a staged, deterministic FSM.
+ *
+ * The coordinator owns the sequencing constraints around Self-ID capture,
+ * async transmit quiescence, Config ROM restoration, interrupt ownership, and
+ * post-reset discovery handoff. Heavy work stays off the IRQ path; `OnIrq()`
+ * only latches reset-related bits and schedules deferred processing.
+ *
+ * Key spec constraints preserved here:
+ * - OHCI 1.1 §6.1 / Table 6-1 and §11.5 for `selfIDComplete2` sticky semantics
+ * - OHCI 1.1 §7.2.3.2 for AT inactivity before clearing `IntEvent.busReset`
+ * - IEEE 1394-2008 §8.2.1 for the 2 s software-reset holdoff after Self-ID
+ *   completion, with conservative handling of the §8.4.5.2 gap-count flow
+ */
+class BusResetCoordinator {
+  public:
+    using TopologyReadyCallback = std::function<void(const TopologySnapshot&)>;
+
+    enum class State : uint8_t {
+        Idle,               // Normal operation, no reset in progress
+        Detecting,          // busReset observed, mask interrupt, prime context
+        WaitingSelfID,      // Awaiting a stable Self-ID completion indication
+        QuiescingAT,        // Stop and flush AT contexts (AR continues)
+        RestoringConfigROM, // 3-step ROM restoration sequence
+        ClearingBusReset,   // Preconditions satisfied, clear busReset bit
+        Rearming,           // Re-enable filters, re-arm AT contexts
+        Complete,           // Publish metrics, unmask busReset, go Idle
+        QuiesceFailed,       // DMA inactivity unproven; retain buffers/admission closed
+    };
+
+    BusResetCoordinator();
+    ~BusResetCoordinator();
+
+    // Called before releasing or tearing down any borrowed runtime dependency.
+    // False means a callback still owns a lease: retain the runtime graph.
+    // This never waits on the queue that may be executing that callback.
+    [[nodiscard]] bool RetireDeferredWork() noexcept;
+
+    /**
+     * @brief Bind the coordinator to controller-owned infrastructure.
+     *
+     * The coordinator does not take ownership of the supplied objects. Callers
+     * must keep them alive for at least as long as the coordinator itself.
+     */
+    bool Initialize(HardwareInterface* hw, OSSharedPtr<IODispatchQueue> workQueue,
+                    Async::IAsyncControllerPort* asyncSys, SelfIDCapture* selfIdCapture,
+                    ConfigROMStager* configRom, InterruptManager* interrupts,
+                    TopologyManager* topology, BusManager* busManager = nullptr,
+                    Discovery::ROMScanner* romScanner = nullptr,
+                    ASFW::Bus::TopologyMapService* topologyMapService = nullptr);
+
+    /**
+     * Latch bus-reset related interrupt bits and schedule deferred recovery work.
+     *
+     * OHCI 1.1 §6.1 / Table 6-1 defines `selfIDComplete2` as a sticky companion
+     * to `selfIDComplete`, and §11.5 states it is cleared only via
+     * `IntEventClear`. This ingress path records the bits but leaves the
+     * ordering-sensitive clear/consume policy to the coordinator FSM.
+     */
+    void OnIrq(uint32_t intEvent, uint64_t timestamp);
+
+    /// Register the topology publication callback used after a stable reset completes.
+    void BindCallbacks(TopologyReadyCallback onTopology);
+
+    /// Return the most recent reset metrics snapshot.
+    const BusResetMetrics& Metrics() const { return metrics_; }
+
+    /// Post-reset timing gates (IEEE 1394-2008 §8.x / Annex H), anchored to
+    /// Self-ID completion. Read-only: consumed by diagnostics now and by the
+    /// BM/IRM/Isoch policy layers in later milestones.
+    const ASFW::Bus::Timing::PostResetTimingCoordinator& PostResetTiming() const noexcept {
+        return postResetTiming_;
+    }
+    ASFW::Bus::Timing::PostResetTimingCoordinator& PostResetTiming() noexcept {
+        return postResetTiming_;
+    }
+    /// Return the current FSM state.
+    State GetState() const { return state_; }
+    const char* StateString() const;
+    static const char* StateString(State state);
+
+    /// Legacy helper retained for tests that document the pre-FW-9 behavior.
+    /// Local cycleMaster is now controlled by RoleCoordinator, not reset rearm.
+    [[nodiscard]] static constexpr bool ShouldReassertCycleMasterOnRearm(bool wasRoot,
+                                                                         bool isRootNow) noexcept {
+        (void)wasRoot;
+        (void)isRootNow;
+        return false;
+    }
+
+    // ASFW-defined diagnostics codes for BusResetCoordinator recovery paths.
+    // These are not OHCI/IEEE 1394 wire or register values. They label the
+    // coordinator FSM branch that most recently recorded a recovery trigger.
+    enum class RecoveryReasonCode : uint8_t {
+        None = 0,
+        SelfIDDecodeFailed = 1,
+        SelfIDTimeout = 2,
+        TopologyBuildFailed = 3,
+        SoftwareResetDispatchFailed = 4,
+        ReadyForDiscoveryFailed = 5,
+        ManualResetWatchdog = 6,
+    };
+
+    struct ResetDiagnostics {
+        uint32_t driverStartId{0};
+        uint32_t resetEpoch{0};
+        uint32_t manualResetEpoch{0};
+        uint32_t softwareResetIssuedCount{0};
+        uint32_t busResetIrqCount{0};
+        uint32_t lastAcceptedGeneration{0};
+        uint8_t lastTopologyNodeCount{0};
+        uint8_t readyForDiscoveryFailureBits{0};
+        RecoveryReasonCode lastRecoveryReasonCode{RecoveryReasonCode::None};
+        uint8_t lastResetKind{0};
+        uint8_t recoveryResetAttempts{0};
+        uint8_t discoveryCallbackCount{0};
+    };
+
+    ResetDiagnostics Diagnostics() const;
+
+    /**
+     * Reset delegation retry counter (Linux pattern for emergency bypass).
+     *
+     * Call this when:
+     * 1. Gap=0 detected (critical error, bypass retry limit)
+     * 2. Topology actually changes (device added/removed)
+     */
+    void ResetDelegationRetryCounter();
+
+    /**
+     * Inform coordinator that the most recently completed ROM scan had
+     * nodes returning ack_busy_X (device still booting).  When true,
+     * the next post-reset discovery dispatch will be delayed to give
+     * slow-booting firmware (e.g. DICE) time to finish initialization
+     * before we scan again.
+     *
+     * The delay escalates with consecutive busy/empty scans:
+     *   2s → 4s → 6s → 8s → 10s (capped at kMaxDiscoveryDelayMs).
+     * Resets to 0 when a scan succeeds with actual ROMs.
+     */
+    void SetPreviousScanHadBusyNodes(bool busy);
+
+    /**
+     * Escalate the discovery delay without changing the busy-node flag.
+     * Call when a scan completes with 0 ROMs (no scannable nodes) — we
+     * learned nothing about whether the device recovered, so increase
+     * the delay for the next attempt.
+     */
+    void EscalateDiscoveryDelay();
+
+    /// Request a manually initiated bus reset (short or long). `reason` is a
+    /// static string surfaced in the reset-cycle logs.
+    void RequestUserReset(bool shortReset, const char* reason = "UserClient-initiated");
+
+    /// Request the long bus reset that must follow a runtime Config ROM / BIB
+    /// re-stage, so peers re-read the local ROM. Carries no PHY config of its own;
+    /// the coordinator still restates the current gap count per §8.2.1.
+    ///
+    /// Routed here rather than poking HardwareInterface::InitiateBusReset directly:
+    /// the coordinator is the sole software reset issuer, owning the §8.2.1 holdoff,
+    /// the PHY-config pairing and the reset-origin attribution. Apple draws the same
+    /// line — IOFireWireUserClient::busReset() only reaches the raw link when the
+    /// debug-only "unsafe bus resets" property is set.
+    void RequestConfigRomRestageReset(const char* reason = "Config ROM re-stage");
+
+    /// Request a RoleCoordinator-initiated PHY config + bus reset.
+    void RequestRolePolicyReset(uint8_t targetRoot, bool longReset,
+                                std::optional<uint8_t> gapCount,
+                                std::optional<bool> setContender,
+                                std::string reason);
+
+    static uint64_t MonotonicNow() noexcept;
+
+  private:
+#ifdef ASFW_HOST_TEST
+    friend class BusResetCoordinatorTestPeer;
+#endif
+
+    enum class StepResult : uint8_t { Continue, Yield, Finish };
+
+    // Why a software reset was asked for. Kept distinct per cause rather than
+    // collapsed onto Recovery: the kind is the only attribution a trace carries, and
+    // "which path issued this reset" is the first question every reset investigation
+    // asks.
+    enum class ResetRequestKind : uint8_t {
+        Recovery,
+        GapCorrection,
+        Delegation,
+        ManualBusManager,
+        // Config ROM / BIB capabilities were re-staged at runtime; peers must be made
+        // to re-read the local ROM. Long reset, no PHY config of its own.
+        RolePolicyRestage,
+    };
+
+    enum class ResetFlavor : uint8_t { Short, Long };
+
+    struct SelfIDLatchState {
+        bool complete{false};
+        bool stickyComplete{false};
+        uint64_t completeTimeNs{0};
+        uint64_t stickyCompleteTimeNs{0};
+
+        void Reset() noexcept {
+            complete = false;
+            stickyComplete = false;
+            completeTimeNs = 0;
+            stickyCompleteTimeNs = 0;
+        }
+    };
+
+    struct ResetTimingState {
+        uint64_t lastBusResetEdgeNs{0};
+        uint64_t lastSelfIdCompletionNs{0};
+        uint64_t softwareResetBlockedUntilNs{0};
+    };
+
+    struct ResetRequest {
+        ResetRequestKind kind{ResetRequestKind::Recovery};
+        ResetFlavor flavor{ResetFlavor::Short};
+        std::optional<BusManager::PhyConfigCommand> phyConfig;
+        std::string reason;
+        std::optional<BusManager::GapDecisionReason> gapDecisionReason;
+    };
+
+    struct ResetCycleState {
+        ResetTimingState timing{};
+        std::optional<SelfIDCapture::Result> acceptedSelfId;
+        std::optional<TopologySnapshot> acceptedTopology;
+        std::optional<ResetRequest> pendingReset;
+        std::optional<std::string> recoveryReason;
+
+        void ResetForNewEdge() noexcept {
+            acceptedSelfId.reset();
+            acceptedTopology.reset();
+            pendingReset.reset();
+            recoveryReason.reset();
+        }
+    };
+
+    void TransitionTo(State newState, const char* reason);
+    void RunStateMachine();
+    void BeginNewResetCycle();
+    void CompleteCurrentRun();
+    void YieldAndReschedule(uint32_t delayMs, const char* reason);
+
+    StepResult StepIdle();
+    StepResult StepDetecting();
+    StepResult StepWaitingSelfID();
+    StepResult StepQuiescingAT();
+    StepResult StepRestoringConfigROM();
+    StepResult StepClearingBusReset();
+    StepResult StepRearming();
+    StepResult StepComplete();
+
+    void MaskBusReset();
+    void UnmaskBusReset();
+    void ForceUnmaskBusResetIfNeeded();
+    void HandleStraySelfID();
+    void ClearStaleSelfIDComplete2();
+    void ClearConsumedSelfIDInterrupts();
+    void ArmSelfIDBuffer();
+    void StopFlushAT();
+    bool DecodeSelfID();
+    bool BuildTopology();
+    void RestoreConfigROM();
+    void ClearBusReset();
+    void EnableFilters();
+    void RearmAT();
+    void LogMetrics();
+    void ArmSoftwareResetHoldoffAfterSelfIDCompletion(uint64_t timestampNs) noexcept;
+    void SendGlobalResumeIfNeeded();
+    void MaybeRequestTopologyDrivenReset();
+    void EvaluateRootDelegation(const TopologySnapshot& topo);
+    void RequestSoftwareReset(ResetRequest request);
+    [[nodiscard]] ResetRequest MergeResetRequests(const ResetRequest& current,
+                                                  const ResetRequest& incoming) const;
+    bool MaybeDispatchPendingSoftwareReset();
+    void ClearSoftwareResetTracking(const ResetRequest& request, bool carriesDelegation);
+    [[nodiscard]] bool ApplySoftwareResetPhyConfig(const ResetRequest& request,
+                                                   bool carriesDelegation);
+    // Gap count to restate ahead of a software reset that carries no PHY config of its
+    // own (IEEE 1394-2008 §8.2.1; Linux core-card.c:252). nullopt when there is nothing
+    // worth preserving: no accepted topology, inconsistent gap counts, or already 63.
+    [[nodiscard]] std::optional<uint8_t> CurrentGapCountForBareReset() const noexcept;
+    void NoteIssuedGapReset(const ResetRequest& request);
+    bool DispatchSoftwareReset(const ResetRequest& request);
+    void ClearDelegationAttempt();
+    void RecordRecoveryReason(std::string reason);
+    void RecordRecoveryReasonCode(RecoveryReasonCode code);
+    void ScheduleManualResetWatchdog(uint32_t manualEpoch, uint32_t resetEpoch);
+    void MaybeRecoverMissingManualResetIrq(uint32_t manualEpoch, uint32_t resetEpoch);
+
+    bool G_ATInactive();
+    bool FailATQuiesceIfExpired();
+    bool HasSelfIDCompletion() const;
+    bool CanAttemptSelfIDDecode() const;
+    bool G_NodeIDValid() const;
+    bool G_IsRoot() const;
+
+    bool ReadyForDiscovery(Discovery::Generation gen);
+
+    State state_{State::Idle};
+    uint64_t stateEntryTime_{0};
+    std::atomic<bool> workInProgress_{false};
+    bool pendingBusResetEdge_{false};
+    bool stopFlushIssued_{false};
+    /// Tracks whether local was root at the previous rearm (Linux ohci->is_root).
+    bool wasRoot_{false};
+
+    BusResetMetrics metrics_{};
+
+    uint64_t firstIrqTime_{0};
+    uint64_t busResetClearTime_{0};
+    TopologyReadyCallback topologyCallback_;
+
+    std::atomic<bool> deferredRunScheduled_{false};
+    HardwareInterface* hardware_{nullptr};
+    Async::IAsyncControllerPort* asyncSubsystem_{nullptr};
+    SelfIDCapture* selfIdCapture_{nullptr};
+    ConfigROMStager* configRomStager_{nullptr};
+    InterruptManager* interruptManager_{nullptr};
+    TopologyManager* topologyManager_{nullptr};
+    BusManager* busManager_{nullptr};
+    Discovery::ROMScanner* romScanner_{nullptr};
+    ASFW::Bus::TopologyMapService* topologyMapService_{nullptr};
+
+    OSSharedPtr<IODispatchQueue> workQueue_;
+    std::shared_ptr<Shared::PostedWorkEpoch> deferredWorkEpoch_{
+        std::make_shared<Shared::PostedWorkEpoch>()};
+
+    SelfIDLatchState selfIdLatch_{};
+    ResetCycleState cycle_{};
+    // Post-reset timing gates, anchored to Self-ID completion (see PostResetTiming()).
+    ASFW::Bus::Timing::PostResetTimingCoordinator postResetTiming_{};
+    bool busResetMasked_{false};
+    Discovery::Generation lastGeneration_{0};
+
+    bool filtersEnabled_{false};
+    bool atArmed_{false};
+    bool delegateAttemptActive_{false};
+    uint8_t delegateTarget_{0xFF};
+    uint32_t delegateRetryCount_{0};
+    static constexpr uint32_t kMaxDelegateRetries = 5;
+    bool delegateSuppressed_{false};
+    uint32_t lastResumeGeneration_{0xFFFFFFFFU};
+
+    // Discovery delay for slow-booting devices (DICE/Saffire).
+    // Escalates with consecutive failed scans: 2s → 4s → 6s → 8s → 10s.
+    static constexpr uint32_t kDiscoveryDelayStepMs = 2000; // escalation step
+    static constexpr uint32_t kMaxDiscoveryDelayMs = 10000; // 10s cap
+    uint32_t currentDiscoveryDelayMs_{0};
+    bool previousScanHadBusyNodes_{false};
+
+    static std::atomic<uint32_t> nextDiagnosticsInstanceId_;
+    uint32_t diagnosticsInstanceId_{0};
+    uint32_t resetEpoch_{0};
+    uint32_t manualResetEpoch_{0};
+    uint32_t softwareResetIssuedCount_{0};
+    uint32_t busResetIrqCount_{0};
+    uint32_t lastAcceptedGeneration_{0};
+    uint8_t lastTopologyNodeCount_{0};
+    uint8_t readyForDiscoveryFailureBits_{0};
+    RecoveryReasonCode lastRecoveryReasonCode_{RecoveryReasonCode::None};
+    ResetRequestKind lastResetKind_{ResetRequestKind::Recovery};
+    uint8_t manualRecoveryResetAttempts_{0};
+    uint8_t discoveryCallbackCount_{0};
+};
+
+} // namespace ASFW::Driver

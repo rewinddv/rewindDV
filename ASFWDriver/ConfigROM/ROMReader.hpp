@@ -1,0 +1,172 @@
+// Modified by Rewind Digital for rewindDV; changes relative to the retained ASFireWire baseline.
+#pragma once
+
+#include <DriverKit/IOLib.h>
+
+#include <cstdint>
+#include <functional>
+#include <memory>
+#include <span>
+#include <utility>
+#include <vector>
+
+#include "Common/ConfigROMConstants.hpp"
+
+#ifdef ASFW_HOST_TEST
+#include "../Testing/HostDriverKitStubs.hpp"
+#else
+#include <DriverKit/IODispatchQueue.h>
+#include <DriverKit/OSSharedPtr.h>
+#endif
+
+#include "../Async/AsyncTypes.hpp"
+#include "../Discovery/DiscoveryTypes.hpp"
+#include "../Shared/Completion/PostedWorkEpoch.hpp"
+
+namespace ASFW::Async {
+class IFireWireBus;
+}
+
+namespace ASFW::Discovery {
+
+/**
+ * @class ROMReader
+ * @brief High-level wrapper around IFireWireBus for Config ROM reads.
+ *
+ * Provides convenient helpers for reading the Bus Info Block (BIB) and
+ * Root Directory quadlets using primitive quadlet read transactions
+ * (as recommended for compatibility). IEEE 1394-1995 §8.3.2 designates
+ * 0xFFFFF0000400 as the start of the Configuration ROM.
+ */
+class ROMReader {
+  public:
+    /**
+     * @brief Result passed to completion callbacks after a read operation.
+     */
+    struct ReadResult {
+        bool success{false};
+        uint8_t nodeId{0xFF};
+        Generation generation{0};
+        uint32_t address{0}; // AddressLo (0xF0000400 + offsetBytes)
+        Async::AsyncStatus status{Async::AsyncStatus::kHardwareError};
+
+        // Quadlets are stored as raw wire-order big-endian bytes in host memory.
+        // Consumers must byteswap (e.g. OSSwapBigToHostInt32) before interpreting fields.
+        std::vector<uint32_t> quadletsBE;
+
+        [[nodiscard]] std::span<const uint32_t> QuadletsBE() const noexcept {
+            return {quadletsBE.data(), quadletsBE.size()};
+        }
+
+        [[nodiscard]] uint32_t DataLengthBytes() const noexcept {
+            return static_cast<uint32_t>(quadletsBE.size() * sizeof(uint32_t));
+        }
+    };
+
+    using CompletionCallback = std::function<void(ReadResult)>;
+
+    enum class QuadletReadPolicy : uint8_t {
+        // Any read error fails the operation.
+        AllOrNothing,
+        // After at least one successful quadlet, any read error is treated as
+        // end-of-data and the operation completes successfully with a shortened prefix.
+        AllowPartialEOF,
+    };
+
+    explicit ROMReader(Async::IFireWireBus& bus,
+                       OSSharedPtr<IODispatchQueue> dispatchQueue = nullptr);
+    ~ROMReader() { lifetime_->Retire(); }
+    // Scanner shutdown revokes deferred continuations before its borrowed bus
+    // is released. A retired reader never submits another quadlet or notifies
+    // its retired scan owner. False requires retaining the runtime graph.
+    [[nodiscard]] bool RetireDeferredWork() noexcept {
+        lifetime_->Retire();
+        return lifetime_->Quiesced();
+    }
+
+    /**
+     * @brief Primitive: read N quadlets from Config ROM address space.
+     *
+     * @param nodeId Target node ID.
+     * @param generation Expected bus generation.
+     * @param speed Transaction speed.
+     * @param offsetBytes Offset relative to Config ROM base (0xFFFFF0000400).
+     * @param quadletCount Number of quadlets to read.
+     * @param callback Completion callback.
+     * @param policy Specifies how to handle read errors during a sequence.
+     */
+    void ReadQuadletsBE(uint8_t nodeId, Generation generation, FwSpeed speed, uint32_t offsetBytes,
+                        uint32_t quadletCount, CompletionCallback callback,
+                        QuadletReadPolicy policy = QuadletReadPolicy::AllOrNothing);
+
+    /**
+     * @brief Read Bus Info Block.
+     *
+     * Reads q0 first, then decides whether the remote ROM is q0-only minimal
+     * IEEE 1212 or a general IEEE 1394 BIB. General ROMs return q0..qN where
+     * N == bus_info_length, with q1 ("1394") synthesized for compatibility.
+     *
+     * @param nodeId Target node ID.
+     * @param generation Expected bus generation.
+     * @param speed Transaction speed.
+     * @param callback Completion callback.
+     */
+    void ReadBIB(uint8_t nodeId, Generation generation, FwSpeed speed, CompletionCallback callback);
+
+    /**
+     * @brief Read N quadlets from the root directory.
+     *
+     * @param nodeId Target node ID.
+     * @param generation Expected bus generation.
+     * @param speed Transaction speed.
+     * @param offsetBytes Offset relative to BIB start (0xFFFFF0000400).
+     * @param count Number of quadlets to read.
+     * @param callback Completion callback.
+     */
+    void ReadRootDirQuadlets(uint8_t nodeId, Generation generation, FwSpeed speed,
+                             uint32_t offsetBytes, uint32_t count, CompletionCallback callback);
+
+  private:
+    struct QuadletReadContext {
+        CompletionCallback userCallback;
+        Async::IFireWireBus* bus{nullptr};
+        OSSharedPtr<IODispatchQueue> dispatchQueue;
+        std::shared_ptr<Shared::PostedWorkEpoch> lifetime;
+        uint8_t nodeId{0};
+        Generation generation{0};
+        FwSpeed speed{FwSpeed::S100};
+        uint32_t baseAddress{0};
+        uint32_t quadletCount{0};
+        QuadletReadPolicy policy{QuadletReadPolicy::AllOrNothing};
+        std::vector<uint32_t> buffer;
+        uint32_t quadletIndex{0};
+        uint32_t successCount{0};
+    };
+
+    static constexpr uint32_t kBIBLength = ASFW::ConfigROM::kBIBLengthBytes;
+    static constexpr uint32_t kBIBQuadlets = ASFW::ConfigROM::kBIBQuadletCount;
+
+    Async::IFireWireBus& bus_;
+    OSSharedPtr<IODispatchQueue> dispatchQueue_;
+    std::shared_ptr<Shared::PostedWorkEpoch> lifetime_{
+        std::make_shared<Shared::PostedWorkEpoch>()};
+
+    static void ReadQuadletsBEImpl(Async::IFireWireBus& bus,
+                                   OSSharedPtr<IODispatchQueue> dispatchQueue,
+                                   std::shared_ptr<Shared::PostedWorkEpoch> lifetime, uint8_t nodeId,
+                                   Generation generation, FwSpeed speed, uint32_t offsetBytes,
+                                   uint32_t quadletCount, CompletionCallback callback,
+                                   QuadletReadPolicy policy);
+
+    static void ScheduleQuadletReadStep(const std::shared_ptr<QuadletReadContext>& ctx);
+    static void HandleQuadletReadComplete(const std::shared_ptr<QuadletReadContext>& ctx,
+                                          Async::AsyncStatus status,
+                                          std::span<const uint8_t> responsePayload);
+    static void EmitQuadletReadResult(const std::shared_ptr<QuadletReadContext>& ctx, bool success,
+                                      Async::AsyncStatus status, uint32_t quadletsToReturn);
+
+    static void ScheduleNextQuadlet(OSSharedPtr<IODispatchQueue> dispatchQueue,
+                                    std::function<void()> task);
+};
+
+} // namespace ASFW::Discovery

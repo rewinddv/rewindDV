@@ -1,0 +1,70 @@
+#pragma once
+
+#include <cstddef>
+#include <cstdint>
+#include <memory>
+#include <optional>
+
+#include "IIsochDMAMemory.hpp"
+#include "../../Shared/Memory/DMAMemoryManager.hpp"
+#include "../../Hardware/HardwareInterface.hpp"
+
+namespace ASFW::Isoch::Memory {
+
+struct IsochMemoryConfig {
+    size_t numDescriptors = 0;          // ring length
+    size_t packetSizeBytes = 0;         // per-packet buffer size (max)
+    size_t descriptorAlignment = 16;    // OHCI needs >=16
+    size_t payloadPageAlignment = 16384; // modern macOS default
+    bool allocatePayloadSlab = true;    // false for zero-copy TX descriptor-only managers
+};
+
+// Dedicated DMA for Isoch: separate from Async slab.
+// The descriptor slab always exists. RX can additionally own a payload slab;
+// zero-copy TX disables it and uses the externally shared producer slab.
+class IsochDMAMemoryManager final : public IIsochDMAMemory {
+public:
+    using IIsochDMAMemory::FetchFromDevice;
+    using IIsochDMAMemory::PublishToDevice;
+    using IIsochDMAMemory::VirtToIOVA;
+
+    static std::shared_ptr<IsochDMAMemoryManager> Create(const IsochMemoryConfig& cfg);
+
+    ~IsochDMAMemoryManager() override;
+
+    // Allocate the configured slabs using the same AllocateDMA path as Async.
+    bool Initialize(ASFW::Driver::HardwareInterface& hw);
+
+    // IIsochDMAMemory Implementation
+    std::optional<ASFW::Shared::DMARegion> AllocateDescriptor(size_t size) override;
+    std::optional<ASFW::Shared::DMARegion> AllocatePayloadBuffer(size_t size) override;
+
+    // IDMAMemory Implementation
+    std::optional<ASFW::Shared::DMARegion> AllocateRegion(size_t size, size_t alignment = 16) override;
+
+    uint64_t VirtToIOVA(const std::byte* virt) const noexcept override;
+    std::byte* IOVAToVirt(uint64_t iova) const noexcept override;
+
+    void PublishToDevice(const std::byte* address, size_t length) const noexcept override;
+    void FetchFromDevice(const std::byte* address, size_t length) const noexcept override;
+
+    size_t TotalSize() const noexcept override;
+    size_t AvailableSize() const noexcept override;
+
+private:
+    explicit IsochDMAMemoryManager(const IsochMemoryConfig& cfg);
+
+    static bool IsPowerOf2(size_t v) noexcept;
+    static size_t RoundUp(size_t v, size_t align) noexcept;
+
+    bool ValidateConfig() const noexcept;
+
+    IsochMemoryConfig cfg_{};
+
+    ASFW::Shared::DMAMemoryManager descMgr_;
+    ASFW::Shared::DMAMemoryManager payloadMgr_;
+
+    bool initialized_{false};
+};
+
+} // namespace ASFW::Isoch::Memory

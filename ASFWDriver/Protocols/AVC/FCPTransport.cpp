@@ -1,0 +1,952 @@
+// Modified for RewindDV Foundation Build159; see Foundation/NOTICE.md and candidate provenance.
+//
+// FCPTransport.cpp
+// ASFWDriver - AV/C Protocol Layer
+//
+// FCP (Function Control Protocol) transport layer implementation
+//
+
+#include "FCPTransport.hpp"
+#include "../../Logging/Logging.hpp"
+
+#include <algorithm>
+#include <vector>
+
+using namespace ASFW::Protocols::AVC;
+
+namespace {
+
+uint64_t MonotonicNowNs() noexcept {
+#ifdef ASFW_HOST_TEST
+    return ASFW::Testing::HostMonotonicNow();
+#else
+    static mach_timebase_info_data_t info{};
+    if (info.denom == 0) {
+        (void)mach_timebase_info(&info);
+    }
+    if (info.denom == 0) {
+        return 0;
+    }
+    const __uint128_t nanos = static_cast<__uint128_t>(mach_absolute_time()) * info.numer;
+    return static_cast<uint64_t>(nanos / info.denom);
+#endif
+}
+
+} // namespace
+
+//==============================================================================
+// Init / Destruction
+//==============================================================================
+
+bool FCPTransport::init(Protocols::Ports::FireWireBusOps* busOps,
+                        Protocols::Ports::FireWireBusInfo* busInfo,
+                        Discovery::FWDevice* device,
+                        Discovery::DeviceRegistry& routeRegistry,
+                        Scheduling::ITimerScheduler& timerScheduler,
+                        const FCPTransportConfig& config) {
+    busOps_ = busOps;
+    busInfo_ = busInfo;
+    routeRegistry_ = &routeRegistry;
+    timerScheduler_ = &timerScheduler;
+    config_ = config;
+    shuttingDown_ = false;
+
+    if (!busOps_ || !busInfo_ || !device || !routeRegistry_) {
+        ASFW_LOG_V1(FCP, "FCPTransport: Missing bus port or target device");
+        return false;
+    }
+
+    targetGuid_ = device->GetGUID();
+    const uint16_t initialNodeID = device->GetNodeID();
+    if (targetGuid_ == 0) {
+        return false;
+    }
+
+    // Allocate lock (DriverKit IOLock)
+    lock_ = IOLockAlloc();
+    if (!lock_) {
+        ASFW_LOG_V1(FCP, "FCPTransport: Failed to allocate lock");
+        return false;
+    }
+
+    ASFW_LOG_V1(FCP,
+                "FCPTransport: Initialized for device nodeID=%u, "
+                "cmdAddr=0x%llx, rspAddr=0x%llx",
+                initialNodeID, config_.commandAddress,
+                config_.responseAddress);
+    
+    return true;
+}
+
+FCPTransport::~FCPTransport() {
+    Shutdown();
+
+    // Free lock (cannot throw in DriverKit)
+    if (lock_) {
+        IOLockFree(lock_);
+        lock_ = nullptr;
+    }
+
+    ASFW_LOG_V1(FCP, "FCPTransport: Destroyed");
+}
+
+//==============================================================================
+// Command Submission
+//==============================================================================
+
+FCPHandle FCPTransport::SubmitCommand(const FCPFrame& command,
+                                      FCPCompletion completion) {
+    return SubmitCommand(command, std::move(completion), {});
+}
+
+FCPHandle FCPTransport::SubmitCommand(const FCPFrame& command,
+                                      FCPCompletion completion,
+                                      FCPCommandPolicy policy) {
+    if (!command.IsValid()) {
+        ASFW_LOG_V1(FCP,
+                     "FCPTransport: Invalid command size %zu (must be 3-512)",
+                     command.length);
+        completion(FCPStatus::kInvalidPayload, {});
+        return {};
+    }
+
+    if (!lock_) {
+        completion(FCPStatus::kTransportError, {});
+        return {};
+    }
+
+    auto cmd = std::make_unique<OutstandingCommand>();
+    cmd->command = command;
+    cmd->completion = std::move(completion);
+    cmd->policy = std::move(policy);
+
+    IOLockLock(lock_);
+
+    if (shuttingDown_) {
+        IOLockUnlock(lock_);
+        if (cmd->completion) {
+            cmd->completion(FCPStatus::kTransportError, {});
+        }
+        return {};
+    }
+
+    // Reserve a non-zero ID before admission. Queued commands are fully
+    // cancellable and must never share the active command's old fixed handle.
+    cmd->transactionID = ++nextTransactionID_;
+    if (cmd->transactionID == 0) {
+        cmd->transactionID = ++nextTransactionID_;
+    }
+    const bool isIdempotent = cmd->policy.retryClass == FCPRetryClass::kIdempotent;
+    cmd->retriesLeft = isIdempotent ? config_.maxRetries : 0;
+    cmd->allowBusResetRetry = isIdempotent && config_.allowBusResetRetry;
+    cmd->gotInterim = false;
+    cmd->interimResponseCount = 0;
+
+    if (pending_ || !queued_.empty()) {
+        const FCPQueuePolicy queuePolicy =
+            cmd->policy.queuePolicy.value_or(config_.queuePolicy);
+        if (queuePolicy == FCPQueuePolicy::kFifo) {
+            const FCPHandle handle{cmd->transactionID};
+            queued_.push_back(std::move(cmd));
+            const size_t queueDepth = queued_.size();
+            IOLockUnlock(lock_);
+            ASFW_LOG_V2(FCP, "FCPTransport: Queued command id=%u depth=%zu",
+                        handle.transactionID, queueDepth);
+            return handle;
+        }
+        IOLockUnlock(lock_);
+
+        ASFW_LOG_V1(FCP,
+                     "FCPTransport: Command already pending");
+        if (cmd->completion) {
+            cmd->completion(FCPStatus::kBusy, {});
+        }
+        return {};
+    }
+
+    {
+        char hexbuf[64] = {0};
+        size_t hexlen = std::min(command.length, static_cast<size_t>(16));
+        for (size_t i = 0; i < hexlen; i++) {
+            snprintf(hexbuf + i*3, 4, "%02x ", command.data[i]);
+        }
+        ASFW_LOG_HEX(FCP,
+                    "FCPTransport: Submitting command: opcode=0x%02x, length=%zu, "
+                    "retries=%u, data=[%{public}s]",
+                    command.data[2], command.length,
+                    cmd->retriesLeft, hexbuf);
+    }
+
+    pending_ = std::move(cmd);
+    const FCPHandle handle{pending_->transactionID};
+
+    IOLockUnlock(lock_);
+
+    if (!StartPendingWrite()) {
+        return {};
+    }
+    return handle;
+}
+
+ASFW::Async::AsyncHandle FCPTransport::SubmitWriteCommand(
+    const FCPFrame& frame,
+    FCPWriteAttempt writeAttempt,
+    const FCPAttemptObserver& observer) {
+    IOLockLock(lock_);
+    if (shuttingDown_ || !busOps_ || !routeRegistry_ || !pending_ ||
+        !pending_->activeWriteAttempt || pending_->activeWriteAttempt->id != writeAttempt.id ||
+        !routeRegistry_->IsCurrent(writeAttempt.route)) {
+        IOLockUnlock(lock_);
+        return Async::AsyncHandle{0};
+    }
+
+    const FW::Generation gen{writeAttempt.route.generation.value};
+    const FW::NodeId node{static_cast<uint8_t>(writeAttempt.route.nodeId & 0x3Fu)};
+    const Async::FWAddress addr{.nodeID = 0,
+        .addressHi = static_cast<uint16_t>((config_.commandAddress >> 32U) & 0xFFFFU),
+        .addressLo = static_cast<uint32_t>(config_.commandAddress & 0xFFFFFFFFU)};
+
+    IOLockUnlock(lock_);
+
+    // The async transaction owns this transport until its callback leaves.
+    // FCPTransport is ordinary C++ state, not a DriverKit OSObject: using
+    // OSObject::retain() on a `new`-allocated instance is invalid.
+    const auto self = weak_from_this().lock();
+    if (!self) {
+        return Async::AsyncHandle{0};
+    }
+    const auto handle = busOps_->WriteBlock(
+        gen, node, addr, frame.Payload(), FW::FwSpeed::S100,
+        [self, writeAttempt](Async::AsyncStatus status, std::span<const uint8_t> response) {
+            self->OnAsyncWriteComplete(writeAttempt, status, response);
+        });
+    if (handle.value && observer) {
+        observer(FCPAttemptEvidence{
+            .stage = FCPAttemptStage::kAsyncTransportAccepted,
+            .attemptID = writeAttempt.id,
+            .route = writeAttempt.route,
+            .timestampNs = MonotonicNowNs(),
+            .asyncHandle = handle.value,
+        });
+    }
+    return handle;
+}
+
+bool FCPTransport::StartPendingWrite() {
+    if (!lock_) {
+        return false;
+    }
+
+    IOLockLock(lock_);
+    if (shuttingDown_ || !pending_ || !routeRegistry_) {
+        IOLockUnlock(lock_);
+        return false;
+    }
+
+    const uint32_t transactionID = pending_->transactionID;
+    const auto route = routeRegistry_->CurrentRoute(targetGuid_);
+    if (!route.has_value()) {
+        IOLockUnlock(lock_);
+        CompleteCommand(FCPStatus::kBusReset, {}, transactionID);
+        return false;
+    }
+    if (pending_->policy.expectedRoute.has_value() &&
+        (*route != *pending_->policy.expectedRoute ||
+         !routeRegistry_->IsCurrent(*pending_->policy.expectedRoute))) {
+        IOLockUnlock(lock_);
+        CompleteCommand(FCPStatus::kTransportError, {}, transactionID);
+        return false;
+    }
+
+    pending_->asyncHandle = {};
+    const FCPWriteAttempt writeAttempt{
+        .id = ++nextWriteAttempt_,
+        .route = *route,
+    };
+    pending_->activeWriteAttempt = writeAttempt;
+    pending_->successfulWriteAttempt.reset();
+    const FCPFrame commandCopy = pending_->command;
+    const FCPAttemptObserver attemptObserver = pending_->policy.attemptObserver;
+    IOLockUnlock(lock_);
+
+    if (attemptObserver) {
+        attemptObserver(FCPAttemptEvidence{
+            .stage = FCPAttemptStage::kRouteBound,
+            .attemptID = writeAttempt.id,
+            .route = writeAttempt.route,
+            .timestampNs = MonotonicNowNs(),
+            .asyncHandle = 0,
+        });
+    }
+
+    ASFW_LOG_V2(FCP,
+                "FCPTransport: Issuing write attempt=%llu node=0x%04x generation=%u routeEpoch=%llu",
+                writeAttempt.id, writeAttempt.route.nodeId, writeAttempt.route.generation.value,
+                writeAttempt.route.routeEpoch);
+    const auto handle = SubmitWriteCommand(commandCopy, writeAttempt, attemptObserver);
+    if (!handle.value) {
+        ASFW_LOG_V1(FCP, "FCPTransport: Failed to submit async write");
+        CompleteCommand(FCPStatus::kTransportError, {}, transactionID);
+        return false;
+    }
+
+    IOLockLock(lock_);
+    const bool stillCurrent = !shuttingDown_ && pending_ &&
+                              pending_->transactionID == transactionID &&
+                              pending_->activeWriteAttempt.has_value() &&
+                              pending_->activeWriteAttempt->id == writeAttempt.id;
+    if (stillCurrent && !*writeAttempt.completed) {
+        pending_->asyncHandle = handle;
+    }
+    const bool cancelUncompletedWrite = !stillCurrent && !*writeAttempt.completed;
+    IOLockUnlock(lock_);
+
+    if (cancelUncompletedWrite && busOps_) {
+        busOps_->Cancel(handle);
+    }
+    return stillCurrent;
+}
+
+void FCPTransport::StartNextQueuedCommand() {
+    if (!lock_) {
+        return;
+    }
+
+    IOLockLock(lock_);
+    if (shuttingDown_ || pending_ || queued_.empty()) {
+        IOLockUnlock(lock_);
+        return;
+    }
+    pending_ = std::move(queued_.front());
+    queued_.pop_front();
+    IOLockUnlock(lock_);
+
+    (void)StartPendingWrite();
+}
+
+void FCPTransport::Shutdown() {
+    if (!lock_) {
+        shuttingDown_ = true;
+        return;
+    }
+
+    Async::AsyncHandle handle{};
+    std::vector<FCPCompletion> completions;
+
+    IOLockLock(lock_);
+    if (shuttingDown_) {
+        IOLockUnlock(lock_);
+        return;
+    }
+
+    shuttingDown_ = true;
+    if (pending_) {
+        handle = pending_->asyncHandle;
+        completions.push_back(std::move(pending_->completion));
+        CancelTimeout();
+        pending_.reset();
+    }
+    while (!queued_.empty()) {
+        completions.push_back(std::move(queued_.front()->completion));
+        queued_.pop_front();
+    }
+    IOLockUnlock(lock_);
+
+    if (handle.value && busOps_) {
+        busOps_->Cancel(handle);
+    }
+    for (auto& completion : completions) {
+        if (completion) {
+            completion(FCPStatus::kTransportError, {});
+        }
+    }
+}
+
+//==============================================================================
+// Command Cancellation
+//==============================================================================
+
+bool FCPTransport::CancelCommand(FCPHandle handle) {
+    if (!handle.IsValid() || !lock_) {
+        return false;
+    }
+
+    IOLockLock(lock_);
+
+    if (pending_ && pending_->transactionID == handle.transactionID) {
+        ASFW_LOG_V2(FCP, "FCPTransport: Cancelling active command id=%u", handle.transactionID);
+        const Async::AsyncHandle asyncHandle = pending_->asyncHandle;
+        // Prevent a synchronous cancel completion from retrying this command
+        // while the caller is explicitly terminating it.
+        pending_->activeWriteAttempt.reset();
+        pending_->successfulWriteAttempt.reset();
+        pending_->asyncHandle = {};
+        IOLockUnlock(lock_);
+
+        // Completion can be delivered synchronously by a host implementation, so
+        // never call into the async layer while holding the FCP state lock.
+        if (asyncHandle.value && busOps_) {
+            busOps_->Cancel(asyncHandle);
+        }
+
+        CompleteCommand(FCPStatus::kTransportError, {});
+        return true;
+    }
+
+    const auto queuedIt = std::find_if(
+        queued_.begin(), queued_.end(), [handle](const std::unique_ptr<OutstandingCommand>& cmd) {
+            return cmd && cmd->transactionID == handle.transactionID;
+        });
+    if (queuedIt == queued_.end()) {
+        IOLockUnlock(lock_);
+        return false;
+    }
+
+    FCPCompletion completion = std::move((*queuedIt)->completion);
+    queued_.erase(queuedIt);
+    IOLockUnlock(lock_);
+    ASFW_LOG_V2(FCP, "FCPTransport: Cancelled queued command id=%u", handle.transactionID);
+    if (completion) {
+        completion(FCPStatus::kTransportError, {});
+    }
+    return true;
+}
+
+//==============================================================================
+// Response Reception
+//==============================================================================
+
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
+void FCPTransport::OnFCPResponse(uint16_t srcNodeID,
+                                 uint32_t generation,
+                                 std::span<const uint8_t> payload) {
+    IOLockLock(lock_);
+
+    if (shuttingDown_ || !pending_) {
+        IOLockUnlock(lock_);
+        ASFW_LOG_V3(FCP,
+                     "FCPTransport: Spurious response (no pending command)");
+        return;
+    }
+
+    // AR Request and AR Response are separate DMA contexts. RxPath drains the
+    // request context first, so a target's FCP block write can be delivered
+    // before our earlier command-write acknowledgement is dispatched from AR
+    // Response. That ordering is normal on the wire: the FCP response itself
+    // is definitive proof that the target received and processed this command.
+    // Do not drop it merely because the local write-completion callback is
+    // still queued.
+    const bool responsePrecedesWriteCompletion = !pending_->successfulWriteAttempt.has_value();
+    if (responsePrecedesWriteCompletion && !pending_->activeWriteAttempt.has_value()) {
+        IOLockUnlock(lock_);
+        ASFW_LOG_V3(FCP,
+                     "FCPTransport: Ignoring response without an active write attempt");
+        return;
+    }
+
+    const FCPWriteAttempt successfulAttempt = responsePrecedesWriteCompletion
+                                                   ? *pending_->activeWriteAttempt
+                                                   : *pending_->successfulWriteAttempt;
+    const uint16_t expectedNodeID = successfulAttempt.route.nodeId;
+    const bool exactMatch = srcNodeID == expectedNodeID;
+    const bool nodeNumberMatch = (srcNodeID & 0x3F) == (expectedNodeID & 0x3F);
+    const bool sourceMatches = exactMatch || nodeNumberMatch;
+    const bool generationMatches = generation == successfulAttempt.route.generation.value;
+    const bool routeIsCurrent = routeRegistry_ && routeRegistry_->IsCurrent(successfulAttempt.route);
+
+    FCPFrame response;
+    response.length = std::min(payload.size(), response.data.size());
+    std::copy_n(payload.begin(), response.length, response.data.begin());
+
+    FCPResponseClassification classification = FCPResponseClassification::kMismatch;
+    if (routeIsCurrent && sourceMatches && generationMatches &&
+        pending_->policy.responseClassifier) {
+        classification =
+            pending_->policy.responseClassifier(pending_->command.Payload(), payload);
+    } else if (routeIsCurrent && sourceMatches && generationMatches &&
+               ValidateResponse(payload)) {
+        classification = response.data[0] == static_cast<uint8_t>(AVCResponseType::kInterim)
+                             ? FCPResponseClassification::kInterim
+                             : FCPResponseClassification::kOtherTerminal;
+    }
+
+    const FCPResponseObserver responseObserver = pending_->policy.responseObserver;
+    const FCPResponseEvidence responseEvidence{
+        .classification = classification,
+        .attemptID = successfulAttempt.id,
+        .route = successfulAttempt.route,
+        .timestampNs = MonotonicNowNs(),
+        .sourceNodeID = srcNodeID,
+        .generation = generation,
+        .response = response,
+    };
+
+    if (!routeIsCurrent || !sourceMatches || !generationMatches) {
+        IOLockUnlock(lock_);
+        if (responseObserver) {
+            responseObserver(responseEvidence);
+        }
+        if (!routeIsCurrent) {
+            ASFW_LOG_V3(FCP, "FCPTransport: Ignoring response for invalidated route token");
+        } else if (!sourceMatches) {
+            ASFW_LOG_V1(FCP,
+                         "FCPTransport: Response from wrong node: 0x%04x "
+                         "(expected node 0x%02x)",
+                         srcNodeID, expectedNodeID & 0x3F);
+        } else {
+            ASFW_LOG_V1(FCP,
+                         "FCPTransport: Response generation mismatch: %u (expected %u)",
+                         generation, successfulAttempt.route.generation.value);
+        }
+        return;
+    }
+    if (!exactMatch && nodeNumberMatch) {
+        ASFW_LOG_V3(FCP,
+                     "FCPTransport: Accepting response with matching node number but different bus ID "
+                     "(src=0x%04x expected=0x%04x)",
+                     srcNodeID, expectedNodeID);
+    }
+
+    if (classification == FCPResponseClassification::kMismatch) {
+        IOLockUnlock(lock_);
+        if (responseObserver) {
+            responseObserver(responseEvidence);
+        }
+        ASFW_LOG_V3(FCP,
+                     "FCPTransport: Response validation failed (likely stale/duplicate response)");
+        return;
+    }
+
+    if (responsePrecedesWriteCompletion) {
+        // Preserve the delivery proof for diagnostics and make a later async
+        // write completion a harmless stale callback after CompleteCommand().
+        pending_->successfulWriteAttempt = successfulAttempt;
+        ASFW_LOG_V2(FCP,
+                    "FCPTransport: Accepting FCP response before local write completion attempt=%llu",
+                    successfulAttempt.id);
+    }
+
+    ASFW_LOG_V2(FCP,
+                "FCPTransport: Received response: ctype=0x%02x, length=%zu",
+                response.data[0], response.length);
+
+    if (classification == FCPResponseClassification::kInterim) {
+        pending_->gotInterim = true;
+        ++pending_->interimResponseCount;
+
+        const bool interimLimitExceeded =
+            pending_->policy.maximumInterimResponses.has_value() &&
+            pending_->interimResponseCount > *pending_->policy.maximumInterimResponses;
+
+        if (interimLimitExceeded) {
+            IOLockUnlock(lock_);
+            if (responseObserver) {
+                responseObserver(responseEvidence);
+            }
+            CompleteCommand(FCPStatus::kTimeout, {});
+            return;
+        }
+
+        ASFW_LOG_V2(FCP,
+                    "FCPTransport: Got INTERIM response, extending timeout to %u ms",
+                    config_.interimTimeoutMs);
+
+        ScheduleTimeout(config_.interimTimeoutMs);
+
+        IOLockUnlock(lock_);
+        if (responseObserver) {
+            responseObserver(responseEvidence);
+        }
+        return;
+    }
+
+    IOLockUnlock(lock_);
+
+    if (responseObserver) {
+        responseObserver(responseEvidence);
+    }
+
+    CompleteCommand(FCPStatus::kOk, response);
+}
+
+//==============================================================================
+// Async Write Completion
+//==============================================================================
+
+void FCPTransport::OnAsyncWriteComplete(FCPWriteAttempt writeAttempt,
+                                        Async::AsyncStatus status,
+                                        std::span<const uint8_t> response) {
+    (void)response;
+    IOLockLock(lock_);
+
+    if (*writeAttempt.completed) {
+        IOLockUnlock(lock_);
+        return;
+    }
+    *writeAttempt.completed = true;
+
+    if (shuttingDown_ || !pending_) {
+        IOLockUnlock(lock_);
+        return;
+    }
+
+    // A reset/retry can have issued another FCP write while this asynchronous
+    // completion was in flight. It must not arm or fail the newer attempt.
+    if (!pending_->activeWriteAttempt.has_value() ||
+        pending_->activeWriteAttempt->id != writeAttempt.id) {
+        IOLockUnlock(lock_);
+        ASFW_LOG_V3(FCP, "FCPTransport: Ignoring stale write completion");
+        return;
+    }
+
+    // Async completion has released its transaction label. Keeping the handle
+    // while waiting for FCP would let a later retry/reset/cancel target a new
+    // unrelated transaction after that label is reused.
+    pending_->asyncHandle = {};
+
+    if (!routeRegistry_ || !routeRegistry_->IsCurrent(writeAttempt.route)) {
+        IOLockUnlock(lock_);
+        ASFW_LOG_V3(FCP, "FCPTransport: Ignoring write completion for invalidated route token");
+        return;
+    }
+
+    if (status != Async::AsyncStatus::kSuccess) {
+        ASFW_LOG_V1(FCP,
+                     "FCPTransport: Async write failed: %{public}s",
+                     ASFW::Async::ToString(status));
+
+        if (pending_->retriesLeft > 0) {
+            pending_->retriesLeft--;
+            ASFW_LOG_V2(FCP,
+                        "FCPTransport: Retrying command (%u retries left)",
+                        pending_->retriesLeft);
+
+            IOLockUnlock(lock_);
+            RetryCommand();
+            return;
+        }
+
+        IOLockUnlock(lock_);
+
+        CompleteCommand(FCPStatus::kTransportError, {});
+        return;
+    }
+
+    // The response interval begins only when the command write reached the
+    // remote node. Apple IOFireWireAVC records the route and arms its timer
+    // from writeDone; submission latency is not device response time.
+    pending_->successfulWriteAttempt = writeAttempt;
+    const uint32_t responseTimeoutMs =
+        pending_->policy.responseTimeoutMs.value_or(config_.timeoutMs);
+    ScheduleTimeout(responseTimeoutMs == 0 ? config_.timeoutMs : responseTimeoutMs);
+
+    IOLockUnlock(lock_);
+}
+
+//==============================================================================
+// Timeout Handling
+//==============================================================================
+
+void FCPTransport::OnCommandTimeout() {
+    IOLockLock(lock_);
+
+    if (shuttingDown_ || !pending_) {
+        IOLockUnlock(lock_);
+        return;
+    }
+
+    ASFW_LOG_V1(FCP,
+                 "FCPTransport: Command timeout (interim=%d, retries=%u)",
+                 pending_->gotInterim, pending_->retriesLeft);
+
+    if (pending_->retriesLeft > 0) {
+        pending_->retriesLeft--;
+        ASFW_LOG_V2(FCP,
+                    "FCPTransport: Retrying command after timeout (%u retries left)",
+                    pending_->retriesLeft);
+
+        IOLockUnlock(lock_);
+        RetryCommand();
+        return;
+    } else {
+        IOLockUnlock(lock_);
+        CompleteCommand(FCPStatus::kTimeout, {});
+        return;
+    }
+}
+
+void FCPTransport::ScheduleTimeout(uint32_t timeoutMs) {
+    if (shuttingDown_ || !pending_) {
+        return;
+    }
+
+    // FCP has only one in-flight command, so an interim response replaces the
+    // initial response deadline. The injected scheduler is the driver-owned
+    // IOTimerDispatchSource, not an IOSleep block occupying a queue thread.
+    CancelTimeout();
+    const uint64_t epoch = ++nextTimeoutEpoch_;
+    pending_->timeoutEpoch = epoch;
+
+    const auto self = weak_from_this().lock();
+    if (!self) {
+        return;
+    }
+
+    const auto token = timerScheduler_->ScheduleAfter(
+        static_cast<uint64_t>(timeoutMs) * 1'000'000ULL,
+        [self, epoch] {
+        IOLockLock(self->lock_);
+        bool shouldFire = (!self->shuttingDown_ && self->pending_ &&
+                           self->pending_->timeoutEpoch == epoch);
+        if (shouldFire) {
+            self->pending_->timeoutToken = Scheduling::kInvalidTimerToken;
+        }
+        IOLockUnlock(self->lock_);
+
+        if (shouldFire) {
+            self->OnCommandTimeout();
+        }
+    });
+
+    if (token == Scheduling::kInvalidTimerToken) {
+        ASFW_LOG_V1(FCP, "FCPTransport: Failed to schedule command timeout");
+        return;
+    }
+    pending_->timeoutToken = token;
+}
+
+void FCPTransport::CancelTimeout() {
+    if (!pending_ || pending_->timeoutToken == Scheduling::kInvalidTimerToken) {
+        return;
+    }
+
+    const auto token = pending_->timeoutToken;
+    pending_->timeoutToken = Scheduling::kInvalidTimerToken;
+    timerScheduler_->Cancel(token);
+}
+
+//==============================================================================
+// Retry Logic
+//==============================================================================
+
+void FCPTransport::RetryCommand() {
+    IOLockLock(lock_);
+
+    if (shuttingDown_ || !pending_) {
+        IOLockUnlock(lock_);
+        return;
+    }
+
+    CancelTimeout();
+    const Async::AsyncHandle priorHandle = pending_->asyncHandle;
+    pending_->asyncHandle = {};
+    // Cancel() is allowed to complete synchronously. Clear both attempt
+    // snapshots before calling out so that a late completion cannot arm or
+    // complete the replacement write.
+    pending_->activeWriteAttempt.reset();
+    pending_->successfulWriteAttempt.reset();
+    pending_->gotInterim = false;
+    pending_->interimResponseCount = 0;
+
+    IOLockUnlock(lock_);
+
+    // Cancel a previous in-flight attempt before submitting a retry. Its
+    // completion is tagged with the old attempt and will be ignored even if
+    // cancellation races delivery.
+    if (priorHandle.value && busOps_) {
+        busOps_->Cancel(priorHandle);
+    }
+
+    (void)StartPendingWrite();
+}
+
+//==============================================================================
+// Bus Reset Handling
+//==============================================================================
+
+void FCPTransport::OnBusReset(uint32_t newGeneration) {
+    IOLockLock(lock_);
+
+    if (shuttingDown_ || !pending_) {
+        IOLockUnlock(lock_);
+        return;
+    }
+
+    const auto activeRoute = pending_->successfulWriteAttempt
+                                 ? std::optional<Discovery::DeviceRouteToken>{pending_->successfulWriteAttempt->route}
+                                 : (pending_->activeWriteAttempt
+                                        ? std::optional<Discovery::DeviceRouteToken>{pending_->activeWriteAttempt->route}
+                                        : std::nullopt);
+    ASFW_LOG_V2(FCP,
+                "FCPTransport: Bus reset during command (gen %u → %u, "
+                "allowRetry=%d, retriesLeft=%u)",
+                activeRoute.has_value() ? activeRoute->generation.value : 0U, newGeneration,
+                pending_->allowBusResetRetry, pending_->retriesLeft);
+
+    const Async::AsyncHandle priorHandle = pending_->asyncHandle;
+    pending_->asyncHandle = {};
+    pending_->activeWriteAttempt.reset();
+    pending_->successfulWriteAttempt.reset();
+    pending_->gotInterim = false;
+    CancelTimeout();
+
+    if (pending_->allowBusResetRetry && pending_->retriesLeft > 0) {
+        // Linux's generic fcp helper retries a pending transaction after its
+        // update callback observes a reset (firewire/fcp.c:292-317). ASFW's
+        // DeviceManager deliberately invalidates all routes at that point, so
+        // we defer our idempotent replay until discovery has bound this GUID to
+        // the new generation. Apple likewise keeps the in-generation command
+        // variant from retrying directly on a reset
+        // (IOFireWireAVCCommand.cpp:430-458). This is a clean-room policy for
+        // our asynchronous, rebinding transport.
+        pending_->awaitingRouteRevalidation = true;
+        pending_->resetRoute = activeRoute;
+        pending_->gotInterim = false;
+        pending_->interimResponseCount = 0;
+
+        ASFW_LOG_V2(FCP,
+                    "FCPTransport: Deferring idempotent retry until route revalidation");
+
+        IOLockUnlock(lock_);
+        if (priorHandle.value && busOps_) {
+            busOps_->Cancel(priorHandle);
+        }
+        return;
+    }
+
+    IOLockUnlock(lock_);
+    if (priorHandle.value && busOps_) {
+        busOps_->Cancel(priorHandle);
+    }
+    CompleteCommand(FCPStatus::kBusReset, {});
+}
+
+void FCPTransport::OnRouteRevalidated(const Discovery::DeviceRouteToken& route) {
+    IOLockLock(lock_);
+
+    if (shuttingDown_ || !pending_ || !pending_->awaitingRouteRevalidation) {
+        IOLockUnlock(lock_);
+        return;
+    }
+
+    const bool routeIsCurrent = routeRegistry_ && routeRegistry_->IsCurrent(route) &&
+                                pending_->resetRoute.has_value() &&
+                                route.deviceIncarnation == pending_->resetRoute->deviceIncarnation;
+    if (!routeIsCurrent) {
+        IOLockUnlock(lock_);
+        ASFW_LOG_V3(FCP,
+                    "FCPTransport: Ignoring route revalidation for token epoch=%llu",
+                    route.routeEpoch);
+        return;
+    }
+
+    pending_->awaitingRouteRevalidation = false;
+    pending_->resetRoute.reset();
+    --pending_->retriesLeft;
+    IOLockUnlock(lock_);
+
+    ASFW_LOG_V2(FCP,
+                "FCPTransport: Retrying idempotent command on revalidated route epoch=%llu",
+                route.routeEpoch);
+    (void)StartPendingWrite();
+}
+
+
+bool FCPTransport::ValidateResponse(std::span<const uint8_t> response) const {
+    if (response.size() < kAVCFrameMinSize) {
+        ASFW_LOG_V3(FCP,
+                     "FCPTransport: Response too small: %zu bytes",
+                     response.size());
+        return false;
+    }
+
+    if (response.size() > kAVCFrameMaxSize) {
+        ASFW_LOG_V3(FCP,
+                     "FCPTransport: Response too large: %zu bytes",
+                     response.size());
+        return false;
+    }
+
+    uint8_t cmdAddress = pending_->command.data[1];
+    uint8_t rspAddress = response[1];
+
+    if (cmdAddress != rspAddress) {
+        ASFW_LOG_V3(FCP,
+                     "FCPTransport: Response address mismatch: 0x%02x (expected 0x%02x)",
+                     rspAddress, cmdAddress);
+        return false;
+    }
+
+    uint8_t cmdOpcode = pending_->command.data[2];
+    uint8_t rspOpcode = response[2];
+
+    bool opcodeMatches = false;
+
+    if (((cmdAddress & 0xF8) == 0x20) && (cmdOpcode == 0xD0)) {
+        opcodeMatches = (rspOpcode == 0xD0 || rspOpcode == 0xC1 ||
+                        rspOpcode == 0xC2 || rspOpcode == 0xC3 ||
+                        rspOpcode == 0xC4);
+
+        if (!opcodeMatches) {
+            ASFW_LOG_V3(FCP,
+                         "FCPTransport: Tape transport-state response opcode invalid: 0x%02x",
+                         rspOpcode);
+        }
+    } else {
+        opcodeMatches = ((rspOpcode & 0x7F) == (cmdOpcode & 0x7F));
+
+        if (!opcodeMatches) {
+            ASFW_LOG_V3(FCP,
+                         "FCPTransport: Response opcode mismatch: 0x%02x (expected 0x%02x)",
+                         rspOpcode, cmdOpcode);
+        }
+    }
+
+    if (!opcodeMatches) {
+        return false;
+    }
+
+    if (pending_->policy.responseMatcher &&
+        !pending_->policy.responseMatcher(pending_->command.Payload(), response)) {
+        ASFW_LOG_V3(FCP, "FCPTransport: Response rejected by command-specific matcher");
+        return false;
+    }
+
+    return true;
+}
+
+//==============================================================================
+// Command Completion
+//==============================================================================
+
+void FCPTransport::CompleteCommand(FCPStatus status, const FCPFrame& response,
+                                   std::optional<uint32_t> expectedTransaction) {
+    // Must NOT be called with lock held
+
+    IOLockLock(lock_);
+
+    if (!pending_ || (expectedTransaction && pending_->transactionID != *expectedTransaction)) {
+        IOLockUnlock(lock_);
+        return;
+    }
+
+    auto completion = std::move(pending_->completion);
+
+    // Cancel timeout
+    CancelTimeout();
+
+    // Clear pending
+    pending_.reset();
+
+    IOLockUnlock(lock_);
+
+    // Invoke completion OUTSIDE lock
+    if (completion) {
+        completion(status, response);
+    }
+
+    // A completion may synchronously submit another command. SubmitCommand()
+    // sees the non-empty queue and appends it, so the oldest queued command
+    // still starts first here.
+    StartNextQueuedCommand();
+}

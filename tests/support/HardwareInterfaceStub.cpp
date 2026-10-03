@@ -1,0 +1,577 @@
+// Modified by Rewind Digital for rewindDV; changes relative to the retained ASFireWire baseline.
+#include "HardwareInterface.hpp"
+#include "RegisterMap.hpp"
+#include "../ASFWDriver/Bus/IRM/IRMCSRConstants.hpp"
+
+#include <atomic>
+#include <mutex>
+#include <unordered_map>
+#include <utility>
+
+namespace ASFW::Driver {
+namespace {
+
+using RegisterKey = uint32_t;
+
+struct HardwareTestState {
+    std::function<void(Register32)> readHook;
+    OSSharedPtr<IODMACommand> dmaCommand;
+    std::unordered_map<RegisterKey, uint32_t> registers;
+    std::unordered_map<uint8_t, uint8_t> phyRegisters;
+    std::unordered_map<uint32_t, uint32_t> localIRMResources;
+    std::vector<HardwareInterface::TestOperation> operations;
+    bool busResetIssued{false};
+    bool lastBusResetWasShort{false};
+    bool initiateBusResetSucceeds{true};
+    bool lastBusResetSucceeded{true};
+    bool phyConfigIssued{false};
+    bool sendPhyConfigSucceeds{true};
+    bool lastPhyConfigSucceeded{true};
+    bool available{true};
+    bool globalResumeSent{false};
+    bool contenderEnabled{false};
+    std::optional<uint8_t> lastGapCount;
+    std::optional<uint8_t> lastForceRootNode;
+};
+
+std::mutex gHardwareStateLock;
+std::unordered_map<const HardwareInterface*, HardwareTestState> gHardwareStates;
+
+template <typename Fn>
+auto WithState(const HardwareInterface* hw, Fn&& fn) {
+    std::scoped_lock lock(gHardwareStateLock);
+    return fn(gHardwareStates[hw]);
+}
+
+constexpr RegisterKey KeyFor(Register32 reg) noexcept {
+    return static_cast<RegisterKey>(reg);
+}
+
+} // namespace
+
+HardwareInterface::HardwareInterface() {
+    std::scoped_lock lock(gHardwareStateLock);
+    gHardwareStates.try_emplace(this);
+    // Host fixtures construct this fake directly; there is no PCI provider
+    // attach phase. Model a fully initialized provider so scoped MMIO is
+    // available until an explicit RevokeAndDrain()/Detach(). Production keeps
+    // the gate closed until HardwareInterface::Attach() completes.
+    accessGate_.Open();
+}
+
+HardwareInterface::~HardwareInterface() {
+    std::scoped_lock lock(gHardwareStateLock);
+    gHardwareStates.erase(this);
+}
+
+kern_return_t HardwareInterface::Attach(IOService*, IOService*) {
+    WithState(this, [](HardwareTestState& state) { state.available = true; });
+    hardwareGoneReason_.store(static_cast<uint8_t>(HardwareGoneReason::kNone),
+                              std::memory_order_release);
+    accessGate_.Open();
+    return kIOReturnSuccess;
+}
+
+void HardwareInterface::RevokeAndDrain() noexcept {
+    WithState(this, [](HardwareTestState& state) { state.available = false; });
+    accessGate_.RevokeAndDrain();
+}
+
+void HardwareInterface::LatchProviderRevokedAndDrain() noexcept {
+    hardwareGoneReason_.store(static_cast<uint8_t>(HardwareGoneReason::kProviderRevoked),
+                              std::memory_order_release);
+    RevokeAndDrain();
+}
+
+void HardwareInterface::Detach() { RevokeAndDrain(); }
+
+bool HardwareInterface::Attached() const noexcept { return IsAvailable(); }
+
+bool HardwareInterface::IsAvailable() const noexcept {
+    return WithState(this, [](HardwareTestState& state) { return state.available; });
+}
+
+bool HardwareInterface::HardwareGone() const noexcept {
+    return hardwareGoneReason_.load(std::memory_order_acquire) !=
+           static_cast<uint8_t>(HardwareGoneReason::kNone);
+}
+
+HardwareGoneReason HardwareInterface::GoneReason() const noexcept {
+    return static_cast<HardwareGoneReason>(
+        hardwareGoneReason_.load(std::memory_order_acquire));
+}
+
+void HardwareInterface::BindAsyncControllerPort(ASFW::Async::IAsyncControllerPort* controllerPort) noexcept {
+    asyncControllerPort_ = controllerPort;
+}
+
+HardwareAccessScope HardwareInterface::TryBeginAccess() noexcept {
+    return accessGate_.TryBeginAccess(*this);
+}
+
+HardwareAccessScope::~HardwareAccessScope() { Release(); }
+
+HardwareAccessScope::HardwareAccessScope(HardwareAccessScope&& other) noexcept
+    : hardware_(std::exchange(other.hardware_, nullptr)), lock_(std::exchange(other.lock_, nullptr)) {}
+
+HardwareAccessScope& HardwareAccessScope::operator=(HardwareAccessScope&& other) noexcept {
+    if (this != &other) {
+        Release();
+        hardware_ = std::exchange(other.hardware_, nullptr);
+        lock_ = std::exchange(other.lock_, nullptr);
+    }
+    return *this;
+}
+
+void HardwareAccessScope::Release() noexcept {
+    if (lock_) {
+        IOLockUnlock(lock_);
+        lock_ = nullptr;
+        hardware_ = nullptr;
+    }
+}
+
+uint32_t HardwareAccessScope::Read(Register32 reg) const noexcept {
+    return hardware_ ? hardware_->ReadScoped(reg) : 0;
+}
+
+void HardwareAccessScope::Write(Register32 reg, uint32_t value) const noexcept {
+    if (hardware_) hardware_->WriteScoped(reg, value);
+}
+
+void HardwareAccessScope::FlushPostedWrites() const noexcept {
+    if (!hardware_) {
+        return;
+    }
+    hardware_->FlushPostedWritesScoped();
+}
+
+void HardwareAccessScope::WriteAndFlush(Register32 reg, uint32_t value) const noexcept {
+    Write(reg, value);
+    FlushPostedWrites();
+}
+
+uint32_t HardwareInterface::ReadScoped(Register32 reg) const noexcept {
+    if (HardwareGone()) {
+        return 0xFFFFFFFFu;
+    }
+    const auto value = WithState(this, [reg](HardwareTestState& state) -> uint32_t {
+        if (!state.available) {
+            return 0;
+        }
+        const auto it = state.registers.find(KeyFor(reg));
+        return (it != state.registers.end()) ? it->second : 0U;
+    });
+    auto hook = WithState(this, [](HardwareTestState& state) { return state.readHook; });
+    if (hook) hook(reg);
+    return value;
+}
+
+void HardwareInterface::WriteScoped(Register32 reg, uint32_t value) const noexcept {
+    if (HardwareGone()) {
+        return;
+    }
+    WithState(this, [reg, value](HardwareTestState& state) {
+        if (!state.available) {
+            return;
+        }
+        const uint32_t offset = static_cast<uint32_t>(reg);
+        for (uint32_t base : {uint32_t(DMAContextHelpers::AsReqTrContextControlSet),
+                              uint32_t(DMAContextHelpers::AsRspTrContextControlSet),
+                              uint32_t(DMAContextHelpers::AsReqRcvContextControlSet),
+                              uint32_t(DMAContextHelpers::AsRspRcvContextControlSet)}) {
+            if (offset == base) {
+                state.registers[base] |= value;
+                state.operations.push_back(TestOperation::Write);
+                return;
+            }
+            if (offset == base + 4) {
+                state.registers[base + 4] = value;
+                state.registers[base] &= ~value;
+                state.operations.push_back(TestOperation::Write);
+                return;
+            }
+        }
+        state.registers[KeyFor(reg)] = value;
+        state.operations.push_back(TestOperation::Write);
+
+        if (reg == Register32::kIntMaskSet) {
+            state.registers[KeyFor(Register32::kIntMaskSet)] |= value;
+        } else if (reg == Register32::kIntMaskClear) {
+            state.registers[KeyFor(Register32::kIntMaskSet)] &=
+                ~value;
+        } else if (reg == Register32::kLinkControlSet) {
+            state.registers[KeyFor(Register32::kLinkControl)] |= value;
+        } else if (reg == Register32::kLinkControlClear) {
+            state.registers[KeyFor(Register32::kLinkControl)] &=
+                ~value;
+        }
+    });
+}
+
+void HardwareInterface::FlushPostedWritesScoped() const noexcept {
+    WithState(this, [](HardwareTestState& state) {
+        state.operations.push_back(TestOperation::WriteAndFlush);
+    });
+}
+
+void HardwareInterface::LatchHardwareGoneFromPresenceProbe(Register32 reg) const noexcept {
+    (void)reg;
+    hardwareGoneReason_.store(static_cast<uint8_t>(HardwareGoneReason::kMmioPresenceProbeAllOnes),
+                               std::memory_order_release);
+    accessGate_.RevokeFromAdmittedScope();
+}
+
+void HardwareInterface::SetInterruptMask(uint32_t mask, bool enable) {
+    if (enable) {
+        IntMaskSet(mask);
+    } else {
+        IntMaskClear(mask);
+    }
+}
+
+InterruptSnapshot HardwareInterface::CaptureInterruptSnapshot(uint64_t timestamp) const noexcept {
+    return InterruptSnapshot{ReadScoped(Register32::kIntEvent), ReadScoped(Register32::kIntMaskSet), timestamp};
+}
+
+void HardwareInterface::SetLinkControlBits(uint32_t bits) { WriteScoped(Register32::kLinkControlSet, bits); }
+
+void HardwareInterface::ClearLinkControlBits(uint32_t bits) {
+    WriteScoped(Register32::kLinkControlClear, bits);
+}
+
+void HardwareInterface::ClearIntEvents(uint32_t mask) {
+    WithState(this, [mask](HardwareTestState& state) {
+        state.registers[KeyFor(Register32::kIntEventClear)] = mask;
+        state.registers[KeyFor(Register32::kIntEvent)] &= ~mask;
+        state.operations.push_back(TestOperation::ClearIntEvents);
+    });
+}
+
+IsochContextEvents HardwareInterface::TakeIsochContextEvents(uint32_t intEvent) noexcept {
+    IsochContextEvents result{};
+    if (!TryBeginAccess()) return result;
+    WithState(this, [&](HardwareTestState& state) {
+        if (intEvent & IntEventBits::kIsochRx) {
+            result.receive = state.registers[KeyFor(Register32::kIsoRecvIntEventSet)] &
+                             state.registers[KeyFor(Register32::kIsoRecvIntMaskSet)];
+            state.registers[KeyFor(Register32::kIsoRecvIntEventSet)] &= ~result.receive;
+        }
+        if (intEvent & IntEventBits::kIsochTx) {
+            result.transmit = state.registers[KeyFor(Register32::kIsoXmitIntEventSet)] &
+                              state.registers[KeyFor(Register32::kIsoXmitIntMaskSet)];
+            state.registers[KeyFor(Register32::kIsoXmitIntEventSet)] &= ~result.transmit;
+        }
+    });
+    return result;
+}
+
+bool HardwareInterface::SendPhyConfig(std::optional<uint8_t> gapCount,
+                                      std::optional<uint8_t> forceRootPhyId,
+                                      std::string_view) {
+    return WithState(this, [gapCount, forceRootPhyId](HardwareTestState& state) {
+        state.phyConfigIssued = true;
+        state.lastPhyConfigSucceeded = state.sendPhyConfigSucceeds;
+        state.lastGapCount = gapCount;
+        state.lastForceRootNode = forceRootPhyId;
+        state.operations.push_back(TestOperation::SendPhyConfig);
+        return state.sendPhyConfigSucceeds;
+    });
+}
+
+bool HardwareInterface::SendPhyGlobalResume(uint8_t) {
+    return WithState(this, [](HardwareTestState& state) {
+        state.globalResumeSent = true;
+        state.operations.push_back(TestOperation::SendPhyGlobalResume);
+        return true;
+    });
+}
+
+bool HardwareInterface::SendLinkOnPacket(uint8_t targetNodeId) {
+    return WithState(this, [targetNodeId](HardwareTestState& state) {
+        state.operations.push_back(TestOperation::SendLinkOn);
+        return true;
+    });
+}
+
+bool HardwareInterface::InitiateBusReset(bool shortReset) {
+    return WithState(this, [shortReset](HardwareTestState& state) {
+        state.busResetIssued = true;
+        state.lastBusResetWasShort = shortReset;
+        state.lastBusResetSucceeded = state.initiateBusResetSucceeds;
+        state.operations.push_back(TestOperation::InitiateBusReset);
+        return state.initiateBusResetSucceeds;
+    });
+}
+
+bool HardwareInterface::ReadIntEvent(uint32_t& value) {
+    value = ReadScoped(Register32::kIntEvent);
+    return true;
+}
+
+void HardwareInterface::AckIntEvent(uint32_t bits) { ClearIntEvents(bits); }
+
+void HardwareInterface::IntMaskSet(uint32_t bits) {
+    WithState(this, [bits](HardwareTestState& state) {
+        state.registers[KeyFor(Register32::kIntMaskSet)] |= bits;
+        state.operations.push_back(TestOperation::WriteAndFlush);
+    });
+}
+
+void HardwareInterface::IntMaskClear(uint32_t bits) {
+    WithState(this, [bits](HardwareTestState& state) {
+        state.registers[KeyFor(Register32::kIntMaskSet)] &=
+            ~bits;
+        state.registers[KeyFor(Register32::kIntMaskClear)] = bits;
+        state.operations.push_back(TestOperation::WriteAndFlush);
+    });
+}
+
+void HardwareInterface::SetContender(bool enable) {
+    WithState(this, [enable](HardwareTestState& state) {
+        state.contenderEnabled = enable;
+        state.operations.push_back(TestOperation::SetContender);
+    });
+}
+
+void HardwareInterface::InitializePhyReg4Cache() {}
+
+void HardwareInterface::SetRootHoldOff(bool) {}
+
+std::optional<uint8_t> HardwareInterface::ReadPhyRegister(uint8_t address) {
+    return WithState(this, [address](HardwareTestState& state) -> std::optional<uint8_t> {
+        const auto it = state.phyRegisters.find(address);
+        if (it == state.phyRegisters.end()) {
+            return std::nullopt;
+        }
+        return it->second;
+    });
+}
+
+bool HardwareInterface::WritePhyRegister(uint8_t address, uint8_t value) {
+    return WithState(this, [address, value](HardwareTestState& state) {
+        state.phyRegisters[address] = value;
+        return true;
+    });
+}
+
+bool HardwareInterface::UpdatePhyRegister(uint8_t address, uint8_t clearBits, uint8_t setBits) {
+    const uint8_t current = ReadPhyRegister(address).value_or(0U);
+    return WritePhyRegister(address, static_cast<uint8_t>((current & ~clearBits) | setBits));
+}
+
+std::optional<HardwareInterface::DMABuffer> HardwareInterface::AllocateDMA(size_t length,
+                                                                           uint64_t options,
+                                                                           size_t alignment) {
+    IOBufferMemoryDescriptor* buffer = nullptr;
+    if (IOBufferMemoryDescriptor::Create(options, length, alignment, &buffer) != kIOReturnSuccess) {
+        return std::nullopt;
+    }
+
+    auto* command = new IODMACommand();
+    IOAddressSegment segment{};
+    buffer->GetAddressRange(&segment);
+
+    DMABuffer result;
+    result.descriptor = OSSharedPtr<IOBufferMemoryDescriptor>(buffer, OSNoRetain);
+    result.dmaCommand = OSSharedPtr<IODMACommand>(command, OSNoRetain);
+    result.length = length;
+
+    static std::atomic<uint32_t> sMockIOVA{0x20000000};
+
+    const auto alignUp32 = [](uint32_t value, uint32_t alignmentValue) -> uint32_t {
+        return (alignmentValue == 0U) ? value
+                                      : ((value + (alignmentValue - 1U)) & ~(alignmentValue - 1U));
+    };
+
+    uint32_t aligned = (alignment == 0U) ? 16U : static_cast<uint32_t>(alignment);
+    if ((aligned & (aligned - 1U)) != 0U) {
+        aligned = 16U;
+    }
+
+    uint32_t cursor = sMockIOVA.load(std::memory_order_relaxed);
+    for (;;) {
+        const uint32_t base = alignUp32(cursor, aligned);
+        const uint32_t next = alignUp32(base + static_cast<uint32_t>(length) + 4096U, 4096U);
+        if (next < base) {
+            return std::nullopt;
+        }
+        if (sMockIOVA.compare_exchange_weak(cursor, next, std::memory_order_acq_rel)) {
+            result.deviceAddress = base;
+            break;
+        }
+    }
+
+    return result;
+}
+
+OSSharedPtr<IODMACommand> HardwareInterface::CreateDMACommand() {
+    auto command = WithState(this, [](HardwareTestState& state) { return state.dmaCommand; });
+    if (command) return command;
+    return OSSharedPtr<IODMACommand>(new IODMACommand(), OSNoRetain);
+}
+
+void HardwareInterface::SetTestDMACommand(OSSharedPtr<IODMACommand> command) {
+    WithState(this, [&](HardwareTestState& state) { state.dmaCommand = std::move(command); });
+}
+
+uint32_t HardwareInterface::ReadHCControl() const noexcept { return ReadScoped(Register32::kHCControl); }
+
+void HardwareInterface::SetHCControlBits(uint32_t bits) noexcept {
+    WriteScoped(Register32::kHCControlSet, ReadScoped(Register32::kHCControl) | bits);
+}
+
+void HardwareInterface::ClearHCControlBits(uint32_t bits) noexcept {
+    WriteScoped(Register32::kHCControlClear, ReadScoped(Register32::kHCControl) & ~bits);
+}
+
+uint32_t HardwareInterface::ReadNodeID() const noexcept { return ReadScoped(Register32::kNodeID); }
+
+uint32_t HardwareInterface::ReadIntEvent() const noexcept { return ReadScoped(Register32::kIntEvent); }
+
+uint32_t HardwareInterface::ReadLinkControl() const noexcept {
+    return ReadScoped(Register32::kLinkControl);
+}
+
+uint32_t HardwareInterface::ReadCycleTime() const noexcept { return ReadScoped(Register32::kCycleTimer); }
+
+bool HardwareInterface::WaitHC(uint32_t mask, bool expectSet, uint32_t, uint32_t) const {
+    const bool isSet = (ReadScoped(Register32::kHCControl) & mask) != 0U;
+    return expectSet ? isSet : !isSet;
+}
+
+bool HardwareInterface::WaitLink(uint32_t mask, bool expectSet, uint32_t, uint32_t) const {
+    const bool isSet = (ReadScoped(Register32::kLinkControl) & mask) != 0U;
+    return expectSet ? isSet : !isSet;
+}
+
+bool HardwareInterface::WaitNodeIdValid(uint32_t) const {
+    return (ReadScoped(Register32::kNodeID) & 0x80000000U) != 0U;
+}
+
+std::pair<uint32_t, uint64_t> HardwareInterface::ReadCycleTimeAndUpTime() const noexcept {
+    return {ReadScoped(Register32::kCycleTimer), mach_absolute_time()};
+}
+
+void HardwareInterface::SetTestRegister(Register32 reg, uint32_t value) noexcept {
+    WithState(this, [reg, value](HardwareTestState& state) { state.registers[KeyFor(reg)] = value; });
+}
+
+void HardwareInterface::SetTestReadHook(std::function<void(Register32)> hook) {
+    WithState(this, [&](HardwareTestState& state) { state.readHook = std::move(hook); });
+}
+
+uint32_t HardwareInterface::GetTestRegister(Register32 reg) const noexcept {
+    return ReadScoped(reg);
+}
+
+std::vector<HardwareInterface::TestOperation> HardwareInterface::CopyTestOperations() const {
+    return WithState(this, [](HardwareTestState& state) { return state.operations; });
+}
+
+bool HardwareInterface::TestBusResetIssued() const noexcept {
+    return WithState(this, [](HardwareTestState& state) { return state.busResetIssued; });
+}
+
+bool HardwareInterface::TestLastBusResetWasShort() const noexcept {
+    return WithState(this, [](HardwareTestState& state) { return state.lastBusResetWasShort; });
+}
+
+bool HardwareInterface::TestPhyConfigIssued() const noexcept {
+    return WithState(this, [](HardwareTestState& state) { return state.phyConfigIssued; });
+}
+
+bool HardwareInterface::TestLastPhyConfigSucceeded() const noexcept {
+    return WithState(this, [](HardwareTestState& state) { return state.lastPhyConfigSucceeded; });
+}
+
+bool HardwareInterface::TestLastBusResetSucceeded() const noexcept {
+    return WithState(this, [](HardwareTestState& state) { return state.lastBusResetSucceeded; });
+}
+
+std::optional<uint8_t> HardwareInterface::TestLastGapCount() const noexcept {
+    return WithState(this, [](HardwareTestState& state) { return state.lastGapCount; });
+}
+
+std::optional<uint8_t> HardwareInterface::TestLastForceRootNode() const noexcept {
+    return WithState(this, [](HardwareTestState& state) { return state.lastForceRootNode; });
+}
+
+void HardwareInterface::SetTestSendPhyConfigResult(const bool success) noexcept {
+    WithState(this, [success](HardwareTestState& state) { state.sendPhyConfigSucceeds = success; });
+}
+
+void HardwareInterface::SetTestInitiateBusResetResult(const bool success) noexcept {
+    WithState(this,
+              [success](HardwareTestState& state) { state.initiateBusResetSucceeds = success; });
+}
+
+void HardwareInterface::ResetTestState() noexcept {
+    WithState(this, [](HardwareTestState& state) {
+        state = HardwareTestState{};
+    });
+}
+
+LocalCSRWriteResult HardwareInterface::WriteLocalIRMResource(uint32_t selectCode, uint32_t value) noexcept {
+    WithState(this, [selectCode, value](HardwareTestState& state) {
+        state.localIRMResources[selectCode] = value;
+    });
+    return {LocalCSRLockResult::Status::Success};
+}
+
+LocalCSRReadResult HardwareInterface::ReadLocalIRMResource(uint32_t selectCode) noexcept {
+    return WithState(this, [selectCode](HardwareTestState& state) -> LocalCSRReadResult {
+        auto it = state.localIRMResources.find(selectCode);
+        if (it != state.localIRMResources.end()) {
+            return {LocalCSRLockResult::Status::Success, it->second};
+        }
+        uint32_t defaultVal = 0xFFFFFFFF;
+        if (selectCode == 0) defaultVal = 0x3F;
+        else if (selectCode == 1) defaultVal = 4915;
+        return {LocalCSRLockResult::Status::Success, defaultVal};
+    });
+}
+
+LocalCSRLockResult HardwareInterface::CompareSwapLocalIRMResource(uint32_t selectCode, uint32_t compareValue, uint32_t newValue) noexcept {
+    return WithState(this, [selectCode, compareValue, newValue](HardwareTestState& state) -> LocalCSRLockResult {
+        auto it = state.localIRMResources.find(selectCode);
+        using namespace ASFW::Driver::IRMCSR;
+        uint32_t val = 0;
+        if (selectCode == static_cast<uint32_t>(CSRSelector::BusManagerId)) val = kNoBusManagerId;
+        else if (selectCode == static_cast<uint32_t>(CSRSelector::BandwidthAvailable)) val = kInitialBandwidthAvailable;
+        else if (selectCode == static_cast<uint32_t>(CSRSelector::ChannelsAvailableHi)) val = kInitialChannelsAvailableHi;
+        else if (selectCode == static_cast<uint32_t>(CSRSelector::ChannelsAvailableLo)) val = kInitialChannelsAvailableLo;
+
+        if (it != state.localIRMResources.end()) {
+            val = it->second;
+        }
+        if (val == compareValue) {
+            state.localIRMResources[selectCode] = newValue;
+            return {LocalCSRLockResult::Status::Success, val, true};
+        }
+        return {LocalCSRLockResult::Status::Success, val, false};
+    });
+}
+
+kern_return_t HardwareInterface::ProgramInitialIRMResourceRegisters() noexcept {
+    using namespace ASFW::Driver::IRMCSR;
+    WriteScoped(Register32::kInitialBandwidthAvailable, kInitialBandwidthAvailable);
+    WriteScoped(Register32::kInitialChannelsAvailableHi, kInitialChannelsAvailableHi);
+    WriteScoped(Register32::kInitialChannelsAvailableLo, kInitialChannelsAvailableLo);
+    return kIOReturnSuccess;
+}
+
+bool HardwareInterface::IsLocalCycleMasterEnabled() const noexcept {
+    return (ReadScoped(Register32::kLinkControl) & LinkControlBits::kCycleMaster) != 0;
+}
+
+bool HardwareInterface::SetLocalCycleMasterEnabled(bool enable) noexcept {
+    if (enable) {
+        SetLinkControlBits(LinkControlBits::kCycleMaster);
+    } else {
+        ClearLinkControlBits(LinkControlBits::kCycleMaster);
+    }
+    return true;
+}
+
+} // namespace ASFW::Driver

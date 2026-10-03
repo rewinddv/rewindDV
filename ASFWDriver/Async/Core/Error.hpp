@@ -1,0 +1,327 @@
+// Error.hpp - Modern C++23 error handling with std::expected
+//
+// Internal async logic uses typed/domain errors and only converts back to
+// DriverKit boundary statuses at I/O boundaries. This keeps bus/protocol logic
+// expressive without leaking raw IOReturn values everywhere.
+
+#pragma once
+
+#include "../../Common/ASFWIOReturn.hpp"
+#include "../../Logging/Logging.hpp"
+#include <DriverKit/IOReturn.h>
+#include <expected>
+
+namespace ASFW::Async {
+
+// ============================================================================
+// Source Location (C++20 std::source_location alternative)
+// ============================================================================
+
+/// Compile-time source location tracking
+/// Uses compiler builtins for zero-overhead location capture
+struct SourceLocation {
+    const char* file;
+    const char* function;
+    int line;
+
+    /// Construct with automatic location capture via compiler builtins
+    /// Default parameters capture call site when no arguments provided
+    constexpr SourceLocation(const char* f = __builtin_FILE(),
+                             const char* fn = __builtin_FUNCTION(),
+                             int l = __builtin_LINE()) noexcept
+        : file(f), function(fn), line(l) {}
+
+    [[nodiscard]] constexpr const char* FileNameCString() const noexcept {
+        const char* name = file;
+        for (const char* cursor = file; *cursor != '\0'; ++cursor) {
+            if (*cursor == '/') {
+                name = cursor + 1;
+            }
+        }
+        return name;
+    }
+
+    /// Format as "file:line" for compact logging
+    [[nodiscard]] constexpr const char* FileAndLine() const noexcept {
+        return file; // Caller should format as needed
+    }
+};
+
+// ============================================================================
+// Error Severity
+// ============================================================================
+
+/// Error severity levels for compile-time categorization
+enum class ErrorSeverity : uint8_t {
+    /// Recoverable error - can retry or continue with degraded functionality
+    Recoverable,
+
+    /// Fatal error - cannot continue, must abort operation
+    Fatal,
+
+    /// Warning - non-blocking issue, logged but operation continues
+    Warning
+};
+
+/// Convert severity to string for logging
+[[nodiscard]] constexpr const char* ToString(ErrorSeverity severity) noexcept {
+    switch (severity) {
+    case ErrorSeverity::Recoverable:
+        return "RECOVERABLE";
+    case ErrorSeverity::Fatal:
+        return "FATAL";
+    case ErrorSeverity::Warning:
+        return "WARNING";
+    }
+    return "UNKNOWN";
+}
+
+// ============================================================================
+// Error Type
+// ============================================================================
+
+/// Typed async-domain error codes.
+enum class ErrorCode : uint8_t {
+    InvalidArgument,
+    NotReady,
+    Timeout,
+    NoMemory,
+    NoSpace,
+    Busy,
+    Aborted,
+    Unsupported,
+    FireWire,
+    BoundaryStatus,
+};
+
+/// Convert error code to string for logging.
+[[nodiscard]] constexpr const char* ToString(ErrorCode code) noexcept {
+    switch (code) {
+    case ErrorCode::InvalidArgument:
+        return "INVALID_ARGUMENT";
+    case ErrorCode::NotReady:
+        return "NOT_READY";
+    case ErrorCode::Timeout:
+        return "TIMEOUT";
+    case ErrorCode::NoMemory:
+        return "NO_MEMORY";
+    case ErrorCode::NoSpace:
+        return "NO_SPACE";
+    case ErrorCode::Busy:
+        return "BUSY";
+    case ErrorCode::Aborted:
+        return "ABORTED";
+    case ErrorCode::Unsupported:
+        return "UNSUPPORTED";
+    case ErrorCode::FireWire:
+        return "FIREWIRE";
+    case ErrorCode::BoundaryStatus:
+        return "BOUNDARY_STATUS";
+    }
+    return "UNKNOWN";
+}
+
+[[nodiscard]] constexpr ErrorCode ClassifyBoundaryStatus(IOReturn status) noexcept {
+    switch (status) {
+    case kIOReturnBadArgument:
+        return ErrorCode::InvalidArgument;
+    case kIOReturnNotReady:
+        return ErrorCode::NotReady;
+    case kIOReturnTimeout:
+        return ErrorCode::Timeout;
+    case kIOReturnNoMemory:
+        return ErrorCode::NoMemory;
+    case kIOReturnNoSpace:
+        return ErrorCode::NoSpace;
+    case kIOReturnBusy:
+        return ErrorCode::Busy;
+    case kIOReturnAborted:
+        return ErrorCode::Aborted;
+    case kIOReturnUnsupported:
+        return ErrorCode::Unsupported;
+    default:
+        if (FW::IsFireWireIOReturn(status)) {
+            return ErrorCode::FireWire;
+        }
+        return ErrorCode::BoundaryStatus;
+    }
+}
+
+/// Rich error context with source location and severity.
+struct Error {
+    ErrorCode code;          ///< Typed async-domain error code.
+    IOReturn boundaryStatus; ///< Boundary-facing status returned to DriverKit callers.
+    SourceLocation location; ///< Capture site (file, line, function).
+    ErrorSeverity severity;  ///< Error severity level.
+    const char* message;     ///< Human-readable description.
+
+    /// Compile-time error factory with automatic source location capture.
+    /// Use macros ASFW_ERROR_RECOVERABLE, ASFW_ERROR_FATAL, ASFW_ERROR_WARNING instead.
+    [[nodiscard]] static constexpr Error Make(IOReturn status, ErrorSeverity sev, const char* msg,
+                                              SourceLocation loc = SourceLocation()) noexcept {
+        return Error{ClassifyBoundaryStatus(status), status, loc, sev, msg};
+    }
+
+    [[nodiscard]] constexpr bool IsRecoverable() const noexcept {
+        return severity == ErrorSeverity::Recoverable;
+    }
+
+    [[nodiscard]] constexpr bool IsFatal() const noexcept {
+        return severity == ErrorSeverity::Fatal;
+    }
+
+    [[nodiscard]] constexpr bool IsWarning() const noexcept {
+        return severity == ErrorSeverity::Warning;
+    }
+
+    [[nodiscard]] constexpr IOReturn BoundaryStatus() const noexcept { return boundaryStatus; }
+
+    void Log() const noexcept {
+        ASFW_LOG_ERROR(Async,
+                       "[%{public}s/%{public}s] %{public}s:%d in %{public}s() - status=0x%08x "
+                       "(%{public}s)",
+                       ToString(severity), ToString(code), location.FileNameCString(),
+                       location.line, location.function, boundaryStatus, message);
+    }
+
+    void LogAsWarning() const noexcept {
+        ASFW_LOG(Async,
+                 "[%{public}s/%{public}s] %{public}s:%d in %{public}s() - status=0x%08x "
+                 "(%{public}s)",
+                 ToString(severity), ToString(code), location.FileNameCString(), location.line,
+                 location.function, boundaryStatus, message);
+    }
+};
+
+// Compile-time validation
+// Error struct is 48 bytes on 64-bit (kern_return_t + SourceLocation + severity + message pointer)
+static_assert(sizeof(Error) <= 64, "Error must be cache-line friendly (≤64 bytes)");
+
+// ============================================================================
+// Result Type (std::expected alias)
+// ============================================================================
+
+/// Result type for operations that can fail
+/// Wraps std::expected<T, Error> for type-safe error handling
+///
+/// Usage:
+///   Result<int> Divide(int a, int b) {
+///       if (b == 0) {
+///           return ASFW_ERROR_INVALID("Division by zero");
+///       }
+///       return a / b;
+///   }
+///
+///   auto result = Divide(10, 2);
+///   if (result) {
+///       int value = *result;  // or result.value()
+///   } else {
+///       result.error().Log();
+///   }
+template <typename T> using Result = std::expected<T, Error>;
+
+/// Specialization for void return (operation that can fail but has no value)
+/// Use Result<void> for functions that return kern_return_t today
+///
+/// Note: std::expected<void, E> is valid in C++23
+/// For operations that only signal success/failure without a return value
+
+// ============================================================================
+// Error Creation Macros (with automatic source location)
+// ============================================================================
+
+/// Create recoverable error (can retry)
+#define ASFW_ERROR_RECOVERABLE(kr, msg)                                                            \
+    std::unexpected(Error::Make((kr), ErrorSeverity::Recoverable, (msg)))
+
+/// Create fatal error (must abort)
+#define ASFW_ERROR_FATAL(kr, msg) std::unexpected(Error::Make((kr), ErrorSeverity::Fatal, (msg)))
+
+/// Create warning (non-blocking)
+#define ASFW_ERROR_WARNING(kr, msg)                                                                \
+    std::unexpected(Error::Make((kr), ErrorSeverity::Warning, (msg)))
+
+/// Create invalid argument error (common case)
+#define ASFW_ERROR_INVALID(msg) ASFW_ERROR_FATAL(kIOReturnBadArgument, (msg))
+
+/// Create not ready error (common case)
+#define ASFW_ERROR_NOT_READY(msg) ASFW_ERROR_RECOVERABLE(kIOReturnNotReady, (msg))
+
+/// Create timeout error (common case)
+#define ASFW_ERROR_TIMEOUT(msg) ASFW_ERROR_RECOVERABLE(kIOReturnTimeout, (msg))
+
+/// Create no memory error (common case)
+#define ASFW_ERROR_NO_MEMORY(msg) ASFW_ERROR_FATAL(kIOReturnNoMemory, (msg))
+
+/// Create no space error (ring full, common case)
+#define ASFW_ERROR_NO_SPACE(msg) ASFW_ERROR_RECOVERABLE(kIOReturnNoSpace, (msg))
+
+// ============================================================================
+// Error Propagation Helpers
+// ============================================================================
+
+/// Try macro - propagate error or extract value
+/// Similar to Rust's ? operator
+///
+/// Usage:
+///   Result<Foo*> CreateFoo() {
+///       auto bar = TRY(CreateBar());  // Propagates error if CreateBar() fails
+///       return new Foo(bar);
+///   }
+#define TRY(expr)                                                                                  \
+    ({                                                                                             \
+        auto&& _result = (expr);                                                                   \
+        if (!_result) {                                                                            \
+            return std::unexpected(_result.error());                                               \
+        }                                                                                          \
+        std::move(_result).value();                                                                \
+    })
+
+/// Try and log - propagate error with logging
+/// Logs error before propagating (useful for debugging)
+#define TRY_LOG(expr)                                                                              \
+    ({                                                                                             \
+        auto&& _result = (expr);                                                                   \
+        if (!_result) {                                                                            \
+            _result.error().Log();                                                                 \
+            return std::unexpected(_result.error());                                               \
+        }                                                                                          \
+        std::move(_result).value();                                                                \
+    })
+
+/// Convert a boundary status to Result<void>.
+[[nodiscard]] inline Result<void> ToResult(kern_return_t status, const char* msg,
+                                           SourceLocation loc = SourceLocation()) noexcept {
+    if (status == kIOReturnSuccess) {
+        return {};
+    }
+    return std::unexpected(
+        Error::Make(static_cast<IOReturn>(status), ErrorSeverity::Fatal, msg, loc));
+}
+
+/// Convert Result<T> back to a DriverKit-compatible boundary status.
+template <typename T> [[nodiscard]] kern_return_t ToKernReturn(const Result<T>& result) noexcept {
+    if (result) {
+        return kIOReturnSuccess;
+    }
+    result.error().Log();
+    return result.error().BoundaryStatus();
+}
+
+// ============================================================================
+// Error Context Builder (for complex error messages)
+// ============================================================================
+
+/// Error context builder for formatting complex error messages
+/// Avoids dynamic allocation by using compile-time string composition
+///
+/// Usage:
+///   return ASFW_ERROR_FATAL(kIOReturnNoSpace,
+///                           "Ring full: head=%zu tail=%zu capacity=%zu",
+///                           head, tail, capacity);
+///
+/// Note: This is a compile-time helper, actual formatting happens at log time
+/// For now, use simple string literals in error messages
+/// TODO(ASFW-Error): Add constexpr string formatting when needed.
+
+} // namespace ASFW::Async

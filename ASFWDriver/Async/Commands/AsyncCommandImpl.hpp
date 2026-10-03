@@ -1,0 +1,196 @@
+// Modified by Rewind Digital for rewindDV; changes relative to the retained ASFireWire baseline.
+#pragma once
+
+// AsyncCommandImpl.hpp - Template implementation for AsyncCommand<Derived>::Submit()
+// Must be included at end of AsyncCommand.hpp (templates require header-only definition)
+
+#include "../AsyncSubsystem.hpp"
+#include "../Track/Tracking.hpp"
+#include "../Tx/PacketBuilder.hpp"
+#include "../Tx/DescriptorBuilder.hpp"
+#include "../Tx/Submitter.hpp"
+#include "../../Bus/GenerationTracker.hpp"
+#include "../../Hardware/HardwareInterface.hpp"
+#include "../../Hardware/IEEE1394.hpp"
+#include "../../Logging/Logging.hpp"
+
+#include <cstring>
+
+namespace ASFW::Async {
+
+template<typename Derived>
+AsyncHandle AsyncCommand<Derived>::Submit(AsyncSubsystem& subsys) {
+    // Step 1: Prepare transaction context (bus state validation)
+    auto txCtxOpt = subsys.PrepareTransactionContext();
+    if (!txCtxOpt.has_value()) {
+        ASFW_LOG_ERROR(Async, "Command submit failed: PrepareTransactionContext returned nullopt");
+        return AsyncHandle{0};
+    }
+    const TransactionContext& txCtx = txCtxOpt.value();
+    
+    // Step 2: Build transaction metadata (CRTP dispatch to derived class)
+    TxMetadata meta = static_cast<Derived*>(this)->BuildMetadata(txCtx);
+
+    // Normalize destination NodeID: ensure bus number bits (15:6) match local bus
+    // hardware expects full 16-bit NodeID for tracking/matching; ROMScanner passes
+    // only the 6-bit node value. Pull bus bits from sourceNodeID when absent.
+    constexpr uint16_t kNodeMask = 0x003F;
+    constexpr uint16_t kBusMask  = 0xFFC0;
+    if ((meta.destinationNodeID & kBusMask) == 0) {
+        const uint16_t sourceBusBits = static_cast<uint16_t>(txCtx.sourceNodeID & kBusMask);
+        meta.destinationNodeID = static_cast<uint16_t>(sourceBusBits | (meta.destinationNodeID & kNodeMask));
+    }
+
+    meta.callback = callback_;
+
+    ASFW_LOG_V3(Async, "🔍 [AsyncCommand] Submitting with callback=%p (valid=%d)",
+             &callback_, callback_ ? 1 : 0);
+
+    // Step 3: Register transaction with Tracking actor
+    AsyncHandle handle = subsys.GetTracking()->RegisterTx(meta);
+    if (handle.value == 0) {
+        ASFW_LOG_ERROR(Async, "Command submit failed: RegisterTx returned invalid handle");
+        return AsyncHandle{0};
+    }
+    
+    auto* tracking = subsys.GetTracking();
+    struct UnpostedRegistration {
+        decltype(tracking) owner;
+        AsyncHandle handle;
+        ~UnpostedRegistration() { if (handle.value != 0) owner->AbandonUnposted(handle); }
+    } registration{tracking, handle};
+
+    // Step 4: Extract transaction label from handle
+    auto labelOpt = subsys.GetTracking()->GetLabelFromHandle(handle);
+    if (!labelOpt.has_value()) {
+        ASFW_LOG_ERROR(Async, "Command submit failed: GetLabelFromHandle returned nullopt for handle=0x%x", 
+                       handle.value);
+        return AsyncHandle{0};
+    }
+    const uint8_t label = labelOpt.value();
+    
+    // Step 5: Build IEEE 1394 packet header (CRTP dispatch)
+    auto* packetBuilder = subsys.GetPacketBuilder();
+    if (packetBuilder == nullptr) {
+        ASFW_LOG_ERROR(Async, "Command submit failed: PacketBuilder unavailable");
+        return AsyncHandle{0};
+    }
+
+    uint8_t headerBuffer[20]{};  // Max header size (block write: 16 bytes + alignment)
+    const size_t headerSize = static_cast<Derived*>(this)->BuildHeader(
+        label, txCtx.packetContext, *packetBuilder, headerBuffer);
+    if (headerSize == 0) {
+        ASFW_LOG_ERROR(Async, "Command submit failed: BuildHeader returned 0 for handle=0x%x", 
+                       handle.value);
+        return AsyncHandle{0};
+    }
+
+    // TODO: Temporary topology/ROM triage log. Remove once Saffire init is understood.
+    // The whole block only feeds the log, so gate it entirely — otherwise the
+    // decoded fields are unused in every translation unit that includes this
+    // header, which is the bulk of the driver's -Wunused-variable noise.
+#if ASFW_DEBUG_TEMP_RX_TX
+    if (headerSize >= 12) {
+        uint32_t q0 = 0;
+        uint32_t q1 = 0;
+        uint32_t q2 = 0;
+        std::memcpy(&q0, headerBuffer + 0, sizeof(q0));
+        std::memcpy(&q1, headerBuffer + 4, sizeof(q1));
+        std::memcpy(&q2, headerBuffer + 8, sizeof(q2));
+
+        const uint8_t headerTLabel = static_cast<uint8_t>((q0 >> 10) & 0x3Fu);
+        const uint8_t headerSpeed = static_cast<uint8_t>((q0 >> 16) & 0x07u);
+        const uint8_t headerTCode = static_cast<uint8_t>((q0 >> 4) & 0x0Fu);
+        const uint16_t headerDest = static_cast<uint16_t>((q1 >> 16) & 0xFFFFu);
+        const uint16_t headerAddrHi = static_cast<uint16_t>(q1 & 0xFFFFu);
+
+        ASFW_LOG_V4(Async,
+                 "[TempTX] gen=%u handle=0x%08x src=0x%04x metaDst=0x%04x hdrDst=0x%04x tLabel=%u hdrTLabel=%u tCode=0x%x hdrTCode=0x%x ctxSpeed=%u hdrSpeed=%u addr=0x%04x_%08x len=%u strategy=%u q0=0x%08x q1=0x%08x q2=0x%08x",
+                 meta.generation,
+                 handle.value,
+                 txCtx.sourceNodeID,
+                 meta.destinationNodeID,
+                 headerDest,
+                 label,
+                 headerTLabel,
+                 meta.tCode,
+                 headerTCode,
+                 txCtx.speedCode,
+                 headerSpeed,
+                 headerAddrHi,
+                 q2,
+                 meta.expectedLength,
+                 static_cast<uint8_t>(meta.completionStrategy),
+                 q0,
+                 q1,
+                 q2);
+    }
+#endif
+
+    // Step 6: Prepare DMA payload (if needed) - CRTP dispatch
+    std::unique_ptr<PayloadContext> payload = 
+        static_cast<Derived*>(this)->PreparePayload(*subsys.GetHardware());
+    // These validated request headers declare a nonempty DMA payload. A null
+    // result means preparation failed, not that an immediate-only chain is valid.
+    if (!payload && (meta.tCode == HW::AsyncRequestHeader::kTcodeWriteBlock ||
+                     meta.tCode == HW::AsyncRequestHeader::kTcodeLockRequest)) {
+        ASFW_LOG_ERROR(Async, "Command submit failed: required payload unavailable for handle=0x%x",
+                       handle.value);
+        return AsyncHandle{0};
+    }
+    const uint64_t payloadIOVA = payload ? payload->DeviceAddress() : 0;
+    const uint32_t payloadLen = payload ? static_cast<uint32_t>(payload->Length()) : 0;
+    
+    // Step 7: Build OHCI descriptor chain (always interrupts on LAST per OHCI spec)
+    // Apple's hybrid pattern (IDA @ 0xEDCA lines 207-209, @ 0xDBBE lines 89-129):
+    // needsFlush = true for block operations with scatter/gather DMA (complex)
+    // needsFlush = false for quadlet operations without DMA (simple)
+    const bool needsFlush = (payloadLen > 4);  // Block ops need flush, quadlet ops don't
+    
+    auto chain = subsys.GetDescriptorBuilder()->BuildTransactionChain(
+        headerBuffer, headerSize, payloadIOVA, payloadLen, needsFlush);
+    if (!chain.first) {
+        ASFW_LOG_ERROR(Async, "Command submit failed: BuildTransactionChain returned null for handle=0x%x",
+                       handle.value);
+        return AsyncHandle{0};
+    }
+    
+    // Step 8: Tag descriptor with handle for completion matching
+    // Use DescriptorBuilder::TagSoftware() to properly tag and sync the descriptor
+    subsys.GetDescriptorBuilder()->TagSoftware(chain.last, handle.value);
+    
+    // Step 9: Submit descriptor chain to AT context
+    auto* atReqCtx = subsys.ResolveAtRequestContext();
+    if (!atReqCtx) {
+        ASFW_LOG_ERROR(Async, "Command submit failed: AT Request context not available");
+        return AsyncHandle{0};
+    }
+    
+    auto submitRes = subsys.GetSubmitter()->submit_tx_chain(atReqCtx, std::move(chain));
+    if (submitRes.kr != kIOReturnSuccess) {
+        ASFW_LOG_ERROR(Async, "Command submit failed: submit_tx_chain returned kr=0x%x for handle=0x%x",
+                       submitRes.kr, handle.value);
+        return AsyncHandle{0};
+    }
+    
+    registration.handle = {}; // Hardware now owns the submitted program.
+
+    // Step 10: Schedule timeout
+    // Increased from 250ms to 500ms: with retries, this aligns better with
+    // FCP timeout windows and avoids expiring just before valid AR responses.
+    const uint64_t now = subsys.GetCurrentTimeUsec();
+    constexpr uint64_t kDefaultTimeoutUsec = 500'000;  // 500ms per attempt
+    subsys.GetTracking()->OnTxPosted(handle, now, kDefaultTimeoutUsec);
+    
+    // Step 11: Attach payload to PayloadRegistry (if non-null)
+    // Convert unique_ptr to shared_ptr before attaching to registry (consumes unique_ptr)
+    if (payload) {
+        auto payloadShared = PayloadContext::IntoShared(std::move(payload));
+        subsys.GetTracking()->Payloads()->Attach(
+            handle.value, payloadShared, txCtx.generation);
+    }
+    
+    return handle;
+}
+
+} // namespace ASFW::Async

@@ -1,0 +1,405 @@
+// SBP2TargetBridge — HBA ↔ SBP-2 session glue. See SBP2TargetBridge.hpp.
+
+#include "SBP2TargetBridge.hpp"
+
+#include "SBP2BridgeHub.hpp"
+#include "../Discovery/FWDevice.hpp"
+#include "../Discovery/FWUnit.hpp"
+#include "../Logging/Logging.hpp"
+
+#include <utility>
+
+namespace ASFW::Protocols::SBP2 {
+
+namespace {
+
+class IOLockGuard {
+public:
+    explicit IOLockGuard(IOLock* lock) : lock_(lock) {
+        if (lock_ != nullptr) {
+            IOLockLock(lock_);
+        }
+    }
+    ~IOLockGuard() {
+        if (lock_ != nullptr) {
+            IOLockUnlock(lock_);
+        }
+    }
+    IOLockGuard(const IOLockGuard&) = delete;
+    IOLockGuard& operator=(const IOLockGuard&) = delete;
+
+private:
+    IOLock* lock_{nullptr};
+};
+
+} // namespace
+
+SBP2TargetBridge::SBP2TargetBridge(const std::shared_ptr<SessionRegistry>& registry,
+                                   Discovery::IDeviceManager& deviceManager,
+                                   IODispatchQueue* workQueue,
+                                   Scheduling::ITimerScheduler* timerScheduler)
+    : registry_(registry)
+    , deviceManager_(deviceManager)
+    , workQueue_(workQueue)
+    , timerScheduler_(timerScheduler) {
+    lock_ = IOLockAlloc();
+}
+
+SBP2TargetBridge::~SBP2TargetBridge() {
+    // Shutdown() must already have run (driver Stop path); this is a backstop.
+    Shutdown();
+    if (lock_ != nullptr) {
+        IOLockFree(lock_);
+        lock_ = nullptr;
+    }
+}
+
+void SBP2TargetBridge::Start() {
+    std::weak_ptr<SBP2TargetBridge> weak = weak_from_this();
+    IODispatchQueue* queue = workQueue_;
+
+    // Readiness gate between the registry's login edges and the hub. Its probe
+    // TURs ride the normal task queue; a dead bridge drops them unfired, so the
+    // gate (a member) can never be reached after free.
+    if (timerScheduler_ != nullptr) {
+        readinessGate_ = std::make_unique<TargetReadinessGate>(
+            *timerScheduler_,
+            [weak](SCSI::CommandRequest request,
+                   std::function<void(const SCSI::CommandResult&)> callback) {
+                if (auto self = weak.lock()) {
+                    self->SubmitTask(std::move(request), std::move(callback));
+                }
+            },
+            [](uint64_t guid, bool loggedIn) {
+                SBP2BridgeHub::NotifyTargetState(guid, loggedIn);
+            });
+    }
+
+    unitCallbackHandle_ = deviceManager_.RegisterUnitCallback(
+        kSBP2UnitSpecId, kSBP2UnitSwVersion,
+        [weak, queue](std::shared_ptr<Discovery::FWUnit> unit) {
+            // DeviceManager fires this callback while holding its own lock;
+            // OnUnitPublished → CreateSession → ResolveUnit → GetAllDevices()
+            // re-enters that lock (os_unfair_lock recursion = abort). Defer one
+            // queue iteration so the lock is released first.
+            if (queue == nullptr) {
+                return;
+            }
+            queue->DispatchAsync(^{
+                if (auto self = weak.lock()) {
+                    self->OnUnitPublished(unit);
+                }
+            });
+        });
+    unitCallbackRegistered_ = true;
+
+    // Push channel: the registry fires this (on our work queue) when a session
+    // logs in/out. Forward to the HBA via the hub. Registered before adopting
+    // existing units so a login that completes during adoption is not missed.
+    if (auto reg = registry_.lock()) {
+        reg->SetLoginStateObserver([weak](uint64_t guid, bool loggedIn) {
+            if (auto self = weak.lock()) {
+                self->OnLoginStateChanged(guid, loggedIn);
+            }
+        });
+    }
+
+    AdoptExistingUnits();
+    ASFW_LOG(Controller, "[SBP2Bridge] started (watching for SBP-2 units)");
+}
+
+void SBP2TargetBridge::Shutdown() {
+    uint64_t handle = 0;
+    uint64_t guid = 0;
+    std::deque<PendingTask> drained;
+    {
+        IOLockGuard g(lock_);
+        if (stopping_) {
+            return;
+        }
+        stopping_ = true;
+        handle = sessionHandle_;
+        guid = sessionGuid_;
+        sessionHandle_ = 0;
+        sessionGuid_ = 0;
+        drained.swap(pending_);
+    }
+
+    // Invalidate the readiness gate BEFORE the abort/drain callbacks below can
+    // reach it: a probe completion arriving with a stale epoch is a no-op
+    // instead of scheduling a timer into teardown. The scheduler is still
+    // alive here (ServiceContext::Reset shuts the bridge down before resetting
+    // sbp2SessionScheduler).
+    if (readinessGate_) {
+        readinessGate_->Cancel();
+    }
+
+    // Shutdown runs on the driver teardown path BEFORE the registry is freed
+    // (ServiceContext::Reset calls us, then resets the registry), so lock()
+    // normally succeeds; if it does not, the registry is already gone and there
+    // is nothing to deregister/release.
+    auto reg = registry_.lock();
+    if (unitCallbackRegistered_) {
+        deviceManager_.UnregisterCallback(unitCallbackHandle_);
+        unitCallbackRegistered_ = false;
+        if (reg) {
+            reg->SetLoginStateObserver(nullptr);
+        }
+    }
+
+    // Releases the session; an in-flight command is aborted through our
+    // completion callback (which sees stopping_ and does not re-pump).
+    if (handle != 0 && reg) {
+        reg->ReleaseOwner(this);
+    }
+
+    for (auto& task : drained) {
+        task.callback(SyntheticFailure(static_cast<int>(kIOReturnAborted)));
+    }
+    if (!drained.empty()) {
+        ASFW_LOG(Controller, "[SBP2Bridge] shutdown drained %zu queued tasks", drained.size());
+    }
+
+    // Bridge teardown is a terminal down-edge for the HBA. The observer was
+    // detached above before ReleaseOwner, so the registry's own logout edge
+    // never reaches the hub — emit it here instead. Without this the kernel
+    // target survives runtime teardown (sleep quiesce), and a task queued
+    // behind the SAM LUN's device-sleep wedges target 0 until something
+    // destroys it (HW 2026-08-04: hang after wake, stuck SCSITaskUserClient).
+    // Destroying before sleep means wake's login-up edge rebuilds a fresh
+    // target with no LUN state to wedge. Redundant edges are safe: the HBA's
+    // down leg is a no-op when no target is attached.
+    if (handle != 0) {
+        SBP2BridgeHub::NotifyTargetState(guid, false);
+    }
+}
+
+bool SBP2TargetBridge::IsReady() const {
+    uint64_t handle = 0;
+    {
+        IOLockGuard g(lock_);
+        if (stopping_) {
+            return false;
+        }
+        handle = sessionHandle_;
+    }
+    if (handle == 0) {
+        return false;
+    }
+    // Called from the HBA queue: lock the registry for the duration of the read
+    // so ServiceContext::Reset() on the teardown queue cannot free it mid-deref
+    // (the FW-60 cross-service UAF). A null lock means the registry is gone →
+    // not ready.
+    auto reg = registry_.lock();
+    if (!reg) {
+        return false;
+    }
+    auto state = reg->GetSessionState(const_cast<SBP2TargetBridge*>(this), handle);
+    return state.has_value() && state->loginState == LoginState::LoggedIn;
+}
+
+void SBP2TargetBridge::SubmitTask(SCSI::CommandRequest request, TaskCallback callback) {
+    if (!callback) {
+        return;
+    }
+    {
+        IOLockGuard g(lock_);
+        if (!stopping_) {
+            pending_.push_back(PendingTask{std::move(request), std::move(callback)});
+            SchedulePump();
+            return;
+        }
+    }
+    callback(SyntheticFailure(static_cast<int>(kIOReturnAborted)));
+}
+
+void SBP2TargetBridge::OnUnitPublished(const std::shared_ptr<Discovery::FWUnit>& unit) {
+    if (!unit) {
+        return;
+    }
+    auto device = unit->GetDevice();
+    if (!device) {
+        return;
+    }
+    const uint64_t guid = device->GetGUID();
+    const uint32_t romOffset = unit->GetDirectoryOffset();
+
+    uint64_t existing = 0;
+    {
+        IOLockGuard g(lock_);
+        if (stopping_) {
+            return;
+        }
+        existing = sessionHandle_;
+    }
+
+    // OnUnitPublished runs on the driver work queue; lock the registry once for
+    // all calls below so it cannot be freed under us. Null = registry gone
+    // (teardown) → nothing to adopt.
+    auto reg = registry_.lock();
+    if (!reg) {
+        return;
+    }
+
+    if (existing != 0) {
+        const auto state = reg->GetSessionState(this, existing);
+        if (state.has_value()) {
+            switch (state->loginState) {
+            case LoginState::Idle:
+                // Session exists but never logged in — kick it.
+                (void)reg->StartLogin(this, existing);
+                return;
+            case LoginState::Failed:
+                // Dead session (login retries exhausted / failed reconnect) —
+                // release and build a fresh one below.
+                (void)reg->ReleaseSession(this, existing);
+                {
+                    IOLockGuard g(lock_);
+                    sessionHandle_ = 0;
+                }
+                break;
+            default:
+                // LoggingIn/LoggedIn/Suspended/Reconnecting: healthy or being
+                // handled by RefreshTargets — leave it alone.
+                return;
+            }
+        } else {
+            IOLockGuard g(lock_);
+            sessionHandle_ = 0;
+        }
+    }
+
+    auto handle = reg->CreateSession(this, guid, romOffset);
+    if (!handle.has_value()) {
+        // kIOReturnExclusiveAccess: someone else (e.g. the probe tool) owns this
+        // target — stay out of the way.
+        ASFW_LOG(Controller,
+                 "[SBP2Bridge] CreateSession failed 0x%x (guid=0x%016llx romOffset=%u)",
+                 handle.error(), guid, romOffset);
+        return;
+    }
+    {
+        IOLockGuard g(lock_);
+        if (stopping_) {
+            return;
+        }
+        sessionHandle_ = *handle;
+        sessionGuid_ = guid;
+    }
+    ASFW_LOG(Controller, "[SBP2Bridge] session %llu created for guid=0x%016llx — logging in",
+             *handle, guid);
+    if (!reg->StartLogin(this, *handle)) {
+        ASFW_LOG(Controller, "[SBP2Bridge] StartLogin failed for session %llu", *handle);
+    }
+}
+
+void SBP2TargetBridge::OnLoginStateChanged(uint64_t guid, bool loggedIn) {
+    // The registry emits this on TERMINAL edges only: login-up (fresh login or
+    // reconnect re-assert) and logout/login-failure. A transient bus-reset
+    // suspension emits nothing. The HBA drives target 0 create/destroy off
+    // these edges (ASFWSCSIController::HandleLoginEdge); a multi-target
+    // guid→targetID map remains future work.
+    //
+    // A fresh up edge goes through the readiness gate, which delays the hub
+    // notification until the device answers TUR without a warm-up sense; down
+    // edges and reconnect re-asserts pass straight through it.
+    ASFW_LOG(Controller, "[SBP2Bridge] login %{public}s guid=0x%016llx",
+             loggedIn ? "up" : "down", guid);
+    if (readinessGate_) {
+        readinessGate_->OnEdge(guid, loggedIn);
+        return;
+    }
+    SBP2BridgeHub::NotifyTargetState(guid, loggedIn);
+}
+
+void SBP2TargetBridge::AdoptExistingUnits() {
+    const auto units = deviceManager_.FindUnitsBySpec(kSBP2UnitSpecId, kSBP2UnitSwVersion);
+    for (const auto& unit : units) {
+        OnUnitPublished(unit);
+    }
+}
+
+void SBP2TargetBridge::SchedulePump() {
+    // Caller holds lock_.
+    if (stopping_ || pumpScheduled_ || workQueue_ == nullptr) {
+        return;
+    }
+    pumpScheduled_ = true;
+    std::weak_ptr<SBP2TargetBridge> weak = weak_from_this();
+    workQueue_->DispatchAsync(^{
+        if (auto self = weak.lock()) {
+            self->Pump();
+        }
+    });
+}
+
+void SBP2TargetBridge::Pump() {
+    for (;;) {
+        PendingTask task;
+        {
+            IOLockGuard g(lock_);
+            pumpScheduled_ = false;
+            if (stopping_ || commandInFlight_ || pending_.empty()) {
+                return;
+            }
+            task = std::move(pending_.front());
+            pending_.pop_front();
+            commandInFlight_ = true;
+        }
+
+        uint64_t handle = 0;
+        {
+            IOLockGuard g(lock_);
+            handle = sessionHandle_;
+        }
+
+        bool submitted = false;
+        if (handle != 0) {
+            // lock() the registry for the submit so ServiceContext::Reset() on
+            // the driver teardown queue cannot free it under us; a null lock
+            // means teardown raced us, so submitted stays false and the task
+            // fails NotReady below.
+            // The completion callback runs on the Default queue (ORB completion)
+            // or under the registry lock (teardown abort) — never re-enter the
+            // registry from it synchronously; re-pump via DispatchAsync.
+            auto reg = registry_.lock();
+            std::weak_ptr<SBP2TargetBridge> weak = weak_from_this();
+            TaskCallback taskCallback = task.callback;
+            submitted = reg && reg->SubmitCommand(
+                this, handle, task.request,
+                [weak, taskCallback](const SCSI::CommandResult& result) {
+                    auto self = weak.lock();
+                    if (self) {
+                        IOLockGuard g(self->lock_);
+                        self->commandInFlight_ = false;
+                    }
+                    taskCallback(result);
+                    if (self) {
+                        IOLockGuard g(self->lock_);
+                        if (!self->stopping_ && !self->pending_.empty()) {
+                            self->SchedulePump();
+                        }
+                    }
+                });
+        }
+
+        if (submitted) {
+            return;
+        }
+
+        // No session / not logged in / executor busy — fail this task and move on.
+        {
+            IOLockGuard g(lock_);
+            commandInFlight_ = false;
+        }
+        task.callback(SyntheticFailure(static_cast<int>(kIOReturnNotReady)));
+    }
+}
+
+SCSI::CommandResult SBP2TargetBridge::SyntheticFailure(int transportStatus) {
+    SCSI::CommandResult result{};
+    result.transportStatus = transportStatus;
+    return result;
+}
+
+} // namespace ASFW::Protocols::SBP2

@@ -1,0 +1,781 @@
+// Modified by Rewind Digital for rewindDV; changes relative to the retained ASFireWire baseline.
+#include "BusResetCoordinator.hpp"
+
+#include <algorithm>
+#include <cstring>
+
+#ifndef ASFW_HOST_TEST
+#include <DriverKit/IOLib.h>
+#endif
+
+#include "../Async/Interfaces/IAsyncControllerPort.hpp"
+#include "../ConfigROM/ConfigROMStager.hpp"
+#include "../ConfigROM/ROMScanner.hpp"
+#include "../Hardware/OHCIConstants.hpp"
+#include "BusManager.hpp"
+#include "../Hardware/HardwareInterface.hpp"
+#include "../Hardware/InterruptManager.hpp"
+#include "../Logging/Logging.hpp"
+#include "SelfIDCapture.hpp"
+#include "TopologyManager.hpp"
+#include "CSR/TopologyMapService.hpp"
+
+namespace {
+
+constexpr uint64_t kRepeatedResetHoldoffNs = 2'000'000'000ULL;
+constexpr uint8_t kConservativeMismatchGapCount = 0x3FU;
+constexpr uint32_t kManualResetWatchdogMs = 500;
+constexpr uint8_t kMaxManualRecoveryResetAttempts = 1;
+
+void MergePhyConfig(ASFW::Driver::BusManager::PhyConfigCommand& base,
+                    const ASFW::Driver::BusManager::PhyConfigCommand& addition) {
+    if (addition.gapCount.has_value()) {
+        base.gapCount = addition.gapCount;
+    }
+    if (addition.forceRootNodeID.has_value()) {
+        base.forceRootNodeID = addition.forceRootNodeID;
+    }
+    if (addition.setContender.has_value()) {
+        base.setContender = addition.setContender;
+    }
+}
+
+} // namespace
+
+namespace ASFW::Driver {
+
+void BusResetCoordinator::MaskBusReset() {
+    if ((interruptManager_ == nullptr) || (hardware_ == nullptr)) {
+        return;
+    }
+
+    interruptManager_->MaskInterrupts(hardware_, IntEventBits::kBusReset);
+    busResetMasked_ = true;
+}
+
+void BusResetCoordinator::UnmaskBusReset() {
+    if ((interruptManager_ == nullptr) || (hardware_ == nullptr)) {
+        return;
+    }
+
+    interruptManager_->UnmaskInterrupts(hardware_, IntEventBits::kBusReset);
+    busResetMasked_ = false;
+}
+
+void BusResetCoordinator::ForceUnmaskBusResetIfNeeded() {
+    if (!busResetMasked_) {
+        return;
+    }
+
+    if ((interruptManager_ == nullptr) || (hardware_ == nullptr)) {
+        ASFW_LOG(BusReset,
+                 "busReset remained masked but dependencies are unavailable (irq=%p hw=%p)",
+                 interruptManager_, hardware_);
+        return;
+    }
+
+    interruptManager_->UnmaskInterrupts(hardware_, IntEventBits::kBusReset);
+    busResetMasked_ = false;
+}
+
+void BusResetCoordinator::ClearStaleSelfIDComplete2() {
+    if (hardware_ == nullptr) {
+        return;
+    }
+
+    // OHCI 1.1 §6.1 / Table 6-1 and §11.5: `selfIDComplete2` retains state
+    // across bus resets and is cleared only through `IntEventClear`.
+    if (auto access = hardware_->TryBeginAccess()) {
+        access.WriteAndFlush(Register32::kIntEventClear, IntEventBits::kSelfIDComplete2);
+    }
+    selfIdLatch_.stickyComplete = false;
+    selfIdLatch_.stickyCompleteTimeNs = 0;
+}
+
+void BusResetCoordinator::ClearConsumedSelfIDInterrupts() {
+    if (hardware_ == nullptr) {
+        selfIdLatch_.Reset();
+        return;
+    }
+
+    uint32_t clearMask = 0;
+    if (selfIdLatch_.complete) {
+        clearMask |= IntEventBits::kSelfIDComplete;
+    }
+    if (selfIdLatch_.stickyComplete) {
+        clearMask |= IntEventBits::kSelfIDComplete2;
+    }
+
+    if (clearMask != 0U) {
+        if (auto access = hardware_->TryBeginAccess()) {
+            access.WriteAndFlush(Register32::kIntEventClear, clearMask);
+        }
+    }
+
+    selfIdLatch_.Reset();
+}
+
+void BusResetCoordinator::ArmSelfIDBuffer() {
+    if ((selfIdCapture_ == nullptr) || (hardware_ == nullptr)) {
+        return;
+    }
+
+    if (const kern_return_t kr = selfIdCapture_->Arm(*hardware_); kr != kIOReturnSuccess) {
+        ASFW_LOG_ERROR(BusReset, "Failed to arm Self-ID buffer: 0x%x", kr);
+    }
+}
+
+void BusResetCoordinator::StopFlushAT() {
+    if (topologyMapService_ != nullptr) {
+        topologyMapService_->Invalidate();
+    }
+
+    if (asyncSubsystem_ == nullptr) {
+        return;
+    }
+
+    const uint8_t nextGeneration =
+        static_cast<uint8_t>((lastGeneration_.value + 1U) & 0xFFU);
+    asyncSubsystem_->OnBusResetBegin(nextGeneration);
+    asyncSubsystem_->StopATContextsOnly();
+    asyncSubsystem_->FlushATContexts();
+}
+
+bool BusResetCoordinator::DecodeSelfID() {
+    if ((selfIdCapture_ == nullptr) || (hardware_ == nullptr)) {
+        return false;
+    }
+
+    uint32_t countRegister = 0;
+    {
+        auto access = hardware_->TryBeginAccess();
+        if (!access) return false;
+        countRegister = access.Read(Register32::kSelfIDCount);
+    }
+    // Decode performs the mandated second SelfIDCount read to reject a capture
+    // that changed under us. That read needs its own short scope; never hold a
+    // HardwareAccessScope across a call which can acquire another one.
+    auto decoded = selfIdCapture_->Decode(countRegister, *hardware_);
+    if (!decoded) {
+        RecordRecoveryReason(std::string{"Self-ID decode failed: "} +
+                             SelfIDCapture::DecodeErrorCodeString(decoded.error().code));
+        cycle_.acceptedSelfId.reset();
+        ASFW_LOG_V2(BusReset, "Self-ID decode failed: %{public}s",
+                    SelfIDCapture::DecodeErrorCodeString(decoded.error().code));
+        return false;
+    }
+
+    cycle_.acceptedSelfId = *decoded;
+    if (asyncSubsystem_ == nullptr) return false;
+    asyncSubsystem_->ConfirmBusGeneration(static_cast<uint8_t>(decoded->generation & 0xFFU));
+    const auto admitted = asyncSubsystem_->GetBusStateSnapshot();
+    if (!admitted.requestGenerationValid ||
+        static_cast<uint8_t>(admitted.requestGeneration) != decoded->generation) {
+        cycle_.acceptedSelfId.reset();
+        RecordRecoveryReason("Self-ID has no valid request generation");
+        return false;
+    }
+    lastGeneration_ = Discovery::Generation{admitted.requestGeneration};
+
+    return true;
+}
+
+bool BusResetCoordinator::BuildTopology() {
+    if ((topologyManager_ == nullptr) || !cycle_.acceptedSelfId.has_value() || (hardware_ == nullptr)) {
+        return false;
+    }
+
+    auto access = hardware_->TryBeginAccess();
+    if (!access) return false;
+    const uint32_t nodeIDRegister = access.Read(Register32::kNodeID);
+    const uint64_t timestamp = MonotonicNow();
+
+    auto snapshot =
+        topologyManager_->UpdateFromSelfID(*cycle_.acceptedSelfId, timestamp, nodeIDRegister, lastGeneration_.value);
+    if (!snapshot) {
+        RecordRecoveryReason(std::string{"Topology build failed: "} +
+                             TopologyManager::TopologyBuildErrorCodeString(snapshot.error().code));
+        RecordRecoveryReasonCode(RecoveryReasonCode::TopologyBuildFailed);
+        cycle_.acceptedTopology.reset();
+
+        if (topologyMapService_ != nullptr) {
+            topologyMapService_->Invalidate();
+        }
+
+        ASFW_LOG(Topology,
+                 "Topology graph invalid: code=%{public}s detail=%{public}s; "
+                 "suppressing recovery reset and leaving TOPOLOGY_MAP unavailable",
+                 TopologyManager::TopologyBuildErrorCodeString(snapshot.error().code),
+                 snapshot.error().detail.c_str());
+
+        return false;
+    }
+
+    cycle_.acceptedTopology = *snapshot;
+    lastAcceptedGeneration_ = snapshot->generation;
+    lastTopologyNodeCount_ =
+        static_cast<uint8_t>(std::min<std::size_t>(snapshot->physical.nodes.size(), 0xFFU));
+
+    if (busManager_ != nullptr && snapshot->gapCountConsistent) {
+        busManager_->NoteStableGapObserved(snapshot->gapCount);
+    }
+
+    if (!snapshot->gapCountConsistent) {
+        ASFW_LOG_V2(BusReset, "Gap counts are inconsistent across validated Self-ID packet 0s");
+    }
+
+    // Self-ID is the only authoritative post-reset attribution available to us.
+    // Do not infer a remote reset from a preceding local policy request: a device
+    // can reset after that request, as observed with the Apogee Duet.  Emit one
+    // compact record after topology is accepted so MCP can filter reset origin
+    // without reconstructing it from raw Self-ID packets.
+    const auto initiator = std::find_if(snapshot->physical.nodes.begin(),
+                                        snapshot->physical.nodes.end(),
+                                        [](const auto& node) { return node.initiatedReset; });
+    if (initiator == snapshot->physical.nodes.end()) {
+        ASFW_LOG(BusReset,
+                 "Reset provenance: gen=%u origin=unknown root=%u irm=%u local=%u",
+                 snapshot->generation, snapshot->rootNodeId, snapshot->irmNodeId,
+                 snapshot->localNodeId);
+    } else {
+        const bool localInitiator = initiator->physicalId == snapshot->localNodeId;
+        ASFW_LOG(BusReset,
+                 "Reset provenance: gen=%u origin=%{public}s initiator=node%u root=%u irm=%u local=%u",
+                 snapshot->generation, localInitiator ? "local" : "remote",
+                 initiator->physicalId, snapshot->rootNodeId, snapshot->irmNodeId,
+                 snapshot->localNodeId);
+    }
+
+    return true;
+}
+
+void BusResetCoordinator::RestoreConfigROM() {
+    if ((configRomStager_ == nullptr) || (hardware_ == nullptr)) {
+        return;
+    }
+
+    configRomStager_->RestoreHeaderAfterBusReset();
+    if (auto access = hardware_->TryBeginAccess()) {
+        access.WriteAndFlush(Register32::kBusOptions, configRomStager_->ExpectedBusOptions());
+        access.WriteAndFlush(Register32::kConfigROMHeader, configRomStager_->ExpectedHeader());
+    }
+}
+
+void BusResetCoordinator::ClearBusReset() {
+    if (hardware_ == nullptr) {
+        return;
+    }
+
+    if (auto access = hardware_->TryBeginAccess()) {
+        access.WriteAndFlush(Register32::kIntEventClear, IntEventBits::kBusReset);
+    }
+    busResetClearTime_ = MonotonicNow();
+}
+
+void BusResetCoordinator::EnableFilters() {
+    if (hardware_ == nullptr) {
+        return;
+    }
+
+    if (auto access = hardware_->TryBeginAccess()) {
+        access.Write(Register32::kAsReqFilterHiSet, kAsReqAcceptAllMask);
+    }
+    filtersEnabled_ = true;
+}
+
+void BusResetCoordinator::RearmAT() {
+    if (asyncSubsystem_ == nullptr) {
+        return;
+    }
+
+    asyncSubsystem_->RearmATContexts();
+    atArmed_ = true;
+}
+
+void BusResetCoordinator::LogMetrics() {
+    const uint64_t completionTime = MonotonicNow();
+    metrics_.lastResetStart = firstIrqTime_;
+    metrics_.lastResetCompletion = completionTime;
+
+    const double durationMs =
+        static_cast<double>(completionTime - firstIrqTime_) / 1'000'000.0;
+    ASFW_LOG(BusReset, "Bus reset #%u complete in %.2f ms (generation=%u, aborts=%u)",
+             metrics_.resetCount, durationMs, lastGeneration_.value, metrics_.abortCount);
+
+    if (cycle_.recoveryReason.has_value()) {
+        metrics_.lastFailureReason = cycle_.recoveryReason;
+    }
+
+    if (metrics_.lastFailureReason.has_value()) {
+        ASFW_LOG_V2(BusReset, "Last failure during recovery: %{public}s",
+                    metrics_.lastFailureReason->c_str());
+    }
+}
+
+void BusResetCoordinator::SendGlobalResumeIfNeeded() {
+    // Do not send PHY Global Resume automatically on ordinary post-reset completion.
+    // On real hardware this eager wake signal can provoke a second bus reset while
+    // discovery is still enumerating the freshly accepted topology. Keep the helper
+    // available for future explicit wake/recovery flows, but leave normal reset
+    // stabilization undisturbed.
+    ASFW_LOG_V2(BusReset,
+                "Skipping automatic PHY global resume after reset; no explicit wake trigger");
+}
+
+void BusResetCoordinator::HandleStraySelfID() {
+    if (!HasSelfIDCompletion()) {
+        return;
+    }
+
+    if (!CanAttemptSelfIDDecode()) {
+        ClearConsumedSelfIDInterrupts();
+        return;
+    }
+
+    ASFW_LOG_V2(BusReset, "Handling late Self-ID completion outside active reset flow");
+    const bool decoded = DecodeSelfID();
+    ClearConsumedSelfIDInterrupts();
+    if (decoded) {
+        TransitionTo(State::QuiescingAT, "Late Self-ID completion");
+    }
+}
+
+void BusResetCoordinator::EvaluateRootDelegation(const TopologySnapshot& topology) {
+    if (!delegateAttemptActive_) {
+        if (delegateSuppressed_ && topology.rootNodeId != kInvalidPhysicalId &&
+            topology.localNodeId != kInvalidPhysicalId &&
+            topology.rootNodeId != topology.localNodeId) {
+            delegateSuppressed_ = false;
+        }
+        return;
+    }
+
+    if (topology.rootNodeId == kInvalidPhysicalId) {
+        return;
+    }
+
+    const uint8_t currentRoot = topology.rootNodeId;
+    const uint8_t localNode = topology.localNodeId;
+    if ((delegateTarget_ != 0xFF && currentRoot == delegateTarget_) ||
+        (localNode != 0xFF && currentRoot != localNode)) {
+        delegateAttemptActive_ = false;
+        delegateSuppressed_ = false;
+        delegateTarget_ = 0xFF;
+        delegateRetryCount_ = 0;
+        return;
+    }
+
+    delegateAttemptActive_ = false;
+}
+
+void BusResetCoordinator::RequestSoftwareReset(ResetRequest request) {
+    if (request.kind == ResetRequestKind::Delegation && delegateSuppressed_) {
+        return;
+    }
+
+    if (request.kind == ResetRequestKind::Delegation && request.phyConfig.has_value() &&
+        request.phyConfig->forceRootNodeID.has_value()) {
+        const uint8_t newTarget = *request.phyConfig->forceRootNodeID;
+        if (newTarget != delegateTarget_) {
+            delegateRetryCount_ = 0;
+            delegateTarget_ = newTarget;
+        }
+
+        ++delegateRetryCount_;
+        if (delegateRetryCount_ > kMaxDelegateRetries) {
+            delegateSuppressed_ = true;
+            return;
+        }
+
+        delegateAttemptActive_ = true;
+    }
+
+    if (cycle_.pendingReset.has_value()) {
+        cycle_.pendingReset = MergeResetRequests(*cycle_.pendingReset, request);
+    } else {
+        cycle_.pendingReset = std::move(request);
+    }
+
+    if ((state_ == State::Idle) && (workQueue_.get() != nullptr)) {
+        const auto epoch = deferredWorkEpoch_;
+        workQueue_->DispatchAsync(^{
+          Shared::PostedWorkEpoch::Lease lease(*epoch);
+          if (!lease) return;
+          RunStateMachine();
+        });
+    }
+}
+
+BusResetCoordinator::ResetRequest BusResetCoordinator::MergeResetRequests(
+    const ResetRequest& current, const ResetRequest& incoming) const {
+    const auto strongerFlavor = [](ResetFlavor lhs, ResetFlavor rhs) {
+        return (lhs == ResetFlavor::Long || rhs == ResetFlavor::Long) ? ResetFlavor::Long
+                                                                      : ResetFlavor::Short;
+    };
+    const auto mergedKind = [](ResetRequestKind lhs, ResetRequestKind rhs) {
+        if (lhs == ResetRequestKind::GapCorrection || rhs == ResetRequestKind::GapCorrection) {
+            return ResetRequestKind::GapCorrection;
+        }
+        if (lhs == ResetRequestKind::Delegation || rhs == ResetRequestKind::Delegation) {
+            return ResetRequestKind::Delegation;
+        }
+        if (lhs == ResetRequestKind::ManualBusManager || rhs == ResetRequestKind::ManualBusManager) {
+            return ResetRequestKind::ManualBusManager;
+        }
+        // Below ManualBusManager: a restage is a local housekeeping reset, and any of
+        // the above carry bus-wide policy that must not be relabelled as one.
+        if (lhs == ResetRequestKind::RolePolicyRestage ||
+            rhs == ResetRequestKind::RolePolicyRestage) {
+            return ResetRequestKind::RolePolicyRestage;
+        }
+        return ResetRequestKind::Recovery;
+    };
+
+    ResetRequest merged = current;
+    merged.flavor = strongerFlavor(current.flavor, incoming.flavor);
+    merged.kind = mergedKind(current.kind, incoming.kind);
+
+    if (merged.phyConfig.has_value() && incoming.phyConfig.has_value()) {
+        auto combined = *merged.phyConfig;
+        MergePhyConfig(combined, *incoming.phyConfig);
+        merged.phyConfig = combined;
+    } else if (incoming.phyConfig.has_value()) {
+        merged.phyConfig = incoming.phyConfig;
+    }
+
+    const bool forceConservativeGap =
+        current.gapDecisionReason == BusManager::GapDecisionReason::MismatchForce63 ||
+        incoming.gapDecisionReason == BusManager::GapDecisionReason::MismatchForce63;
+    if (forceConservativeGap) {
+        merged.gapDecisionReason = BusManager::GapDecisionReason::MismatchForce63;
+        if (!merged.phyConfig.has_value()) {
+            merged.phyConfig = BusManager::PhyConfigCommand{};
+        }
+        merged.phyConfig->gapCount = kConservativeMismatchGapCount;
+    } else if (!merged.gapDecisionReason.has_value() && incoming.gapDecisionReason.has_value()) {
+        merged.gapDecisionReason = incoming.gapDecisionReason;
+    }
+
+    if (!incoming.reason.empty()) {
+        merged.reason = incoming.reason;
+    }
+
+    return merged;
+}
+
+bool BusResetCoordinator::MaybeDispatchPendingSoftwareReset() {
+    const auto resetKindString = [](ResetRequestKind kind) {
+        switch (kind) {
+        case ResetRequestKind::Recovery:
+            return "Recovery";
+        case ResetRequestKind::GapCorrection:
+            return "GapCorrection";
+        case ResetRequestKind::Delegation:
+            return "Delegation";
+        case ResetRequestKind::ManualBusManager:
+            return "ManualBusManager";
+        case ResetRequestKind::RolePolicyRestage:
+            return "RolePolicyRestage";
+        }
+        return "Unknown";
+    };
+
+    const auto resetFlavorString = [](ResetFlavor flavor) {
+        return (flavor == ResetFlavor::Short) ? "Short" : "Long";
+    };
+
+    if (!cycle_.pendingReset.has_value() || (hardware_ == nullptr)) {
+        return false;
+    }
+
+    const uint64_t now = MonotonicNow();
+    if ((cycle_.timing.softwareResetBlockedUntilNs != 0U) &&
+        (now < cycle_.timing.softwareResetBlockedUntilNs)) {
+        const uint64_t remainingNs = cycle_.timing.softwareResetBlockedUntilNs - now;
+        const uint32_t remainingMs =
+            static_cast<uint32_t>((remainingNs + 999'999ULL) / 1'000'000ULL);
+        ASFW_LOG_V2(
+            BusReset,
+            "Deferring %{public}s %{public}s reset for %u ms per IEEE 1394-2008 §8.2.1",
+            resetKindString(cycle_.pendingReset->kind),
+            resetFlavorString(cycle_.pendingReset->flavor), remainingMs);
+        YieldAndReschedule(remainingMs, "Repeated software reset holdoff");
+        return true;
+    }
+
+    const ResetRequest request = *cycle_.pendingReset;
+    cycle_.pendingReset.reset();
+    return DispatchSoftwareReset(request);
+}
+
+bool BusResetCoordinator::DispatchSoftwareReset(const ResetRequest& request) {
+    const auto resetKindString = [](ResetRequestKind kind) {
+        switch (kind) {
+        case ResetRequestKind::Recovery:
+            return "Recovery";
+        case ResetRequestKind::GapCorrection:
+            return "GapCorrection";
+        case ResetRequestKind::Delegation:
+            return "Delegation";
+        case ResetRequestKind::ManualBusManager:
+            return "ManualBusManager";
+        case ResetRequestKind::RolePolicyRestage:
+            return "RolePolicyRestage";
+        }
+        return "Unknown";
+    };
+
+    const auto resetFlavorString = [](ResetFlavor flavor) {
+        return (flavor == ResetFlavor::Short) ? "Short" : "Long";
+    };
+
+    if (hardware_ == nullptr) {
+        return false;
+    }
+
+    const bool carriesDelegation =
+        request.phyConfig.has_value() &&
+        (request.phyConfig->forceRootNodeID.has_value() || request.phyConfig->setContender.has_value());
+
+    ASFW_LOG(BusReset, "Reset request: origin=local kind=%{public}s flavor=%{public}s reason=%{public}s",
+             resetKindString(request.kind), resetFlavorString(request.flavor),
+             request.reason.c_str());
+    lastResetKind_ = request.kind;
+
+    if (!ApplySoftwareResetPhyConfig(request, carriesDelegation)) {
+        return false;
+    }
+
+    if (!hardware_->InitiateBusReset(request.flavor == ResetFlavor::Short)) {
+        RecordRecoveryReason(std::string{"Software reset dispatch failed: "} + request.reason);
+        // DICE's ClearSoftwareResetTracking performs the same cleanup main inlined
+        // (ClearInFlightGapReset + ClearDelegationAttempt); additionally record main's
+        // structured recovery reason code.
+        RecordRecoveryReasonCode(RecoveryReasonCode::SoftwareResetDispatchFailed);
+        ClearSoftwareResetTracking(request, carriesDelegation);
+        return false;
+    }
+
+    NoteIssuedGapReset(request);
+
+    // Wire main's manual-reset recovery into DICE's DispatchSoftwareReset structure.
+    // main kept this tail inline in its reset-issue path; DICE extracted the gap-reset
+    // note into the void NoteIssuedGapReset helper, so the issued-reset count and the
+    // manual-reset watchdog arming (ScheduleManualResetWatchdog → recovered by
+    // MaybeRecoverMissingManualResetIrq if the manual-reset IRQ goes missing) live here.
+    ++softwareResetIssuedCount_;
+    if (request.kind == ResetRequestKind::ManualBusManager) {
+        ScheduleManualResetWatchdog(manualResetEpoch_, resetEpoch_);
+    }
+
+    return true;
+}
+
+void BusResetCoordinator::ClearSoftwareResetTracking(const ResetRequest& request,
+                                                     bool carriesDelegation) {
+    if (request.gapDecisionReason.has_value() && busManager_ != nullptr) {
+        busManager_->ClearInFlightGapReset();
+    }
+    if (carriesDelegation) {
+        ClearDelegationAttempt();
+    }
+}
+
+std::optional<uint8_t> BusResetCoordinator::CurrentGapCountForBareReset() const noexcept {
+    // IEEE 1394-2008 §8.2.1: "When gap_count has a value other than 63, bus resets
+    // initiated by software should be immediately preceded by the transmission of a
+    // PHY configuration packet with a nonzero T bit and gap_cnt equal to the current
+    // value of gap_count. Without this precaution, the bus manager is almost certain
+    // to transmit a PHY configuration packet to restore the optimal value of
+    // gap_count and then generate an additional bus reset."
+    //
+    // i.e. skipping this provokes an *extra* reset from a peer bus manager. Linux does
+    // exactly this on every scheduled reset — core-card.c:252, br_work():
+    //     fw_send_phy_config(card, FW_PHY_CONFIG_NO_NODE_ID, card->generation,
+    //                        FW_PHY_CONFIG_CURRENT_GAP_COUNT);
+    //     reset_bus(card, card->br_short);
+    //
+    // At gap_count 63 there is nothing to preserve (63 is the post-reset default that
+    // an unconfigured bus lands on anyway), so the packet would be pure noise.
+    if (!cycle_.acceptedTopology.has_value()) {
+        return std::nullopt;
+    }
+
+    const auto& topology = *cycle_.acceptedTopology;
+    if (!topology.gapCountConsistent) {
+        // Nodes disagree: there is no single "current value of gap_count" to restate.
+        // Leave it alone and let the gap-correction path force 63 deliberately.
+        return std::nullopt;
+    }
+    if (topology.gapCount == kConservativeMismatchGapCount) {
+        return std::nullopt;
+    }
+    return topology.gapCount;
+}
+
+bool BusResetCoordinator::ApplySoftwareResetPhyConfig(const ResetRequest& request,
+                                                      bool carriesDelegation) {
+    if (!request.phyConfig.has_value()) {
+        // No caller-supplied config: restate the current gap count so a peer bus
+        // manager does not have to correct it with a second reset. See
+        // CurrentGapCountForBareReset() for the §8.2.1 / Linux citation.
+        const auto preservedGap = CurrentGapCountForBareReset();
+        if (!preservedGap.has_value()) {
+            return true;
+        }
+
+        if (hardware_->SendPhyConfig(preservedGap, std::nullopt, request.reason.c_str())) {
+            ASFW_LOG_V2(BusReset,
+                        "Preceded bare %{public}s reset with PHY config gap=%u (IEEE 1394-2008 §8.2.1)",
+                        request.reason.c_str(), static_cast<unsigned>(*preservedGap));
+            return true;
+        }
+
+        RecordRecoveryReason(std::string{"Gap-preserving PHY config dispatch failed: "} +
+                             request.reason);
+        ClearSoftwareResetTracking(request, carriesDelegation);
+        return false;
+    }
+
+    const auto& command = *request.phyConfig;
+    if (command.setContender.has_value()) {
+        hardware_->SetContender(*command.setContender);
+    }
+
+    if (hardware_->SendPhyConfig(command.gapCount, command.forceRootNodeID,
+                                 request.reason.c_str())) {
+        return true;
+    }
+
+    RecordRecoveryReason(std::string{"PHY config dispatch failed: "} + request.reason);
+    ClearSoftwareResetTracking(request, carriesDelegation);
+    return false;
+}
+
+void BusResetCoordinator::NoteIssuedGapReset(const ResetRequest& request) {
+    if (request.gapDecisionReason.has_value() && request.phyConfig.has_value() &&
+        request.phyConfig->gapCount.has_value() && (busManager_ != nullptr)) {
+        busManager_->NoteGapResetIssued(*request.phyConfig->gapCount, *request.gapDecisionReason);
+    }
+}
+
+void BusResetCoordinator::ClearDelegationAttempt() {
+    delegateAttemptActive_ = false;
+    delegateTarget_ = 0xFF;
+    delegateRetryCount_ = 0;
+    delegateSuppressed_ = false;
+}
+
+void BusResetCoordinator::RecordRecoveryReason(std::string reason) {
+    cycle_.recoveryReason = reason;
+    metrics_.lastFailureReason = *cycle_.recoveryReason;
+}
+
+void BusResetCoordinator::RecordRecoveryReasonCode(RecoveryReasonCode code) {
+    lastRecoveryReasonCode_ = code;
+}
+
+void BusResetCoordinator::ScheduleManualResetWatchdog(uint32_t manualEpoch, uint32_t resetEpoch) {
+    if (workQueue_.get() == nullptr) {
+        return;
+    }
+
+    const auto epoch = deferredWorkEpoch_;
+#ifdef ASFW_HOST_TEST
+    if (workQueue_->UsesManualDispatchForTesting()) {
+        workQueue_->DispatchAsyncAfter(static_cast<uint64_t>(kManualResetWatchdogMs) * 1'000'000ULL,
+                                       ^{
+                                         Shared::PostedWorkEpoch::Lease lease(*epoch);
+                                         if (!lease) return;
+                                         MaybeRecoverMissingManualResetIrq(manualEpoch, resetEpoch);
+                                       });
+        return;
+    }
+#endif
+
+    workQueue_->DispatchAsync(^{
+      Shared::PostedWorkEpoch::Lease lease(*epoch);
+      if (!lease) return;
+#ifdef ASFW_HOST_TEST
+      (void)manualEpoch;
+      (void)resetEpoch;
+#else
+      IOSleep(kManualResetWatchdogMs);
+      MaybeRecoverMissingManualResetIrq(manualEpoch, resetEpoch);
+#endif
+    });
+}
+
+void BusResetCoordinator::MaybeRecoverMissingManualResetIrq(uint32_t manualEpoch,
+                                                            uint32_t resetEpoch) {
+    if (manualEpoch != manualResetEpoch_ || resetEpoch != resetEpoch_) {
+        return;
+    }
+
+    if (manualRecoveryResetAttempts_ >= kMaxManualRecoveryResetAttempts) {
+        RecordRecoveryReason("Manual reset watchdog reached bounded recovery limit");
+        RecordRecoveryReasonCode(RecoveryReasonCode::ManualResetWatchdog);
+        return;
+    }
+
+    ++manualRecoveryResetAttempts_;
+    RecordRecoveryReason("Manual reset watchdog did not observe busReset IRQ/topology");
+    RecordRecoveryReasonCode(RecoveryReasonCode::ManualResetWatchdog);
+    RequestSoftwareReset({ResetRequestKind::Recovery, ResetFlavor::Short, std::nullopt,
+                          "Manual reset watchdog recovery", std::nullopt});
+}
+
+void BusResetCoordinator::RequestUserReset(bool shortReset, const char* reason) {
+    ++manualResetEpoch_;
+    manualRecoveryResetAttempts_ = 0;
+    RequestSoftwareReset({ResetRequestKind::ManualBusManager,
+                          shortReset ? ResetFlavor::Short : ResetFlavor::Long, std::nullopt,
+                          reason, std::nullopt});
+}
+
+void BusResetCoordinator::RequestConfigRomRestageReset(const char* reason) {
+    // Long reset: peers must re-read the local Config ROM, and a short (arbitrated)
+    // reset is not guaranteed to make every node re-enumerate.
+    RequestSoftwareReset({ResetRequestKind::RolePolicyRestage, ResetFlavor::Long, std::nullopt,
+                          reason != nullptr ? reason : "Config ROM re-stage", std::nullopt});
+}
+
+void BusResetCoordinator::RequestRolePolicyReset(uint8_t targetRoot, bool longReset,
+                                                 std::optional<uint8_t> gapCount,
+                                                 std::optional<bool> setContender,
+                                                 std::string reason) {
+    BusManager::PhyConfigCommand command{};
+    command.forceRootNodeID = targetRoot;
+    command.gapCount = gapCount;
+    command.setContender = setContender;
+
+    if (reason.empty()) {
+        reason = "RoleCoordinator";
+    }
+
+    RequestSoftwareReset({ResetRequestKind::Delegation,
+                          longReset ? ResetFlavor::Long : ResetFlavor::Short,
+                          command,
+                          std::move(reason),
+                          std::nullopt});
+}
+
+void BusResetCoordinator::ResetDelegationRetryCounter() {
+    delegateRetryCount_ = 0;
+    delegateSuppressed_ = false;
+}
+
+void BusResetCoordinator::ArmSoftwareResetHoldoffAfterSelfIDCompletion(uint64_t timestampNs) noexcept {
+    // IEEE 1394-2008 §8.2.1: software-initiated bus resets are rate-limited
+    // after the self-identify process completes. This holdoff belongs to Self-ID
+    // completion, not to successful topology graph construction. Linux follows the
+    // same shape by recording reset_jiffies before build_tree().
+    cycle_.timing.lastSelfIdCompletionNs = timestampNs;
+    cycle_.timing.softwareResetBlockedUntilNs = timestampNs + kRepeatedResetHoldoffNs;
+
+    ASFW_LOG_V2(BusReset,
+                "Software reset holdoff armed for %llu ns after Self-ID completion",
+                kRepeatedResetHoldoffNs);
+}
+
+} // namespace ASFW::Driver

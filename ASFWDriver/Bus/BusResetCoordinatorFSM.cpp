@@ -1,0 +1,333 @@
+// Modified by Rewind Digital for rewindDV; changes relative to the retained ASFireWire baseline.
+#include "BusResetCoordinator.hpp"
+
+#include <algorithm>
+
+#ifndef ASFW_HOST_TEST
+#include <DriverKit/IOLib.h>
+#endif
+
+#include "../Async/Interfaces/IAsyncControllerPort.hpp"
+#include "../Hardware/HardwareInterface.hpp"
+#include "BusManager.hpp"
+#include "../Logging/Logging.hpp"
+#include "TopologyManager.hpp"
+#include "../ConfigROM/ROMScanner.hpp"
+#include "CSR/TopologyMapService.hpp"
+
+namespace {
+
+constexpr uint32_t kDeferredPollMs = 1;
+constexpr uint32_t kSelfIDTimeoutMs = 1000;
+constexpr uint64_t kATQuiesceTimeoutNs = 100000000ULL;
+constexpr uint32_t kAppleScanBusDelayMs = 100;
+
+} // namespace
+
+namespace ASFW::Driver {
+
+void BusResetCoordinator::BeginNewResetCycle() {
+    if (asyncSubsystem_) asyncSubsystem_->OnBusResetObserved();
+    pendingBusResetEdge_ = false;
+    selfIdLatch_.Reset();
+    stopFlushIssued_ = false;
+    filtersEnabled_ = false;
+    atArmed_ = false;
+    cycle_.ResetForNewEdge();
+    // A new reset edge invalidates all post-reset timing gates from the prior
+    // generation; no gate reopens until Self-ID completion is observed for the
+    // new generation. lastGeneration_ still holds the outgoing generation here.
+    postResetTiming_.OnBusResetStarted(lastGeneration_.value, MonotonicNow());
+    ++resetEpoch_;
+    readyForDiscoveryFailureBits_ = 0;
+
+    if (romScanner_ != nullptr) {
+        ++metrics_.abortCount;
+        ASFW_LOG(BusReset, "Aborting ROM scan for generation %u", lastGeneration_.value);
+        romScanner_->Abort(lastGeneration_);
+    }
+
+    if (topologyManager_ != nullptr) {
+        topologyManager_->InvalidateForBusReset();
+    }
+
+    if (topologyMapService_ != nullptr) {
+        topologyMapService_->Invalidate();
+    }
+
+    TransitionTo(State::Detecting, "busReset edge observed");
+    MaskBusReset();
+    ClearStaleSelfIDComplete2();
+}
+
+BusResetCoordinator::StepResult BusResetCoordinator::StepIdle() {
+    if (HasSelfIDCompletion()) {
+        HandleStraySelfID();
+        if (state_ != State::Idle) {
+            return StepResult::Continue;
+        }
+    }
+
+    ForceUnmaskBusResetIfNeeded();
+
+    if (cycle_.pendingReset.has_value()) {
+        MaybeDispatchPendingSoftwareReset();
+        return StepResult::Finish;
+    }
+
+    return StepResult::Finish;
+}
+
+BusResetCoordinator::StepResult BusResetCoordinator::StepDetecting() {
+    ArmSelfIDBuffer();
+    TransitionTo(State::WaitingSelfID, "Self-ID buffer armed");
+    return StepResult::Continue;
+}
+
+BusResetCoordinator::StepResult BusResetCoordinator::StepWaitingSelfID() {
+    if (CanAttemptSelfIDDecode()) {
+        const uint64_t completionTime = selfIdLatch_.complete ? selfIdLatch_.completeTimeNs
+                                                              : selfIdLatch_.stickyCompleteTimeNs;
+        ArmSoftwareResetHoldoffAfterSelfIDCompletion(completionTime);
+
+        const bool decoded = DecodeSelfID();
+        ClearConsumedSelfIDInterrupts();
+        if (decoded) {
+            // Anchor post-reset timing gates to Self-ID completion, BEFORE the
+            // topology graph is built, so they stay armed even if that build
+            // later fails (IEEE 1394-2008 §8.x / Annex H). DecodeSelfID() has set
+            // lastGeneration_ to the freshly decoded generation.
+            postResetTiming_.OnSelfIDComplete(lastGeneration_.value, completionTime);
+        }
+        if (!decoded) {
+            RecordRecoveryReasonCode(RecoveryReasonCode::SelfIDDecodeFailed);
+            RequestSoftwareReset(
+                {ResetRequestKind::Recovery, ResetFlavor::Short, std::nullopt,
+                 "Self-ID decode failed"});
+        }
+        TransitionTo(State::QuiescingAT, decoded ? "Self-ID decoded" : "Self-ID recovery path");
+        return StepResult::Continue;
+    }
+
+    const uint64_t waitedNs = MonotonicNow() - stateEntryTime_;
+    if (waitedNs >= static_cast<uint64_t>(kSelfIDTimeoutMs) * 1'000'000ULL) {
+        RecordRecoveryReason("Self-ID timeout");
+        RecordRecoveryReasonCode(RecoveryReasonCode::SelfIDTimeout);
+        ClearConsumedSelfIDInterrupts();
+        RequestSoftwareReset(
+            {ResetRequestKind::Recovery, ResetFlavor::Short, std::nullopt, "Self-ID timeout"});
+        TransitionTo(State::QuiescingAT, "Self-ID timeout");
+        return StepResult::Continue;
+    }
+
+    YieldAndReschedule(kDeferredPollMs, "Waiting for Self-ID completion");
+    return StepResult::Yield;
+}
+
+bool BusResetCoordinator::FailATQuiesceIfExpired() {
+    if (MonotonicNow() - stateEntryTime_ < kATQuiesceTimeoutNs) return false;
+    RecordRecoveryReason("AT quiescence timeout; DMA retained, reset recovery blocked");
+    ASFW_LOG_ERROR(BusReset, "AT quiescence timeout; retaining DMA and refusing rearm");
+    filtersEnabled_ = false;
+    atArmed_ = false;
+    TransitionTo(State::QuiesceFailed, "AT inactivity not proven");
+    return true;
+}
+
+BusResetCoordinator::StepResult BusResetCoordinator::StepQuiescingAT() {
+    if (!stopFlushIssued_) {
+        StopFlushAT();
+        stopFlushIssued_ = true;
+    }
+
+    if (G_ATInactive()) {
+        TransitionTo(State::RestoringConfigROM, "AT contexts quiesced");
+        return StepResult::Continue;
+    }
+
+    if (FailATQuiesceIfExpired()) return StepResult::Finish;
+    YieldAndReschedule(kDeferredPollMs, "Waiting for AT inactivity");
+    return StepResult::Yield;
+}
+
+BusResetCoordinator::StepResult BusResetCoordinator::StepRestoringConfigROM() {
+    RestoreConfigROM();
+    BuildTopology();
+
+    if (cycle_.acceptedTopology.has_value()) {
+        MaybeRequestTopologyDrivenReset();
+    }
+
+    TransitionTo(State::ClearingBusReset, "Config ROM restored");
+    return StepResult::Continue;
+}
+
+void BusResetCoordinator::MaybeRequestTopologyDrivenReset() {
+    if (!cycle_.acceptedTopology.has_value() || busManager_ == nullptr) {
+        return;
+    }
+
+    if (!cycle_.acceptedSelfId.has_value()) {
+        return;
+    }
+
+    const auto gapDecision =
+        busManager_->EvaluateGapPolicy(*cycle_.acceptedTopology,
+                                       cycle_.acceptedSelfId->quads);
+    if (!gapDecision) {
+        return;
+    }
+
+    if (gapDecision->reason != BusManager::GapDecisionReason::MismatchForce63) {
+        return;
+    }
+
+    BusManager::PhyConfigCommand command{};
+    command.gapCount = gapDecision->gapCount;
+    RequestSoftwareReset({ResetRequestKind::GapCorrection, ResetFlavor::Long, command,
+                          BusManager::GapDecisionReasonString(gapDecision->reason),
+                          gapDecision->reason});
+}
+
+BusResetCoordinator::StepResult BusResetCoordinator::StepClearingBusReset() {
+    if (G_ATInactive()) {
+        ClearBusReset();
+        UnmaskBusReset();
+        TransitionTo(State::Rearming, "busReset cleared");
+        return StepResult::Continue;
+    }
+
+    if (FailATQuiesceIfExpired()) return StepResult::Finish;
+    YieldAndReschedule(kDeferredPollMs, "Waiting for AT inactivity before clear");
+    return StepResult::Yield;
+}
+
+BusResetCoordinator::StepResult BusResetCoordinator::StepRearming() {
+    if (!G_NodeIDValid()) {
+        YieldAndReschedule(kDeferredPollMs, "Waiting for NodeID valid");
+        return StepResult::Yield;
+    }
+
+    if (hardware_ != nullptr) {
+        const bool isRoot = G_IsRoot();
+        wasRoot_ = isRoot;
+    }
+
+    EnableFilters();
+    RearmAT();
+
+    if (asyncSubsystem_ != nullptr) {
+        asyncSubsystem_->OnBusResetComplete(static_cast<uint8_t>(lastGeneration_.value));
+    }
+
+    TransitionTo(State::Complete, "AT contexts re-armed");
+    return StepResult::Continue;
+}
+
+BusResetCoordinator::StepResult BusResetCoordinator::StepComplete() {
+    LogMetrics();
+
+    if (cycle_.pendingReset.has_value()) {
+        TransitionTo(State::Idle, "awaiting deferred software reset");
+        MaybeDispatchPendingSoftwareReset();
+        return StepResult::Finish;
+    }
+
+    SendGlobalResumeIfNeeded();
+    TransitionTo(State::Idle, "bus reset cycle complete");
+
+    if (topologyCallback_ && cycle_.acceptedTopology.has_value() && (workQueue_.get() != nullptr)) {
+        auto topo = *cycle_.acceptedTopology;
+        const Discovery::Generation generation{topo.generation};
+        uint32_t delayMs = kAppleScanBusDelayMs;
+
+        if (previousScanHadBusyNodes_ && currentDiscoveryDelayMs_ > 0U) {
+            delayMs = std::max(delayMs, currentDiscoveryDelayMs_);
+        }
+
+        ASFW_LOG(BusReset, "Discovery delayed %ums for generation %u", delayMs, generation.value);
+        const auto epoch = deferredWorkEpoch_;
+#ifdef ASFW_HOST_TEST
+        workQueue_->DispatchAsyncAfter(static_cast<uint64_t>(delayMs) * 1'000'000ULL, ^{
+          Shared::PostedWorkEpoch::Lease lease(*epoch);
+          if (!lease) return;
+          if (ReadyForDiscovery(generation)) {
+              discoveryCallbackCount_ = static_cast<uint8_t>(
+                  std::min<uint32_t>(static_cast<uint32_t>(discoveryCallbackCount_) + 1U, 0xFFU));
+              topologyCallback_(topo);
+          }
+        });
+#else
+        workQueue_->DispatchAsync(^{
+          Shared::PostedWorkEpoch::Lease lease(*epoch);
+          if (!lease) return;
+          IOSleep(delayMs);
+          if (ReadyForDiscovery(generation)) {
+              discoveryCallbackCount_ = static_cast<uint8_t>(
+                  std::min<uint32_t>(static_cast<uint32_t>(discoveryCallbackCount_) + 1U, 0xFFU));
+              topologyCallback_(topo);
+          }
+        });
+#endif
+    }
+
+    return StepResult::Finish;
+}
+
+void BusResetCoordinator::RunStateMachine() {
+    if (workInProgress_.exchange(true, std::memory_order_acq_rel)) {
+        ASFW_LOG_V3(BusReset, "FSM already running; coalescing request");
+        return;
+    }
+
+    if (hardware_ == nullptr) {
+        ForceUnmaskBusResetIfNeeded();
+        CompleteCurrentRun();
+        return;
+    }
+
+    constexpr int kMaxIterations = 12;
+    int iteration = 0;
+
+    while (iteration++ < kMaxIterations) {
+        if (pendingBusResetEdge_) {
+            BeginNewResetCycle();
+        }
+
+        const StepResult result = [this]() {
+            switch (state_) {
+            case State::Idle:
+                return StepIdle();
+            case State::Detecting:
+                return StepDetecting();
+            case State::WaitingSelfID:
+                return StepWaitingSelfID();
+            case State::QuiescingAT:
+                return StepQuiescingAT();
+            case State::RestoringConfigROM:
+                return StepRestoringConfigROM();
+            case State::ClearingBusReset:
+                return StepClearingBusReset();
+            case State::Rearming:
+                return StepRearming();
+            case State::Complete:
+                return StepComplete();
+            case State::QuiesceFailed:
+                return StepResult::Finish;
+            }
+            return StepResult::Finish;
+        }();
+
+        if (result == StepResult::Continue) {
+            continue;
+        }
+
+        CompleteCurrentRun();
+        return;
+    }
+
+    YieldAndReschedule(kDeferredPollMs, "Max iteration guard");
+    CompleteCurrentRun();
+}
+
+} // namespace ASFW::Driver

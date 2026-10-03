@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleShortVersionString</key><string>$(MARKETING_VERSION)</string>
+<key>CFBundleVersion</key><string>$(CURRENT_PROJECT_VERSION)</string>
+<key>IOKitPersonalities</key><dict>
+<key>RewindDVFoundationController</key><dict>
+<key>CFBundleIdentifier</key><string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+<key>IOClass</key><string>IOUserService</string>
+<key>IOProviderClass</key><string>IOPCIDevice</string>
+<key>IOUserClass</key><string>ASFWDriver</string>
+<key>IOUserServerName</key><string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+<key>IOUserServerOneProcess</key><true/>
+<key>FoundationBuildNumber</key><string>$(CURRENT_PROJECT_VERSION)</string>
+<key>IOPCIMatch</key><string>0x590111c1</string>
+<key>IOPCITunnelCompatible</key><true/>
+<key>IOProbeScore</key><integer>65530</integer>
+<key>ASFWDriverUserClientProperties</key><dict>
+<key>IOClass</key><string>IOUserUserClient</string>
+<key>IOUserClass</key><string>ASFWDriverUserClient</string>
+<key>IOServiceDEXTEntitlements</key><array><string>com.apple.developer.driverkit.userclient-access</string></array>
+</dict>
+<key>ASFWAutoStartAudioStreams</key><false/>
+<key>ASFWAsyncVerbosity</key><integer>1</integer>
+<key>ASFWFCPVerbosity</key><integer>3</integer>
+<key>ASFWControllerVerbosity</key><integer>1</integer>
+<key>ASFWHardwareVerbosity</key><integer>1</integer>
+<key>ASFWLogStatistics</key><true/>
+<key>ASFWEnableHexDumps</key><false/>
+<key>ASFWTraceDMACoherency</key><false/>
+</dict></dict>
+<key>OSBundleUsageDescription</key><string>Connect your FireWire deck for RewindDV archival acquisition.</string>
+</dict></plist>
