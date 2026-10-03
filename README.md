@@ -23,7 +23,7 @@
 
 Alpha 0.0.63 / Driver B178 is an older development build and has been withdrawn from distribution.
 
-**[Alpha 0.0.77 / Driver Build183 — engineering alpha](https://github.com/rewinddv/rewindDV-LAB/releases/tag/alpha-0.0.77)** is ad-hoc signed and not notarized.
+**[Alpha 0.0.81 / Driver Build183 — engineering alpha](https://github.com/rewinddv/rewindDV-LAB/releases/tag/alpha-0.0.81)** is ad-hoc signed and not notarized.
 
 rewindDV currently uses an ad-hoc-signed DriverKit extension.
 Installation requires disabling System Integrity Protection (SIP).
@@ -81,6 +81,28 @@ a single “success” message.
   alpha workflows with conservative eligibility checks—not guaranteed repair.
 - **Local flight recorder:** bounded diagnostic evidence and support export
   to help explain failures without automatically uploading footage or logs.
+
+## Changes in Alpha 0.0.81
+
+DV/HDV post-capture reconstruction and verification now bound temporary-object
+lifetimes during long recordings. This does not promise zero swap or a fixed
+amount of total app memory.
+
+Saved raw DV playback handles NTSC, PAL and transitions between them, with
+validated frame boundaries, exact cadence, seeking and stepping. Inspector
+properties come from one identified source-frame snapshot; playing metadata is
+sampled twice per second, format changes clear stale values, and pausing resolves
+the selected frame. Missing or conflicting metadata stays unavailable. The
+playback viewport and controls keep a fixed layout across format changes.
+
+The retained Build183 driver is unchanged. Offline tests do not establish
+physical PAL or HDV qualification. The cancelled receive-task Stop path can still
+suppress intermediate processing progress; the final result arrives. Damaged or
+incomplete raw DV boundaries are rejected rather than guessed past.
+
+Alpha 0.0.77 remains available historically and is superseded by Alpha 0.0.81.
+Versions 0.0.78–0.0.80 were intermediate development builds, not public releases.
+See [release notes](RELEASE-NOTES.md) for validation and limits.
 
 ## Compatibility and honest limits
 
