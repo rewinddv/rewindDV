@@ -1,0 +1,10 @@
+{
+  "run_id": 37153610516,
+  "artifact_id": 11284319135,
+  "candidate_tooling_sha": "ffc64fd2814f7b3a10422d9ea5274a7301dafc15",
+  "artifact_sha256": "4038e2c7505b0938cb0e7c6ffbe1de3ca1f0a0d623663aaf1dbbf2c01e5403a9",
+  "zip_sha256": "3da2b307e481548be3a51c2fcf9ff3cfcee892a85b8ae4b66ea1620622aaedae",
+  "source_sha": "da62378ad47bb769a3bf7230f1d80e7fce5104e3",
+  "dext_sha256": "9114508cb9ca2e78f28bbab0457f556928ea06465762028c761bf1e41281b22f",
+  "notes_sha256": "281e42c779fcbc25e061a3659cacba8eaa70a0d2ceb5ecbc715f0b2eb1cc1754"
+}

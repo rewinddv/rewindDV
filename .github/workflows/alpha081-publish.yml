@@ -1,0 +1,25 @@
+name: Publish verified Alpha 0.0.81
+on:
+  push:
+    branches: [main]
+    paths: [release/alpha081-publish.json]
+permissions:
+  contents: write
+  actions: read
+concurrency:
+  group: alpha081-publication
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Read pinned publication tooling
+        shell: bash
+        run: |
+          git clone --quiet https://github.com/rewinddv/rewindDV-LAB.git "$RUNNER_TEMP/hub"
+          git -C "$RUNNER_TEMP/hub" checkout --quiet --detach "$GITHUB_SHA"
+      - name: Publish previously audited bytes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 "$RUNNER_TEMP/hub/tools/publish-alpha081.py"
