@@ -1,0 +1,25 @@
+//
+// ASFWSBP2Nub.iig
+// ASFWDriver
+//
+// Nub published by ASFWDriver only for a discovered SBP-2 unit. Its registry
+// properties carry the FireWire GUID plus unit-directory/LUN identity, and it
+// is terminated when that exact FWUnit is removed. It survives route-only
+// reset suspension because that does not change device service incarnation.
+//
+// ASFWDriver sets property ASFWNubType = "SBP2" through its create properties.
+//
+
+#ifndef ASFWSBP2Nub_h
+#define ASFWSBP2Nub_h
+
+#include <DriverKit/IOService.iig>
+
+class ASFWSBP2Nub: public IOService
+{
+public:
+    virtual kern_return_t Start(IOService* provider) override;
+    virtual kern_return_t Stop(IOService* provider) override;
+};
+
+#endif /* ASFWSBP2Nub_h */

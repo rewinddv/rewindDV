@@ -1,0 +1,88 @@
+#include "AudioDriverConfig.hpp"
+
+#include <algorithm>
+#include <cstdio>
+#include <cstring>
+
+namespace ASFW::Isoch::Audio {
+
+void InitializeAudioDriverConfigDefaults(ParsedAudioDriverConfig& outConfig) {
+    outConfig = {};
+
+    strlcpy(outConfig.deviceName, "FireWire Audio", sizeof(outConfig.deviceName));
+    outConfig.channelCount = kDefaultChannelCount;
+    outConfig.inputChannelCount = kDefaultChannelCount;
+    outConfig.outputChannelCount = kDefaultChannelCount;
+
+    outConfig.sampleRates[0] = kDefaultSampleRate;
+    outConfig.sampleRateCount = 1;
+    outConfig.currentSampleRate = kDefaultSampleRate;
+    outConfig.streamMode = StreamMode::kNonBlocking;
+
+    strlcpy(outConfig.inputPlugName, "Input", sizeof(outConfig.inputPlugName));
+    strlcpy(outConfig.outputPlugName, "Output", sizeof(outConfig.outputPlugName));
+
+    for (uint32_t i = 0; i < kMaxNamedChannels; ++i) {
+        snprintf(outConfig.inputChannelNames[i], sizeof(outConfig.inputChannelNames[i]), "In %u", i + 1);
+        snprintf(outConfig.outputChannelNames[i], sizeof(outConfig.outputChannelNames[i]), "Out %u", i + 1);
+    }
+}
+
+void ApplyBringupSingleFormatPolicy(ParsedAudioDriverConfig& inOutConfig) {
+    // Bring-up note: dynamic sample-rate advertisement is intentionally deferred.
+    inOutConfig.sampleRates[0] = kDefaultSampleRate;
+    inOutConfig.sampleRateCount = 1;
+    inOutConfig.currentSampleRate = kDefaultSampleRate;
+}
+
+void ClampAudioDriverChannels(ParsedAudioDriverConfig& inOutConfig,
+                              uint32_t maxSupportedChannels) {
+    if (!inOutConfig.hasExplicitInputChannelCount && inOutConfig.inputChannelCount == 0) {
+        inOutConfig.inputChannelCount = inOutConfig.channelCount;
+    } else if (inOutConfig.inputChannelCount > maxSupportedChannels) {
+        inOutConfig.inputChannelCount = maxSupportedChannels;
+    }
+    if (!inOutConfig.hasExplicitOutputChannelCount && inOutConfig.outputChannelCount == 0) {
+        inOutConfig.outputChannelCount = inOutConfig.channelCount;
+    } else if (inOutConfig.outputChannelCount > maxSupportedChannels) {
+        inOutConfig.outputChannelCount = maxSupportedChannels;
+    }
+
+    if (!inOutConfig.hasExplicitInputChannelCount && inOutConfig.inputChannelCount == 0) {
+        inOutConfig.inputChannelCount = kDefaultChannelCount;
+    }
+    if (!inOutConfig.hasExplicitOutputChannelCount && inOutConfig.outputChannelCount == 0) {
+        inOutConfig.outputChannelCount = kDefaultChannelCount;
+    }
+
+    inOutConfig.channelCount = std::max(inOutConfig.inputChannelCount,
+                                        inOutConfig.outputChannelCount);
+}
+
+void ApplyProfileChannelCountFallback(ParsedAudioDriverConfig& inOutConfig,
+                                      uint32_t profileInputChannels,
+                                      uint32_t profileOutputChannels) {
+    if (!inOutConfig.hasExplicitInputChannelCount && profileInputChannels > 0) {
+        inOutConfig.inputChannelCount = profileInputChannels;
+    }
+    if (!inOutConfig.hasExplicitOutputChannelCount && profileOutputChannels > 0) {
+        inOutConfig.outputChannelCount = profileOutputChannels;
+    }
+    inOutConfig.channelCount = std::max(inOutConfig.inputChannelCount,
+                                        inOutConfig.outputChannelCount);
+}
+
+const char* ScopeLabel(uint32_t scopeFourCC) {
+    switch (scopeFourCC) {
+        case static_cast<uint32_t>('inpt'):
+            return "Input";
+        case static_cast<uint32_t>('outp'):
+            return "Output";
+        case static_cast<uint32_t>('glob'):
+            return "Global";
+        default:
+            return "Scope";
+    }
+}
+
+} // namespace ASFW::Isoch::Audio

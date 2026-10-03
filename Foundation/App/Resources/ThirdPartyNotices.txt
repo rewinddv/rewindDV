@@ -1,0 +1,134 @@
+rewindDV third-party notices — prospective source snapshot
+DRAFT — NOT PUBLISHED.
+
+rewindDV contains independently authored Apache-2.0 project code, modified
+Apache-2.0 ASFireWire code, and the separately identified BSD/MIT adaptations
+below. Preserve applicable per-file notices and modification records. The
+Apache-2.0 project license does not replace these third-party terms or grant
+rights to project branding. No upstream endorsement is implied.
+
+ASFireWire
+----------
+Copyright 2024-2026 ASFireWire Project Contributors
+Upstream: https://github.com/mrmidi/ASFireWire
+Retained baseline: ac8a124a683d2f8201cd14ee0d2de8265e4834f0
+License: Apache License, Version 2.0, included as ASFireWire-LICENSE.txt.
+Pertinent upstream attribution is retained in ASFireWire-NOTICE.txt.
+Selected upstream changes and downstream changes remain identified in source.
+
+Downstream changes by Rewind Digital include the native application and driver
+integration, bounded deck-control interface, receive verification, source-bound
+metadata/reporting, monitoring and archive preservation. This snapshot also has
+first-party address storage, interrupt presentation and rational timing helpers,
+and metadata presentation/test changes. It is a modified rewindDV snapshot,
+not an official ASFireWire release or a hardware-qualified distribution.
+
+MediaInfoLib metadata field references and adapted mappings
+---------------------------------------------------------
+Selected IEC consumer-DV camera, user-bit, recording-clock and caption-payload
+layouts/mappings are adapted into bounded Swift decoders from:
+https://github.com/MediaArea/MediaInfoLib
+Pinned commit: 6ce87668473b0591c323a66842c937aa1cf76bdf
+Source: Source/MediaInfo/Multiple/File_DvDif.cpp and File_DvDif_Analysis.cpp.
+No MediaInfo library, DVRescue merge engine or third-party capture backend is
+linked. Rewind Digital added application/section/transmission guards,
+conflict preservation, strict BCD validation and source-bound reporting.
+This is not a MediaArea product or an endorsement by MediaArea.
+
+Copyright (c) 2002-2025 MediaArea.net SARL. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without modification,
+are permitted provided that the following conditions are met:
+
+1. Redistributions of source code must retain the above copyright notice,
+   this list of conditions and the following disclaimer.
+2. Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+
+DVRescue nominal DV25 macroblock geometry and interoperability fixtures
+---------------------------------------
+DVVideoBlockGeometry adapts tools/dvloupe from https://github.com/mipops/dvrescue
+commit 5cead7a5dae4ec7ffdf24115c8e3bc6d9c05c033 into bounded native Swift.
+The proposed source retains tools/dvrescue.xsd from the same pinned revision.
+The upstream GUI many_attributes.dv.dvrescue.xml report was retained in the
+private development tree but is withheld from this export. The regression uses
+a newly authored Apache-2.0 synthetic report; no personal values were copied.
+No DVRescue runtime, merger, or capture backend is included. Location is nominal,
+not a guaranteed error footprint. No endorsement or superiority is implied.
+
+BSD 3-Clause License
+
+Copyright (c) 2019-2020, Moving Image Preservation of Puget Sound
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+1. Redistributions of source code must retain the above copyright notice, this
+   list of conditions and the following disclaimer.
+
+2. Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+
+3. Neither the name of the copyright holder nor the names of its
+   contributors may be used to endorse or promote products derived from
+   this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+video-tools consumer enumeration vocabulary
+------------------------------------------
+Selected consumer DV enumeration vocabulary in
+Foundation/Sources/RewindDVArchiveCore/DVPackSemantics.swift is adapted from
+JohnstonJ/video-tools at b6a12951ef8be7e2d13f0387583ce081e9124a88:
+https://github.com/JohnstonJ/video-tools
+The project also uses published numeric pack layouts and formulas as technical
+references. Adapted vocabulary retains the MIT terms below; independently authored
+Swift extraction, validation and reporting additions remain under Apache-2.0.
+This is not an exclusive first-party ownership claim for the adapted portions.
+No video-tools runtime or Python package is bundled. See the complete MIT text below.
+
+MIT License
+
+Copyright (c) 2024 James Johnston
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

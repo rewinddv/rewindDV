@@ -1,4 +1,4 @@
-# Downloads hub only. Never add the private app repository, builds or captures.
+# Public project inputs only. Keep private history, builds and captures out.
 /*
 !/.gitignore
 !/README.md
@@ -21,3 +21,42 @@
 !/.github/ISSUE_TEMPLATE/
 /.github/ISSUE_TEMPLATE/*
 !/.github/ISSUE_TEMPLATE/test-report.md
+
+# Reviewed public source and contributor documentation.
+!/Foundation/
+!/ASFWDriver/
+!/tests/
+!/tools/
+!/licenses/
+!/release/
+!/.github/workflows/
+!/.github/ISSUE_TEMPLATE/bug-report.md
+!/BUILDING.md
+!/COMPATIBILITY.md
+!/CONTRIBUTING.md
+!/INSTALLATION-PLAN.md
+!/KNOWN-LIMITATIONS.md
+!/LICENSE
+!/NOTICE
+!/SOURCE-PROVENANCE.txt
+!/TESTING.md
+!/BRANDING-AND-FUNDING.md
+!/RELEASING.md
+
+# Local products, caches, credentials and original recordings are never source.
+.DS_Store
+.build/
+.swiftpm/
+DerivedData/
+xcuserdata/
+*.xcuserstate
+*.app/
+*.dext/
+*.provisionprofile
+*.p12
+*.key
+*.zip
+*.dmg
+*.pkg
+*.dv
+*.m2t

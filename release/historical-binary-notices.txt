@@ -1,0 +1,88 @@
+RewindDV includes modified ASFireWire source.
+ASFireWire upstream: https://github.com/mrmidi/ASFireWire
+Pinned baseline: ac8a124a683d2f8201cd14ee0d2de8265e4834f0
+License: Apache License, Version 2.0 (included as ASFireWire-LICENSE.txt).
+Original source copyright notices are retained in the source distribution.
+
+Downstream changes by Rewind Digital in September 2026 include native build
+packaging, a restricted and evidence-oriented deck-control interface,
+retained-owner and non-queued FCP admission, protocol-owner exclusions,
+native application integration, and archival evidence/metadata components.
+Further changes include receive verification, synchronized native monitoring,
+device inspection, reviewed byte-preserving export, and product presentation.
+This is a modified RewindDV candidate, not an official ASFireWire release.
+No upstream endorsement or hardware qualification is implied.
+
+MediaInfoLib metadata field references and adapted mappings
+---------------------------------------------------------
+Selected IEC consumer-DV camera, user-bit, recording-clock and caption-payload
+layouts/mappings are adapted into independent, bounded Swift decoders from:
+https://github.com/MediaArea/MediaInfoLib
+Pinned commit: 6ce87668473b0591c323a66842c937aa1cf76bdf
+Source: Source/MediaInfo/Multiple/File_DvDif.cpp and File_DvDif_Analysis.cpp.
+No MediaInfo library, DVRescue merge engine or third-party capture backend is
+linked. Rewind Digital added application/section/transmission guards,
+conflict preservation, strict BCD validation and source-bound reporting.
+This is not a MediaArea product or an endorsement by MediaArea.
+
+Copyright (c) 2002-2025 MediaArea.net SARL. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without modification,
+are permitted provided that the following conditions are met:
+
+1. Redistributions of source code must retain the above copyright notice,
+   this list of conditions and the following disclaimer.
+2. Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+
+DVRescue nominal DV25 macroblock geometry and interoperability fixtures
+---------------------------------------
+DVVideoBlockGeometry adapts tools/dvloupe from https://github.com/mipops/dvrescue
+commit 5cead7a5dae4ec7ffdf24115c8e3bc6d9c05c033 into bounded native Swift.
+The report tests also retain tools/dvrescue.xsd and the upstream GUI
+many_attributes.dv.dvrescue.xml fixture from the same pinned revision.
+No DVRescue runtime, merger, or capture backend is included. Location is nominal,
+not a guaranteed error footprint. No endorsement or superiority is implied.
+
+BSD 3-Clause License
+
+Copyright (c) 2019-2020, Moving Image Preservation of Puget Sound
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+1. Redistributions of source code must retain the above copyright notice, this
+   list of conditions and the following disclaimer.
+
+2. Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+
+3. Neither the name of the copyright holder nor the names of its
+   contributors may be used to endorse or promote products derived from
+   this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.

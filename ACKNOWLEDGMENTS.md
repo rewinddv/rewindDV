@@ -46,11 +46,29 @@ BSD 3-Clause copyright, conditions and disclaimer are reproduced in
 
 ## Distribution scope
 
-This repository distributes binaries, documentation, branding assets and license
-notices—not the rewindDV application source tree. The third-party permissions
+This repository contains application and driver source, documentation, branding
+assets and license notices, with engineering binaries attached to releases. The third-party permissions
 and notices continue to apply to their respective components. Availability of
 this download is not a grant of rights to third-party trademarks or standards.
 
 IEC, IEEE and other standards are research references, not downloadable assets
 in this repository. Sponsorship for standards purchases does not permit us to
 redistribute their copyrighted contents.
+
+## Public source adaptations
+
+rewindDV builds on modified ASFireWire source and selectively adapted changes.
+It adapts selected MediaInfoLib metadata layouts/enumerations under BSD-2-Clause,
+DVRescue/dvloupe nominal geometry and the retained schema under BSD-3-Clause,
+and video-tools consumer enumeration vocabulary under MIT. The latter retains
+Copyright (c) 2024 James Johnston. Independent additions do not replace upstream
+copyright or license terms for adapted portions.
+
+No MediaInfoLib runtime, DVRescue capture backend/merge engine or video-tools Python
+runtime is incorporated. A project-authored synthetic report exercises the importer;
+identifying capture reports and original media are not included. The public
+source uses the generic system icon.
+
+The maintainers appreciate upstream implementation and preservation research.
+Technical references, copied/adapted expression and independently authored
+implementation have distinct provenance. No named organization endorses rewindDV.

@@ -1,0 +1,1283 @@
+//
+// ASFWAudioDriverZts.cpp
+// ASFWDriver
+//
+// Latest observed zero-timestamp publication for ASFWAudioDriver.
+//
+
+#include <cstddef>
+#include <cstdint>
+#include <iterator>
+#include <new>
+
+#include "ASFWAudioDevice.h"
+#include "ASFWAudioDriverPrivate.hpp"
+#include "../../Common/TimingUtils.hpp"
+#include "../../Logging/Logging.hpp"
+
+#include <DriverKit/DriverKit.h>
+
+namespace ASFW::Audio::DriverKit {
+namespace {
+
+[[nodiscard]] uint64_t SaturatingAdd(uint64_t value,
+                                     uint64_t addend) noexcept {
+    return (UINT64_MAX - value < addend) ? UINT64_MAX : value + addend;
+}
+
+} // namespace
+
+ASFW::Audio::Runtime::ZtsMirrorPublishResult PublishSharedZeroTimestampToHAL(
+    ASFWAudioDriver_IVars& ivars,
+    const char* reason,
+    bool logSuccess) noexcept {
+    auto* control = ivars.runtime.directAudioGraph.control;
+    auto* audioDevice = ivars.audioDevice.get();
+    if (!control || !audioDevice) {
+        return ASFW::Audio::Runtime::ZtsMirrorPublishResult::NotReady;
+    }
+
+    const uint64_t lastGeneration =
+        ivars.runtime.lastHalZeroTimestampGeneration.load(
+            std::memory_order_acquire);
+    ASFW::Audio::Runtime::HostClockAnchorSample anchor{};
+    if (!control->hostClockAnchor.TryReadLatest(
+            lastGeneration, anchor)) {
+        return ASFW::Audio::Runtime::ZtsMirrorPublishResult::
+            NoNewGeneration;
+    }
+
+    const bool firstPublication =
+        ivars.runtime.lastHalZeroTimestampHostTicks.load(
+            std::memory_order_relaxed) == 0;
+    audioDevice->UpdateCurrentZeroTimestamp(
+        anchor.sampleFrame, anchor.hostTicks);
+    ivars.runtime.lastHalZeroTimestampSampleFrame.store(
+        anchor.sampleFrame, std::memory_order_relaxed);
+    ivars.runtime.lastHalZeroTimestampHostTicks.store(
+        anchor.hostTicks, std::memory_order_relaxed);
+    ivars.runtime.lastHalZeroTimestampGeneration.store(
+        anchor.generation, std::memory_order_release);
+    control->hostClockAnchor.mirrorPublications.fetch_add(
+        1, std::memory_order_relaxed);
+    control->counters.CountRxAdkZtsPublished();
+
+    if (logSuccess) {
+        ASFW_LOG(
+            DirectAudio,
+            "ADK ZTS publish reason=%{public}s generation=%llu sample=%llu host=%llu adkPeriod=%u",
+            reason ? reason : "unknown",
+            anchor.generation,
+            anchor.sampleFrame,
+            anchor.hostTicks,
+            audioDevice->GetZeroTimestampPeriod());
+    }
+
+    if (firstPublication) {
+        ASFW_LOG(
+            DirectAudio,
+            "Core audio hardware ZTS ready guid=0x%016llx sampleFrame=%llu hostTicks=%llu",
+            ivars.device.guid,
+            anchor.sampleFrame,
+            anchor.hostTicks);
+    }
+    return ASFW::Audio::Runtime::ZtsMirrorPublishResult::Published;
+}
+
+uint32_t PrepareTransmitSlots(ASFWAudioDriver_IVars& ivars,
+                             uint64_t startPacketIndex,
+                             uint64_t requiredPacketIndex,
+                             uint64_t limitPacketIndex,
+                             uint32_t maxToPrepare,
+                             uint64_t targetFrameEnd,
+                             bool allowRecoveredClock) noexcept {
+    const uint32_t numSlots = ivars.runtime.txSlotProvider.numSlots;
+    auto* metadataRing = ivars.runtime.txSlotProvider.metadataRing;
+    auto* directControl = ivars.runtime.directAudioGraph.control;
+    if (directControl == nullptr) {
+        return 0;
+    }
+
+    uint64_t nextPacketToPrepare = startPacketIndex;
+    uint32_t preparedCount = 0;
+
+    const auto failProducer =
+        [&](ASFW::Audio::Runtime::TxProducerFaultStage stage,
+            ASFW::Audio::Runtime::TxProducerFaultReason producerReason,
+            ASFW::Audio::Runtime::FatalStreamReason runtimeReason,
+            uint64_t packetIndex) noexcept {
+            auto* txControl =
+                ivars.runtime.txSlotProvider.queueControl;
+            const uint64_t completionCursor =
+                txControl
+                    ? txControl->completionCursor.load(
+                          std::memory_order_acquire)
+                    : 0;
+            const uint64_t exposeCursor =
+                txControl
+                    ? txControl->committedEnd.load(
+                          std::memory_order_acquire)
+                    : 0;
+
+            ASFW::Audio::Runtime::TxProducerFaultRecord failure{
+                .stage = stage,
+                .reason = producerReason,
+                .packetIndex = packetIndex,
+                .rangeStart = startPacketIndex,
+                .rangeTarget = limitPacketIndex,
+                .preparedCount = preparedCount,
+                .completionCursor = completionCursor,
+                .committedEnd = exposeCursor,
+                .replayProducerCursor =
+                    directControl->rxSequenceReplay.ProducerCursor(),
+                .replayEpoch =
+                    directControl->rxSequenceReplay.Epoch(),
+            };
+            const uint64_t producerGeneration =
+                directControl->txProducerFault.Publish(failure);
+
+            directControl->fatalReason.store(
+                runtimeReason, std::memory_order_release);
+            const uint64_t runtimeGeneration =
+                directControl->fatalGeneration.fetch_add(
+                    1, std::memory_order_release) +
+                1;
+            directControl->counters.txImmediateStops.fetch_add(
+                1, std::memory_order_relaxed);
+
+            ASFW_LOG(
+                DirectAudio,
+                "[TxProducerFatal] stage=%{public}s reason=%{public}s "
+                "producerGen=%llu runtimeReason=%u runtimeGen=%llu "
+                "packet=%llu range=[%llu,%llu) prepared=%u "
+                "completion=%llu committedEnd=%llu replayProducer=%llu "
+                "replayEpoch=%u",
+                ASFW::Audio::Runtime::TxProducerFaultStageName(stage),
+                ASFW::Audio::Runtime::TxProducerFaultReasonName(
+                    producerReason),
+                producerGeneration,
+                static_cast<uint32_t>(runtimeReason),
+                runtimeGeneration,
+                packetIndex,
+                startPacketIndex,
+                limitPacketIndex,
+                preparedCount,
+                completionCursor,
+                exposeCursor,
+                failure.replayProducerCursor,
+                failure.replayEpoch);
+
+            if (txControl) {
+                txControl->statusWord.store(
+                    ASFW::Isoch::IsochTxQueueStatus::kProducerFault,
+                    std::memory_order_release);
+            }
+            ivars.runtime.txActive.store(
+                false, std::memory_order_release);
+        };
+
+    if (numSlots == 0 || metadataRing == nullptr ||
+        ivars.runtime.txSlotProvider.queueControl == nullptr) {
+        failProducer(
+            ASFW::Audio::Runtime::TxProducerFaultStage::kPreflight,
+            ASFW::Audio::Runtime::TxProducerFaultReason::
+                kInvalidTransport,
+            ASFW::Audio::Runtime::FatalStreamReason::
+                InvalidGeometry,
+            startPacketIndex);
+        return 0;
+    }
+
+    auto frameTargetSatisfied = [&]() noexcept {
+        return targetFrameEnd == 0 ||
+               ivars.runtime.txStreamEngine.Timeline().ExposedFrameEnd() >=
+                   targetFrameEnd;
+    };
+
+    while (nextPacketToPrepare < limitPacketIndex &&
+           preparedCount < maxToPrepare) {
+        if (nextPacketToPrepare >= requiredPacketIndex &&
+            frameTargetSatisfied()) {
+            break;
+        }
+
+        ASFW::Protocols::Audio::AMDTP::AmdtpTimingState timing{};
+        timing.replayValid = true;
+        timing.disposition =
+            ASFW::Protocols::Audio::AMDTP::
+                AmdtpPacketDisposition::NoData;
+
+        if (allowRecoveredClock) {
+            int64_t packetAnchorTicks = 0;
+            if (!ivars.runtime.txExecutionTimeline.AnchorForPacket(
+                    nextPacketToPrepare, packetAnchorTicks)) {
+                directControl->txReplayUnderflows.fetch_add(
+                    1, std::memory_order_relaxed);
+                failProducer(
+                    ASFW::Audio::Runtime::TxProducerFaultStage::
+                        kExecutionAnchor,
+                    ASFW::Audio::Runtime::TxProducerFaultReason::
+                        kReplayUnavailable,
+                    ASFW::Audio::Runtime::FatalStreamReason::
+                        TxReplayUnavailable,
+                    nextPacketToPrepare);
+                break;
+            }
+
+            // A replay stall is transient, not fatal. RX bumps its replay epoch
+            // on every rebind/discontinuity (aggregate StartIO/StopIO churn, a
+            // packet gap), which invalidates the reader's epoch, and the reader
+            // can momentarily outrun the producer. Killing TX here would leave the
+            // stream permanently silent -- the timing-loss recovery is health-gated
+            // when the device clock is fine (see DiceAudioBackend), and even ungated
+            // a coordinator restart cannot re-prime TX. Persistent unavailability
+            // degrades to silence, which is the correct "nothing to send yet"
+            // state, not a stream death.
+            if (!ivars.runtime.txReplayReader.IsActive()) {
+                (void)ivars.runtime.txReplayReader.Begin(
+                    directControl->rxSequenceReplay);
+            }
+
+            ASFW::Audio::Runtime::RxSequenceEntry replay{};
+            ASFW::Audio::Runtime::RxSequenceReplayReadDiagnostic replayDiagnostic{};
+            bool replayReadable = ivars.runtime.txReplayReader.TryRead(
+                directControl->rxSequenceReplay, replay,
+                &replayDiagnostic);
+            // A reader that fell out of the bounded 512-entry RX history is
+            // repositionable, not faulted: Begin() re-anchors kReadDelay
+            // behind the live producer and the skipped entries only shift
+            // NODATA placement, which IEC 61883-6 blocking permits (DBC
+            // continuity is packetizer-owned; the SYT offset drifts sub-tick
+            // across the skipped span). Frame-cursor alignment must NOT
+            // re-arm for this: re-projecting abandons the established
+            // host-frame mapping and orphans every host frame behind the new
+            // cursor (the all-zero-payload Duet zombie of 2026-07-19).
+            if (!replayReadable &&
+                replayDiagnostic.failure ==
+                    ASFW::Audio::Runtime::RxSequenceReplayReadFailure::
+                        kHistoryOverwritten) {
+                if (ivars.runtime.txReplayReader.Begin(
+                        directControl->rxSequenceReplay)) {
+                    replayReadable = ivars.runtime.txReplayReader.TryRead(
+                        directControl->rxSequenceReplay, replay,
+                        &replayDiagnostic);
+                }
+                bool selfHealed = false;
+                const bool masterAligned = ivars.runtime.txStreamEngine.IsFrameCursorAligned();
+                const bool secondaryAligned = ivars.runtime.txSecondaryActive && ivars.runtime.txStreamEngineSecondary.IsFrameCursorAligned();
+                if (masterAligned || secondaryAligned) {
+                    const uint64_t exposedFrame =
+                        ivars.runtime.txStreamEngine.Timeline().ExposedFrameEnd();
+                    const uint64_t writeFrame =
+                        directControl->txExposureSampleWriteFrame.load(
+                            std::memory_order_relaxed);
+                    if (writeFrame > exposedFrame) {
+                        if (masterAligned) {
+                            ivars.runtime.txStreamEngine.ReArmFrameCursorAlignment();
+                        }
+                        if (secondaryAligned) {
+                            ivars.runtime.txStreamEngineSecondary
+                                .ReArmFrameCursorAlignment();
+                        }
+                        selfHealed = true;
+                    }
+                }
+                ASFW_LOG_RING_ONLY_RL(
+                    DirectAudio,
+                    "tx-replay-reclamp",
+                    1000u,
+                    ::ASFW::Logging::LogLevel::Warning,
+                    "[TxReplay] reclamped pkt=%llu cur=%llu prod=%llu ok=%u selfHealed=%u",
+                    nextPacketToPrepare,
+                    replayDiagnostic.readerCursor,
+                    replayDiagnostic.producerCursor,
+                    replayReadable ? 1u : 0u,
+                    selfHealed ? 1u : 0u);
+            }
+            if (replayReadable) {
+                directControl->txReplayEntries.fetch_add(
+                    1, std::memory_order_relaxed);
+                timing.replayDataBlocks = replay.dataBlocks;
+            } else {
+                const int64_t replayDistance =
+                    replayDiagnostic.readerCursor >= replayDiagnostic.producerCursor
+                        ? static_cast<int64_t>(replayDiagnostic.readerCursor -
+                                               replayDiagnostic.producerCursor)
+                        : -static_cast<int64_t>(replayDiagnostic.producerCursor -
+                                                replayDiagnostic.readerCursor);
+                // This is the primary discriminator for a TX silence: it says
+                // whether RX had not produced this entry yet, had overwritten it,
+                // reset its epoch, or changed the slot while it was being read.
+                ASFW_LOG_RING_ONLY_RL(
+                    DirectAudio,
+                    "tx-replay-read",
+                    1000u,
+                    ::ASFW::Logging::LogLevel::Warning,
+                    "[TxReplay] fail=%s pkt=%llu cur=%llu prod=%llu d=%lld ep=%u/%u slot=%llu/%u est=%u",
+                    ASFW::Audio::Runtime::RxSequenceReplayReadFailureName(
+                        replayDiagnostic.failure),
+                    nextPacketToPrepare,
+                    replayDiagnostic.readerCursor,
+                    replayDiagnostic.producerCursor,
+                    replayDistance,
+                    replayDiagnostic.readerEpoch,
+                    replayDiagnostic.replayEpoch,
+                    replayDiagnostic.slotSequence,
+                    replayDiagnostic.slotEpoch,
+                    replayDiagnostic.replayEstablished ? 1u : 0u);
+                directControl->txReplayUnderflows.fetch_add(
+                    1, std::memory_order_relaxed);
+                timing.replayDataBlocks = 0;
+                if (replayDiagnostic.failure ==
+                    ASFW::Audio::Runtime::RxSequenceReplayReadFailure::
+                        kAheadOfProducer) {
+                    // RX simply has not published this entry yet (a deep
+                    // preparation burst outran real-time RX). Hold the reader
+                    // where it is and ship one NODATA packet; the same cursor
+                    // reads successfully once RX catches up. Resetting the
+                    // reader or re-arming alignment here turns a transient,
+                    // self-resolving condition into a frame-cursor jump that
+                    // abandons host frames.
+                } else {
+                    // Epoch change, establishment loss, or a seqlock miss: the
+                    // RX timing domain itself moved. Drop the reader so the
+                    // next packet re-Begins on the live epoch and re-arm the
+                    // frame-cursor alignment: while stalled we emit NO-DATA
+                    // packets, which do NOT advance the content-frame cursor,
+                    // so it freezes at its pre-stall frame while CoreAudio
+                    // keeps writing. Re-arming makes the first DATA packet
+                    // after replay recovers re-project the cursor to the live
+                    // frame, closing the gap.
+                    // This branch is what arms the [TxAlign] self-heal, and it
+                    // was silent: a recurring re-anchor showed up as a ~112 ms
+                    // frame-cursor jump with nothing naming the cause. The
+                    // reasons are not equivalent - kHistoryOverwritten means the
+                    // reader fell behind, which is NOT the timing-domain move
+                    // this branch assumes, and re-anchoring would hide it. Name
+                    // the reason so the two cases can be told apart.
+                    ASFW_LOG_ERROR(
+                        DirectAudio,
+                        "[TxReplayRearm] reason=%{public}s cur=%llu prod=%llu ep=%u/%u "
+                        "slot=%llu/%u est=%u",
+                        ASFW::Audio::Runtime::RxSequenceReplayReadFailureName(
+                            replayDiagnostic.failure),
+                        replayDiagnostic.readerCursor,
+                        replayDiagnostic.producerCursor,
+                        replayDiagnostic.readerEpoch,
+                        replayDiagnostic.replayEpoch,
+                        replayDiagnostic.slotSequence,
+                        replayDiagnostic.slotEpoch,
+                        replayDiagnostic.replayEstablished ? 1u : 0u);
+                    ivars.runtime.txReplayReader.Reset();
+                    ivars.runtime.txStreamEngine.ReArmFrameCursorAlignment();
+                    if (ivars.runtime.txSecondaryActive) {
+                        ivars.runtime.txStreamEngineSecondary
+                            .ReArmFrameCursorAlignment();
+                    }
+                }
+            }
+
+            if (replay.dataBlocks != 0) {
+                if (replay.sytOffset ==
+                        ASFW::Audio::Runtime::
+                            RxSequenceReplayState::kNoInfo ||
+                    (replay.flags &
+                     ASFW::Audio::Runtime::RxSequenceFlags::
+                         kValidSyt) == 0) {
+                    directControl->txReplayInvalidSyt.fetch_add(
+                        1, std::memory_order_relaxed);
+                    failProducer(
+                        ASFW::Audio::Runtime::TxProducerFaultStage::
+                            kReplaySytValidation,
+                        ASFW::Audio::Runtime::TxProducerFaultReason::
+                                kInvalidReplaySyt,
+                        ASFW::Audio::Runtime::FatalStreamReason::
+                            TxReplayInvalidSyt,
+                        nextPacketToPrepare);
+                    break;
+                }
+
+                timing.txClockValid = true;
+                timing.disposition =
+                    ASFW::Protocols::Audio::AMDTP::
+                        AmdtpPacketDisposition::Data;
+                const uint32_t txDelay =
+                    directControl->txTransferDelayTicks.load(
+                        std::memory_order_relaxed);
+                timing.nextDataSyt =
+                    ASFW::Audio::Runtime::
+                        ComputeReplaySytFromTicks(
+                            replay.sytOffset,
+                            packetAnchorTicks,
+                            txDelay);
+
+                // Publish the live SYT decision to a lock-free latest-value
+                // trace. The watchdog logs it off the hot path (~1 s) so the
+                // observed device SYT, the delay-free replay offset, and the
+                // re-anchored transmit SYT are visible without logging here.
+                // `observedRxSyt` is the device's original SYT, reconstructed
+                // from the replayed delay-free offset against its source cycle.
+                ASFW::Audio::Runtime::TxSytTraceSample trace{};
+                trace.packetIndex = nextPacketToPrepare;
+                trace.sourceCycle =
+                    ASFW::Timing::decodeCycleTimer(
+                        replay.sourceCycleTimer)
+                        .cycle;
+                trace.outCycle = static_cast<uint32_t>(
+                    (ASFW::Timing::normalizeOffsetDomain(
+                         packetAnchorTicks) /
+                     ASFW::Timing::kTicksPerCycle) %
+                    ASFW::Timing::kCyclesPerSecond);
+                trace.sytOffsetDelayFree = replay.sytOffset;
+                trace.txDelayTicks = txDelay;
+                trace.observedRxSyt =
+                    ASFW::Audio::Runtime::ComputeReplaySyt(
+                        replay.sytOffset,
+                        replay.sourceCycleTimer,
+                        directControl->rxTransferDelayTicks.load(
+                            std::memory_order_relaxed));
+                trace.txSyt = timing.nextDataSyt;
+                directControl->txSytTrace.Publish(trace);
+
+                const int64_t sourcePresentationTicks =
+                    ASFW::Timing::normalizeOffsetDomain(
+                        ASFW::Timing::encodedTstampToOffsets(
+                            replay.sourceCycleTimer) +
+                        replay.sytOffset +
+                        directControl
+                            ->rxTransferDelayTicks.load(
+                                std::memory_order_relaxed));
+                const int64_t outputPresentationTicks =
+                    ASFW::Timing::normalizeOffsetDomain(
+                        packetAnchorTicks +
+                        replay.sytOffset +
+                        directControl
+                            ->txTransferDelayTicks.load(
+                                std::memory_order_relaxed));
+                const int64_t presentationDeltaTicks =
+                    ASFW::Timing::extOffsetDiff(
+                        outputPresentationTicks,
+                        sourcePresentationTicks);
+                if (presentationDeltaTicks >= 0) {
+                    // ticks -> frames at the live rate. 44.1k has no integer
+                    // ticks/sample (24576000/44100 ~= 557.28), so divide the
+                    // tick*rate product instead of dividing by a per-sample
+                    // constant (the old /512 overshot ~8.8% at 44.1k).
+                    const auto& txConfig =
+                        ivars.runtime.txStreamEngine.StreamConfig();
+                    const uint32_t kFramesPerPacket =
+                        txConfig.framesPerDataPacket;
+                    const uint64_t projectedFrame =
+                        replay.firstAudioFrame +
+                        (static_cast<uint64_t>(presentationDeltaTicks) *
+                         txConfig.sampleRate) /
+                            ASFW::Timing::kTicksPerSecond;
+                    const uint64_t alignedFrame =
+                        (projectedFrame / kFramesPerPacket) *
+                        kFramesPerPacket;
+                    const bool aligned =
+                        ivars.runtime.txStreamEngine
+                            .AlignFrameCursorOnce(alignedFrame);
+                    if (ivars.runtime.txSecondaryActive) {
+                        (void)ivars.runtime.txStreamEngineSecondary
+                            .AlignFrameCursorOnce(alignedFrame);
+                    }
+                    // Fires once at stream start, then again each time replay
+                    // recovers after a stall re-armed the cursor. A 2nd+ line is
+                    // the self-heal closing a deficit that would otherwise be
+                    // permanent silence; anomaly-only, so a clean run prints one.
+                    if (aligned) {
+                        ASFW_LOG(DirectAudio,
+                                 "[TxAlign] frame cursor -> %llu (projected=%llu "
+                                 "rxFirstFrame=%llu deltaTicks=%lld rate=%u)",
+                                 alignedFrame,
+                                 projectedFrame,
+                                 replay.firstAudioFrame,
+                                 static_cast<long long>(presentationDeltaTicks),
+                                 txConfig.sampleRate);
+                    }
+                }
+            }
+        }
+
+        const auto prepareResult =
+            ivars.runtime.txStreamEngine.PrepareNextTransmitSlot(
+                static_cast<uint32_t>(nextPacketToPrepare),
+                timing);
+        if (prepareResult !=
+            ASFW::Protocols::Audio::DICE::TxSlotPrepareResult::
+                kPrepared) {
+            ASFW::Audio::Runtime::TxProducerFaultStage stage =
+                ASFW::Audio::Runtime::TxProducerFaultStage::kSlotAcquire;
+            ASFW::Audio::Runtime::TxProducerFaultReason producerReason =
+                ASFW::Audio::Runtime::TxProducerFaultReason::
+                    kSlotUnavailable;
+            ASFW::Audio::Runtime::FatalStreamReason runtimeReason =
+                ASFW::Audio::Runtime::FatalStreamReason::
+                    TxSlotInvariant;
+
+            switch (prepareResult) {
+                case ASFW::Protocols::Audio::DICE::
+                    TxSlotPrepareResult::kPacketizerRejected:
+                    stage =
+                        ASFW::Audio::Runtime::TxProducerFaultStage::
+                            kPacketize;
+                    producerReason =
+                        ASFW::Audio::Runtime::TxProducerFaultReason::
+                                kPacketizerRejected;
+                    runtimeReason =
+                        ASFW::Audio::Runtime::FatalStreamReason::
+                            InvalidGeometry;
+                    break;
+                case ASFW::Protocols::Audio::DICE::
+                    TxSlotPrepareResult::kSlotPublishFailed:
+                    stage =
+                        ASFW::Audio::Runtime::TxProducerFaultStage::
+                            kSlotPublish;
+                    producerReason =
+                        ASFW::Audio::Runtime::TxProducerFaultReason::
+                                kSlotPublishFailed;
+                    break;
+                case ASFW::Protocols::Audio::DICE::
+                    TxSlotPrepareResult::kSlotProviderUnavailable:
+                case ASFW::Protocols::Audio::DICE::
+                    TxSlotPrepareResult::kSlotAcquireFailed:
+                    break;
+                case ASFW::Protocols::Audio::DICE::
+                    TxSlotPrepareResult::kPrepared:
+                    break;
+            }
+            failProducer(
+                stage,
+                producerReason,
+                runtimeReason,
+                nextPacketToPrepare);
+            break;
+        }
+
+        // Shadow the master's per-packet timing on the secondary stream so both
+        // device RX streams advance in lockstep (same packetIndex/DBC/SYT/
+        // disposition), differing only in payload (channels 17–32). Best-effort:
+        // a secondary hiccup must never stall the master (channels 1–16).
+        if (ivars.runtime.txSecondaryActive) {
+            (void)ivars.runtime.txStreamEngineSecondary.PrepareNextTransmitSlot(
+                static_cast<uint32_t>(nextPacketToPrepare), timing);
+        }
+
+        const uint32_t slotIdx =
+            static_cast<uint32_t>(
+                nextPacketToPrepare % numSlots);
+        const auto& meta = metadataRing[slotIdx];
+        if (meta.payloadLength > 8) {
+            directControl->counters.txDataPackets.fetch_add(
+                1, std::memory_order_relaxed);
+            directControl->counters.txValidSytPackets.fetch_add(
+                1, std::memory_order_relaxed);
+        } else if (meta.payloadLength == 0) {
+            directControl->counters.txEmptyPackets.fetch_add(
+                1, std::memory_order_relaxed);
+        } else {
+            directControl->counters.txNoDataPackets.fetch_add(
+                1, std::memory_order_relaxed);
+            directControl->counters.txSytFfffPackets.fetch_add(
+                1, std::memory_order_relaxed);
+        }
+        directControl->counters.txPackets.fetch_add(
+            1, std::memory_order_relaxed);
+
+        ++nextPacketToPrepare;
+        ++preparedCount;
+    }
+
+    return preparedCount;
+}
+
+void PrefillTxRingBeforeStart(ASFWAudioDriver_IVars& ivars) noexcept {
+    const uint32_t numSlots = ivars.runtime.txSlotProvider.numSlots;
+    auto* metadataRing = ivars.runtime.txSlotProvider.metadataRing;
+    if (numSlots == 0 || metadataRing == nullptr) {
+        return;
+    }
+
+    // Commit one complete shared-ring lap before IT RUN. The transport's arm
+    // contract validates this exact prefill so that a delayed first producer
+    // action cannot expose an uncommitted slot to IT DMA. Steady state still
+    // targets completion + kTxPreparationLeadPackets.
+    ASFW::Protocols::Audio::AMDTP::AmdtpTimingState timing{};
+    timing.replayValid = true;
+    timing.txClockValid = false;
+    timing.disposition =
+        ASFW::Protocols::Audio::AMDTP::
+            AmdtpPacketDisposition::NoData;
+
+    uint32_t prepared = 0;
+    for (uint64_t packetIndex = 0;
+         packetIndex < numSlots;
+         ++packetIndex) {
+        if (ivars.runtime.txStreamEngine.PrepareNextTransmitSlot(
+                static_cast<uint32_t>(packetIndex), timing) !=
+            ASFW::Protocols::Audio::DICE::TxSlotPrepareResult::
+                kPrepared) {
+            break;
+        }
+        // Seed the secondary ring in lockstep with the same NO-DATA packets.
+        if (ivars.runtime.txSecondaryActive) {
+            (void)ivars.runtime.txStreamEngineSecondary.PrepareNextTransmitSlot(
+                static_cast<uint32_t>(packetIndex), timing);
+        }
+        ++prepared;
+    }
+
+    ASFW_LOG(DirectAudio,
+             "ADK DBG TX prefill seeded %u/%u committed NO-DATA packets before isoch start (steadyLead=%u)",
+             prepared,
+             numSlots,
+             ASFW::IsochTransport::AudioTimingGeometry::
+                 kTxPreparationLeadPackets);
+}
+
+} // namespace ASFW::Audio::DriverKit
+
+void IMPL(ASFWAudioDriver, ZtsAnchorReady)
+{
+    (void)action;
+    (void)generation;
+    if (!ivars || !ivars->audioDevice) {
+        return;
+    }
+
+    (void)ASFW::Audio::DriverKit::PublishSharedZeroTimestampToHAL(
+        *ivars, "rx-action", false);
+}
+
+void IMPL(ASFWAudioDriver, TxPreparationReady)
+{
+    (void)action;
+    (void)generation;
+    if (!ivars ||
+        !ivars->runtime.txActive.load(
+            std::memory_order_acquire)) {
+        return;
+    }
+
+    auto* txControl = ivars->runtime.txSlotProvider.queueControl;
+    const uint32_t numSlots = ivars->runtime.txSlotProvider.numSlots;
+    if (!txControl || numSlots == 0) {
+        return;
+    }
+
+    const uint64_t requested =
+        txControl->refillRequestGeneration.load(
+            std::memory_order_acquire);
+    const uint64_t refillHandled =
+        txControl->refillHandledGeneration.load(
+            std::memory_order_acquire);
+    const bool hardwareWakePending = requested != refillHandled;
+
+    const uint64_t completionCursor =
+        txControl->completionCursor.load(std::memory_order_acquire);
+    const uint64_t exposeCursor =
+        txControl->committedEnd.load(std::memory_order_acquire);
+    const uint64_t packetCoverageTarget =
+        completionCursor +
+        ASFW::IsochTransport::AudioTimingGeometry::
+            kTxCoverageLeadPackets;
+    const uint64_t packetLimitTarget =
+        completionCursor +
+        ASFW::IsochTransport::AudioTimingGeometry::
+            kTxPreparationLeadPackets;
+
+    auto* directControl = ivars->runtime.directAudioGraph.control;
+    const bool replayEstablished =
+        directControl && directControl->rxSequenceReplay.IsEstablished();
+    const uint64_t audioRequested = directControl
+        ? directControl->txPreparationRequests.RequestedGeneration()
+        : 0;
+    const uint64_t requestedAudioTarget = directControl
+        ? directControl->txPreparationRequests.requestedTargetFrameEnd.load(
+              std::memory_order_acquire)
+        : 0;
+    const uint64_t outputWrittenEndFrame =
+        directControl ? directControl->client.OutputWrittenEndFrame() : 0;
+    const uint32_t dataHorizonFrames =
+        ASFW::IsochTransport::AudioTimingGeometry::TxDataHorizonFrames(
+            ivars->runtime.txStreamEngine.StreamConfig().sampleRate);
+    const uint64_t outputTargetFrameEnd =
+        outputWrittenEndFrame != 0
+            ? ASFW::Audio::DriverKit::SaturatingAdd(
+                  outputWrittenEndFrame,
+                  dataHorizonFrames)
+            : 0;
+    const uint64_t targetFrameEnd =
+        requestedAudioTarget > outputTargetFrameEnd
+            ? requestedAudioTarget
+            : outputTargetFrameEnd;
+    const uint64_t exposedFrameEndBefore =
+        ivars->runtime.txStreamEngine.Timeline().ExposedFrameEnd();
+    const uint32_t slotsPrepared =
+        ASFW::Audio::DriverKit::PrepareTransmitSlots(
+            *ivars,
+            exposeCursor,
+            packetCoverageTarget,
+            packetLimitTarget,
+            ASFW::IsochTransport::AudioTimingGeometry::
+                kTxPreparationLeadPackets,
+            targetFrameEnd,
+            replayEstablished);
+    const uint64_t exposedFrameEndAfter =
+        ivars->runtime.txStreamEngine.Timeline().ExposedFrameEnd();
+
+    // [TxPrepRange] Refill-coverage instrumentation. Answers the decisive
+    // question: did the producer's range reach `target` this wake, or stop
+    // short and leave a hole the IT refill ISR will later trip on? The producer
+    // loop is linear in absolute packet index, so `prepareUntil` is exactly
+    // `base + slotsPrepared`.
+    {
+        const uint64_t prepareBaseAbs = exposeCursor;
+        const uint64_t prepareUntilAbs = exposeCursor + slotsPrepared;
+        const bool stoppedShort = prepareUntilAbs < packetCoverageTarget;
+        const bool frameShort =
+            targetFrameEnd != 0 && exposedFrameEndAfter < targetFrameEnd;
+        const uint64_t committedMargin =
+            prepareUntilAbs > completionCursor
+                ? prepareUntilAbs - completionCursor
+                : 0;
+        // Basic TX flow is confirmed (Defect B closed, tag
+        // tx-frame-exposure-lead). Anomaly-only: log only a wake that stopped
+        // short of the coverage target (hole-producing -- precedes an IT FATAL,
+        // proves the underrun is refill-coverage not scheduling margin) or one
+        // that under-exposed the frame timeline (frameShort, W > E). The steady
+        // "nothing to prepare" wake (slotsPrepared == 0, ring already full) is
+        // the normal state and no longer logged; the periodic [TxPrep] summary
+        // remains the liveness/margin heartbeat.
+        if (stoppedShort || frameShort) {
+            const uint64_t frameDeficit =
+                frameShort ? (targetFrameEnd - exposedFrameEndAfter) : 0;
+            // stoppedShort is rare and precedes an IT FATAL -> always log (interval
+            // 0). A frameShort-only wake is a persistent stall (e.g. RX outage
+            // NO-DATA) that otherwise floods at ~1 kHz -> rate-limit to ~1/s, with
+            // the suppressed-count preserving burst visibility. Keep these hot-path
+            // anomalies in the driver ring only; MCP can query them without IO logging.
+            ASFW_LOG_RING_ONLY_RL(
+                DirectAudio,
+                "tx-prep-range",
+                stoppedShort ? 0u : 1000u,
+                ::ASFW::Logging::LogLevel::Warning,
+                "[TxPrepRange] short=%u frame=%u ret=%llu base=%llu until=%llu cov=%llu lim=%llu n=%u margin=%llu",
+                stoppedShort ? 1u : 0u,
+                frameShort ? 1u : 0u,
+                completionCursor,
+                prepareBaseAbs,
+                prepareUntilAbs,
+                packetCoverageTarget,
+                packetLimitTarget,
+                slotsPrepared,
+                committedMargin);
+            if (frameShort) {
+                ASFW_LOG_RING_ONLY_RL(
+                    DirectAudio,
+                    "tx-prep-frame",
+                    1000u,
+                    ::ASFW::Logging::LogLevel::Warning,
+                    "[TxPrepFrame] target=%llu before=%llu after=%llu deficit=%llu write=%llu replay=%u",
+                    targetFrameEnd,
+                    exposedFrameEndBefore,
+                    exposedFrameEndAfter,
+                    frameDeficit,
+                    outputWrittenEndFrame,
+                    replayEstablished ? 1u : 0u);
+            }
+        }
+    }
+
+    // [TxExposure] W > E attribution. The deficit itself says only "silence";
+    // its RATE says which of the three mechanisms produced it, and only the
+    // driver can pair the deficit with the replay-miss count that would have to
+    // pay for it. Sampled about once a second so the ramp is measurable without
+    // touching the hot path; emitted on reason change plus a coarse heartbeat.
+    // Reproductions and the discriminator: tools/asfw_sim/FINDINGS.md F2/F6/F9.
+    if (directControl && outputWrittenEndFrame != 0) {
+        constexpr uint64_t kExposureSampleIntervalNs = 1'000'000'000ull;
+        const uint64_t nowTicks = mach_absolute_time();
+        const uint64_t lastTicks =
+            directControl->txExposureSampleHostTicks.load(
+                std::memory_order_relaxed);
+        const uint64_t elapsedNs =
+            lastTicks != 0
+                ? ASFW::Timing::hostTicksToNanos(nowTicks - lastTicks)
+                : 0;
+
+        if (lastTicks == 0) {
+            directControl->txExposureSampleHostTicks.store(
+                nowTicks, std::memory_order_relaxed);
+            directControl->txExposureSampleWriteFrame.store(
+                outputWrittenEndFrame, std::memory_order_relaxed);
+            directControl->txExposureSampleExposedFrame.store(
+                exposedFrameEndAfter, std::memory_order_relaxed);
+            directControl->txExposureSampleMisses.store(
+                directControl->txReplayUnderflows.load(
+                    std::memory_order_relaxed),
+                std::memory_order_relaxed);
+        } else if (elapsedNs >= kExposureSampleIntervalNs) {
+            const uint64_t prevWrite =
+                directControl->txExposureSampleWriteFrame.load(
+                    std::memory_order_relaxed);
+            const uint64_t prevExposed =
+                directControl->txExposureSampleExposedFrame.load(
+                    std::memory_order_relaxed);
+            const uint64_t prevMisses =
+                directControl->txExposureSampleMisses.load(
+                    std::memory_order_relaxed);
+            const uint64_t misses =
+                directControl->txReplayUnderflows.load(
+                    std::memory_order_relaxed);
+
+            const int64_t deficit =
+                static_cast<int64_t>(outputWrittenEndFrame) -
+                static_cast<int64_t>(exposedFrameEndAfter);
+            const int64_t prevDeficit =
+                static_cast<int64_t>(prevWrite) -
+                static_cast<int64_t>(prevExposed);
+            const int64_t deficitDelta = deficit - prevDeficit;
+            const int64_t writeDelta =
+                static_cast<int64_t>(outputWrittenEndFrame - prevWrite);
+            const uint64_t missDelta = misses - prevMisses;
+
+            // A miss ships one NODATA packet in place of a DATA packet, so it
+            // costs the timeline that packet's frames. Use the nominal blocking
+            // frames-per-packet at the live rate as the price.
+            const uint32_t framesPerPacket =
+                ivars->runtime.txStreamEngine.StreamConfig().sampleRate /
+                ASFW::Timing::kCyclesPerSecond;
+            const int64_t explainedFrames =
+                static_cast<int64_t>(missDelta) *
+                static_cast<int64_t>(framesPerPacket == 0 ? 6 : framesPerPacket);
+
+            // ppm by which E trails W over this window.
+            const int32_t ppm =
+                writeDelta > 0
+                    ? static_cast<int32_t>((deficitDelta * 1'000'000) / writeDelta)
+                    : 0;
+
+            // A step is a jump larger than one full IO window inside a single
+            // one-second sample; a ramp is a steady, smaller accumulation.
+            const int64_t stepThreshold = static_cast<int64_t>(
+                ASFW::IsochTransport::AudioTimingGeometry::kHalIoPeriodFrames);
+
+            ASFW::Audio::Runtime::TxExposureReason reason =
+                ASFW::Audio::Runtime::TxExposureReason::kHealthy;
+            if (deficit > 0 || deficitDelta > 0) {
+                if (deficitDelta > stepThreshold && missDelta == 0) {
+                    reason = ASFW::Audio::Runtime::TxExposureReason::kStall;
+                } else if (deficitDelta > 0 &&
+                           explainedFrames * 2 >= deficitDelta) {
+                    // The misses can pay for at least half the lost ground.
+                    reason =
+                        ASFW::Audio::Runtime::TxExposureReason::kReplayMiss;
+                } else if (deficitDelta > 0) {
+                    reason =
+                        ASFW::Audio::Runtime::TxExposureReason::kRateMismatch;
+                } else {
+                    reason = ASFW::Audio::Runtime::TxExposureReason::kStall;
+                }
+            }
+
+            if (deficitDelta > 0) {
+                const int64_t replayShare =
+                    explainedFrames < deficitDelta ? explainedFrames : deficitDelta;
+                directControl->txExposureDebtReplayFrames.fetch_add(
+                    static_cast<uint64_t>(replayShare), std::memory_order_relaxed);
+                directControl->txExposureDebtUnexplainedFrames.fetch_add(
+                    static_cast<uint64_t>(deficitDelta - replayShare),
+                    std::memory_order_relaxed);
+            }
+            directControl->txExposurePpm.store(ppm, std::memory_order_relaxed);
+
+            const uint32_t previousReason =
+                directControl->txExposureReason.exchange(
+                    static_cast<uint32_t>(reason), std::memory_order_relaxed);
+
+            // Anomaly-only: every reason transition, plus a ~30 s heartbeat
+            // while unhealthy. A healthy stream emits nothing here.
+            const bool changed = previousReason != static_cast<uint32_t>(reason);
+            const bool unhealthy =
+                reason != ASFW::Audio::Runtime::TxExposureReason::kHealthy;
+            if (changed || unhealthy) {
+                ASFW_LOG_RING_ONLY_RL(
+                    DirectAudio,
+                    "tx-exposure",
+                    changed ? 0u : 30000u,
+                    ::ASFW::Logging::LogLevel::Warning,
+                    "[TxExposure] reason=%{public}s d=%lld dDelta=%lld ppm=%d "
+                    "miss=%llu explain=%lld W=%llu E=%llu "
+                    "debtReplay=%llu debtOther=%llu horizon=%u",
+                    ASFW::Audio::Runtime::TxExposureReasonName(reason),
+                    deficit,
+                    deficitDelta,
+                    ppm,
+                    missDelta,
+                    explainedFrames,
+                    outputWrittenEndFrame,
+                    exposedFrameEndAfter,
+                    directControl->txExposureDebtReplayFrames.load(
+                        std::memory_order_relaxed),
+                    directControl->txExposureDebtUnexplainedFrames.load(
+                        std::memory_order_relaxed),
+                    dataHorizonFrames);
+            }
+
+            directControl->txExposureSampleHostTicks.store(
+                nowTicks, std::memory_order_relaxed);
+            directControl->txExposureSampleWriteFrame.store(
+                outputWrittenEndFrame, std::memory_order_relaxed);
+            directControl->txExposureSampleExposedFrame.store(
+                exposedFrameEndAfter, std::memory_order_relaxed);
+            directControl->txExposureSampleMisses.store(
+                misses, std::memory_order_relaxed);
+        }
+    }
+
+    bool scheduleAudioFollowUp = false;
+    if (directControl) {
+        const uint64_t now = mach_absolute_time();
+        const uint64_t requestedAt =
+            hardwareWakePending
+                ? txControl->refillRequestHostTicks.load(
+                      std::memory_order_relaxed)
+                : now;
+        const uint64_t latency =
+            now >= requestedAt ? now - requestedAt : 0;
+        const uint64_t latencyNanos =
+            ASFW::Timing::hostTicksToNanos(latency);
+        if (hardwareWakePending) {
+            directControl->txLastPreparationLatencyTicks.store(
+                latency, std::memory_order_relaxed);
+            directControl->txPreparationLatencySamples.fetch_add(
+                1, std::memory_order_relaxed);
+            using Geometry = ASFW::IsochTransport::AudioTimingGeometry;
+            if (latencyNanos <= Geometry::kTxPreparationLatency750Us *
+                                    Geometry::kNanosecondsPerMicrosecond) {
+                directControl->txPreparationAtMost750Us.fetch_add(
+                    1, std::memory_order_relaxed);
+            }
+            if (latencyNanos >= Geometry::kTxPreparationLatency1500Us *
+                                    Geometry::kNanosecondsPerMicrosecond) {
+                directControl->txPreparationAtLeast1500Us.fetch_add(
+                    1, std::memory_order_relaxed);
+            }
+            uint64_t previousMax =
+                directControl->txMaxPreparationLatencyTicks.load(
+                    std::memory_order_relaxed);
+            while (latency > previousMax &&
+                   !directControl->txMaxPreparationLatencyTicks
+                        .compare_exchange_weak(
+                            previousMax,
+                            latency,
+                            std::memory_order_relaxed,
+                            std::memory_order_relaxed)) {
+            }
+            uint64_t previousIntervalMax =
+                directControl->txIntervalPreparationLatencyMaxTicks.load(
+                    std::memory_order_relaxed);
+            while (latency > previousIntervalMax &&
+                   !directControl->txIntervalPreparationLatencyMaxTicks
+                        .compare_exchange_weak(
+                            previousIntervalMax,
+                            latency,
+                            std::memory_order_relaxed,
+                            std::memory_order_relaxed)) {
+            }
+
+            const size_t latencyBucket =
+                latencyNanos < Geometry::kTxPreparationLatency250Us *
+                                   Geometry::kNanosecondsPerMicrosecond
+                    ? 0
+                    : latencyNanos < Geometry::kTxPreparationLatency500Us *
+                                         Geometry::kNanosecondsPerMicrosecond
+                          ? 1
+                          : latencyNanos < Geometry::kTxPreparationLatency750Us *
+                                                Geometry::kNanosecondsPerMicrosecond
+                                ? 2
+                                : latencyNanos < Geometry::kTxPreparationLatency1000Us *
+                                                       Geometry::kNanosecondsPerMicrosecond
+                                      ? 3
+                                      : latencyNanos < Geometry::kTxPreparationLatency1500Us *
+                                                             Geometry::kNanosecondsPerMicrosecond
+                                            ? 4
+                                            : 5;
+            directControl->txIntervalPreparationLatencyHistogram[latencyBucket]
+                .fetch_add(1, std::memory_order_relaxed);
+        }
+        const uint64_t distance =
+            packetLimitTarget > exposeCursor
+                ? packetLimitTarget - exposeCursor
+                : 0;
+        const uint32_t boundedDistance =
+            distance > UINT32_MAX
+                ? UINT32_MAX
+                : static_cast<uint32_t>(distance);
+        uint32_t previousMin =
+            directControl->txMinimumPreparationDistance.load(
+                std::memory_order_relaxed);
+        while (boundedDistance < previousMin &&
+               !directControl->txMinimumPreparationDistance
+                    .compare_exchange_weak(
+                        previousMin,
+                        boundedDistance,
+                        std::memory_order_relaxed,
+                        std::memory_order_relaxed)) {
+        }
+        const uint64_t committedMargin =
+            exposeCursor > completionCursor
+                ? exposeCursor - completionCursor
+                : 0;
+        const uint32_t boundedMargin =
+            committedMargin > UINT32_MAX
+                ? UINT32_MAX
+                : static_cast<uint32_t>(committedMargin);
+        directControl->txCurrentCommittedMarginPackets.store(
+            boundedMargin, std::memory_order_relaxed);
+        const uint32_t committedMarginFloorBefore =
+            directControl->txMinimumCommittedMarginPackets.load(
+                std::memory_order_relaxed);
+        uint32_t previousMargin = committedMarginFloorBefore;
+        while (boundedMargin < previousMargin &&
+               !directControl->txMinimumCommittedMarginPackets
+                    .compare_exchange_weak(
+                        previousMargin,
+                        boundedMargin,
+                        std::memory_order_relaxed,
+                        std::memory_order_relaxed)) {
+        }
+        uint32_t previousIntervalMarginMin =
+            directControl->txIntervalCommittedMarginMinPackets.load(
+                std::memory_order_relaxed);
+        while (boundedMargin < previousIntervalMarginMin &&
+               !directControl->txIntervalCommittedMarginMinPackets
+                    .compare_exchange_weak(
+                        previousIntervalMarginMin,
+                        boundedMargin,
+                        std::memory_order_relaxed,
+                        std::memory_order_relaxed)) {
+        }
+        uint32_t previousIntervalMarginMax =
+            directControl->txIntervalCommittedMarginMaxPackets.load(
+                std::memory_order_relaxed);
+        while (boundedMargin > previousIntervalMarginMax &&
+               !directControl->txIntervalCommittedMarginMaxPackets
+                    .compare_exchange_weak(
+                        previousIntervalMarginMax,
+                        boundedMargin,
+                        std::memory_order_relaxed,
+                        std::memory_order_relaxed)) {
+        }
+        using Geometry = ASFW::IsochTransport::AudioTimingGeometry;
+        const size_t marginBucket =
+            boundedMargin < Geometry::kTxCommittedMargin2xFloorPackets
+                ? 0
+                : boundedMargin < Geometry::kTxCommittedMargin4xFloorPackets
+                      ? 1
+                      : boundedMargin < Geometry::kTxCommittedMargin8xFloorPackets
+                            ? 2
+                            : boundedMargin < Geometry::kTxCommittedMargin16xFloorPackets
+                                  ? 3
+                                  : 4;
+        directControl->txIntervalCommittedMarginHistogram[marginBucket]
+            .fetch_add(1, std::memory_order_relaxed);
+
+        // [TxPrep] Surface the cross-queue preparation health to the log. The
+        // refill ISR trips kUnderrunFatal once committedMargin falls to the
+        // hardware-owned ring depth, so emit on every new committed-margin low,
+        // on every wake beyond the 1.5 ms early-warning threshold, and on a
+        // coarse heartbeat. The actual geometry budget is encoded in
+        // kTxPreparationSlackPackets. See documentation/ZTS_AND_SYT.md §13.
+        const uint32_t minCommittedMargin =
+            directControl->txMinimumCommittedMarginPackets.load(
+                std::memory_order_relaxed);
+        const uint64_t maxLatencyNanos = ASFW::Timing::hostTicksToNanos(
+            directControl->txMaxPreparationLatencyTicks.load(
+                std::memory_order_relaxed));
+        const uint64_t wakeSamples =
+            directControl->txPreparationLatencySamples.load(
+                std::memory_order_relaxed);
+        constexpr uint32_t kCommittedMarginDangerPackets =
+            ASFW::IsochTransport::AudioTimingGeometry::kTxHardwareRingPackets;
+        const bool newCommittedMarginLow =
+            boundedMargin < committedMarginFloorBefore;
+        const bool slackBudgetExceeded =
+            latencyNanos >= Geometry::kTxPreparationLatency1500Us *
+                                Geometry::kNanosecondsPerMicrosecond;
+
+        // Wall-clock heartbeat. A wake-count trigger is rate-dependent: the
+        // same divisor emits ~1.3 lines/s at 48 kHz and 2-4x that at 96/192 kHz,
+        // where ring retention matters most. Both anomaly triggers below are
+        // independent of this, so pacing costs no fault coverage.
+        constexpr uint64_t kHeartbeatIntervalNanos = 5'000'000'000ULL;
+        const uint64_t lastHeartbeatTicks =
+            directControl->txHeartbeatLastHostTicks.load(
+                std::memory_order_relaxed);
+        const bool heartbeatDue =
+            lastHeartbeatTicks == 0 || now <= lastHeartbeatTicks ||
+            ASFW::Timing::hostTicksToNanos(now - lastHeartbeatTicks) >=
+                kHeartbeatIntervalNanos;
+
+        if (newCommittedMarginLow || slackBudgetExceeded || heartbeatDue) {
+            // Anomaly emissions intentionally close an interval early. This
+            // keeps every retained [TxPrep] line self-contained and leaves the
+            // normal healthy interval wall-clock paced at five seconds.
+            const uint32_t intervalMarginMin =
+                directControl->txIntervalCommittedMarginMinPackets.exchange(
+                    UINT32_MAX, std::memory_order_relaxed);
+            const uint32_t intervalMarginMax =
+                directControl->txIntervalCommittedMarginMaxPackets.exchange(
+                    0, std::memory_order_relaxed);
+            const uint64_t intervalLatencyMaxNanos =
+                ASFW::Timing::hostTicksToNanos(
+                    directControl->txIntervalPreparationLatencyMaxTicks.exchange(
+                        0, std::memory_order_relaxed));
+            const uint64_t latencyBucket0 =
+                directControl->txIntervalPreparationLatencyHistogram[0].exchange(
+                    0, std::memory_order_relaxed);
+            const uint64_t latencyBucket1 =
+                directControl->txIntervalPreparationLatencyHistogram[1].exchange(
+                    0, std::memory_order_relaxed);
+            const uint64_t latencyBucket2 =
+                directControl->txIntervalPreparationLatencyHistogram[2].exchange(
+                    0, std::memory_order_relaxed);
+            const uint64_t latencyBucket3 =
+                directControl->txIntervalPreparationLatencyHistogram[3].exchange(
+                    0, std::memory_order_relaxed);
+            const uint64_t latencyBucket4 =
+                directControl->txIntervalPreparationLatencyHistogram[4].exchange(
+                    0, std::memory_order_relaxed);
+            const uint64_t latencyBucket5 =
+                directControl->txIntervalPreparationLatencyHistogram[5].exchange(
+                    0, std::memory_order_relaxed);
+            const uint64_t marginBucket0 =
+                directControl->txIntervalCommittedMarginHistogram[0].exchange(
+                    0, std::memory_order_relaxed);
+            const uint64_t marginBucket1 =
+                directControl->txIntervalCommittedMarginHistogram[1].exchange(
+                    0, std::memory_order_relaxed);
+            const uint64_t marginBucket2 =
+                directControl->txIntervalCommittedMarginHistogram[2].exchange(
+                    0, std::memory_order_relaxed);
+            const uint64_t marginBucket3 =
+                directControl->txIntervalCommittedMarginHistogram[3].exchange(
+                    0, std::memory_order_relaxed);
+            const uint64_t marginBucket4 =
+                directControl->txIntervalCommittedMarginHistogram[4].exchange(
+                    0, std::memory_order_relaxed);
+            // Publish a stable copy for the read-only user-client snapshot.
+            // No control-plane caller receives directControl itself.
+            directControl->txCompletedIntervalSequence.fetch_add(
+                1, std::memory_order_relaxed);
+            directControl->txCompletedIntervalMarginMinPackets.store(
+                intervalMarginMin, std::memory_order_relaxed);
+            directControl->txCompletedIntervalMarginMaxPackets.store(
+                intervalMarginMax, std::memory_order_relaxed);
+            directControl->txCompletedIntervalPreparationLatencyMaxTicks.store(
+                ASFW::Timing::nanosToHostTicks(intervalLatencyMaxNanos),
+                std::memory_order_relaxed);
+            const uint64_t latencyBuckets[] = {
+                latencyBucket0, latencyBucket1, latencyBucket2,
+                latencyBucket3, latencyBucket4, latencyBucket5,
+            };
+            for (size_t index = 0; index < std::size(latencyBuckets); ++index) {
+                directControl->txCompletedIntervalPreparationLatencyHistogram[index].store(
+                    latencyBuckets[index], std::memory_order_relaxed);
+            }
+            const uint64_t marginBuckets[] = {
+                marginBucket0, marginBucket1, marginBucket2,
+                marginBucket3, marginBucket4,
+            };
+            for (size_t index = 0; index < std::size(marginBuckets); ++index) {
+                directControl->txCompletedIntervalCommittedMarginHistogram[index].store(
+                    marginBuckets[index], std::memory_order_relaxed);
+            }
+            directControl->txCompletedIntervalSequence.fetch_add(
+                1, std::memory_order_release);
+            directControl->rxCaptureBufferTelemetry.CompleteInterval();
+            // Stamped on every emission, so an anomaly burst defers the next
+            // heartbeat instead of interleaving with it. Anomalies are never
+            // themselves suppressed.
+            directControl->txHeartbeatLastHostTicks.store(
+                now, std::memory_order_relaxed);
+            ASFW_LOG(
+                DirectAudio,
+                "[TxPrep] margin=%u iMin=%u iMax=%u min=%u lead=%u "
+                "lastLatUs=%llu iMaxLatUs=%llu maxLatUs=%llu "
+                "latHist=%llu/%llu/%llu/%llu/%llu/%llu "
+                "marginHist=%llu/%llu/%llu/%llu/%llu fast750=%llu "
+                "late1500=%llu wakes=%llu "
+                "exposureLead=%u coverageLead=%u%{public}s",
+                boundedMargin,
+                intervalMarginMin,
+                intervalMarginMax,
+                minCommittedMargin,
+                ASFW::IsochTransport::AudioTimingGeometry::
+                    kTxPreparationLeadPackets,
+                latencyNanos / 1000,
+                intervalLatencyMaxNanos / 1000,
+                maxLatencyNanos / 1000,
+                latencyBucket0,
+                latencyBucket1,
+                latencyBucket2,
+                latencyBucket3,
+                latencyBucket4,
+                latencyBucket5,
+                marginBucket0,
+                marginBucket1,
+                marginBucket2,
+                marginBucket3,
+                marginBucket4,
+                directControl->txPreparationAtMost750Us.load(
+                    std::memory_order_relaxed),
+                directControl->txPreparationAtLeast1500Us.load(
+                    std::memory_order_relaxed),
+                wakeSamples,
+                dataHorizonFrames,
+                ASFW::IsochTransport::AudioTimingGeometry::
+                    kTxCoverageLeadPackets,
+                boundedMargin <= kCommittedMarginDangerPackets ? " DANGER"
+                                                               : "");
+        }
+
+        directControl->counters.txPreparationWakeRequests.store(
+            txControl->refillRequestCount.load(
+                std::memory_order_relaxed),
+            std::memory_order_relaxed);
+        directControl->counters.txPreparationWakeDispatches.fetch_add(
+            1, std::memory_order_relaxed);
+        directControl->counters.txPreparationWakeCoalesced.store(
+            txControl->refillCoalescedCount.load(
+                std::memory_order_relaxed),
+            std::memory_order_relaxed);
+        directControl->counters.txPreparationDrainPasses.fetch_add(
+            1, std::memory_order_relaxed);
+        const bool audioTargetSatisfied =
+            targetFrameEnd == 0 || exposedFrameEndAfter >= targetFrameEnd;
+        if (audioTargetSatisfied) {
+            directControl->txPreparationRequests.MarkHandled(
+                audioRequested, now);
+        }
+        directControl->txPreparationRequests.FinishWake();
+        // A CoreAudio callback can publish while this action is preparing
+        // slots. It saw wakeScheduled=true and deliberately did not enqueue a
+        // second action; hand it one now after draining the latest target.
+        scheduleAudioFollowUp = audioTargetSatisfied &&
+            directControl->txPreparationRequests.NeedsHandling() &&
+            directControl->txPreparationRequests.TryScheduleWake();
+    }
+
+    txControl->MarkRefillHandled(requested);
+
+    if (scheduleAudioFollowUp && ivars->device.audioNub) {
+        const kern_return_t requestKr =
+            ivars->device.audioNub->RequestTxPreparation(
+                directControl->txPreparationRequests.RequestedGeneration());
+        if (requestKr != kIOReturnSuccess) {
+            directControl->txPreparationRequests.FinishWake();
+        }
+    }
+}

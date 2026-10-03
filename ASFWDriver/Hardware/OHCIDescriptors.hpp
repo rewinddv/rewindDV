@@ -1,0 +1,249 @@
+#pragma once
+
+#include <cstdint>
+#include <DriverKit/IOLib.h> // For OSSwap...
+#include "OHCIConstants.hpp"
+
+namespace ASFW::Async::HW {
+
+// Branch helpers and descriptor structures
+[[nodiscard]] constexpr uint32_t MakeBranchWordAT(uint64_t physAddr, uint8_t Zblocks) noexcept;
+[[nodiscard]] constexpr uint32_t MakeBranchWordAR(uint64_t physAddr, uint8_t Z) noexcept;
+[[nodiscard]] constexpr uint32_t DecodeBranchPhys32_AT(uint32_t branchWord) noexcept;
+[[nodiscard]] constexpr uint32_t DecodeBranchPhys32_AR(uint32_t branchWord) noexcept;
+
+struct alignas(16) OHCIDescriptor {
+    union {
+        uint32_t control{0};
+#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+        struct { uint16_t reqCount; uint16_t controlUpper; };
+#else
+        struct { uint16_t controlUpper; uint16_t reqCount; };
+#endif
+    };
+
+    uint32_t dataAddress{0};
+    uint32_t branchWord{0};
+
+    union {
+        uint32_t statusWord{0};
+#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+        struct { uint16_t timeStamp; uint16_t xferStatus; };
+#else
+        struct { uint16_t timeStamp; uint16_t xferStatus; };
+#endif
+        uint32_t softwareTag;
+    };
+
+    static constexpr uint32_t kControlHighShift = 16;
+    static constexpr uint32_t kCmdShift = 12;
+    static constexpr uint32_t kStatusShift = 11;
+    static constexpr uint32_t kKeyShift = 8;
+    static constexpr uint32_t kPingShift = 7;
+    static constexpr uint32_t kYYShift = 6;
+    static constexpr uint32_t kIntShift = 4;
+    static constexpr uint32_t kBranchShift = 2;
+    static constexpr uint32_t kWaitShift = 0;
+    static constexpr uint32_t kZShift = 0;
+
+    static constexpr uint8_t kCmdOutputMore = 0x0;
+    static constexpr uint8_t kCmdOutputLast = 0x1;
+    static constexpr uint8_t kCmdInputMore  = 0x2;
+    static constexpr uint8_t kCmdInputLast  = 0x3;
+    static constexpr uint8_t kKeyStandard = 0x0;
+    static constexpr uint8_t kKeyImmediate = 0x2;
+    static constexpr uint8_t kIntNever = 0b00;
+    static constexpr uint8_t kIntOnError = 0b01;
+    static constexpr uint8_t kIntAlways = 0b11;
+    static constexpr uint8_t kBranchNever = 0b00;
+    static constexpr uint8_t kBranchAlways = 0b11;
+
+    struct ControlFields {
+        uint16_t reqCount{0};
+        uint8_t command{0};
+        uint8_t key{0};
+        uint8_t interruptBits{0};
+        uint8_t branchBits{0};
+        bool ping{false};
+    };
+
+    [[nodiscard]] static constexpr uint32_t BuildControl(const ControlFields& fields) noexcept {
+        const uint8_t cmd_masked = fields.command & 0xF;
+        const uint8_t key_masked = fields.key & 0x7;
+        const uint8_t i_masked = fields.interruptBits & 0x3;
+        const uint8_t b_masked = fields.branchBits & 0x3;
+        const uint32_t high = (static_cast<uint32_t>(cmd_masked) << kCmdShift) |
+                              (static_cast<uint32_t>(key_masked) << kKeyShift) |
+                              (static_cast<uint32_t>(i_masked) << kIntShift) |
+                              (static_cast<uint32_t>(b_masked) << kBranchShift) |
+                              (fields.ping ? (1u << kPingShift) : 0);
+        return ((high & 0xFFFFu) << kControlHighShift) | (fields.reqCount & 0xFFFFu);
+    }
+
+    static inline void PatchBranch(OHCIDescriptor& desc, uint8_t b) noexcept {
+        const uint32_t mask = 0x3u << (kBranchShift + kControlHighShift);
+        const uint32_t val = (b & 0x3u) << (kBranchShift + kControlHighShift);
+        desc.control = (desc.control & ~mask) | val;
+    }
+
+    static inline void ClearBranchBits(OHCIDescriptor& desc) noexcept {
+        const uint32_t mask = 0x3u << (kBranchShift + kControlHighShift);
+        desc.control = desc.control & ~mask;
+    }
+};
+static_assert(sizeof(OHCIDescriptor) == 16, "OHCIDescriptor must be 16 bytes per OHCI §7.1");
+static_assert((sizeof(OHCIDescriptor) % 16) == 0,
+              "OHCIDescriptor size must be a multiple of 16 so every descriptor in the array stays 16B-aligned.");
+static_assert(alignof(OHCIDescriptor) >= 16,
+              "OHCIDescriptor alignment must be >= 16.");
+static_assert(OHCIDescriptor::kCmdShift == 12 && OHCIDescriptor::kKeyShift == 8 &&
+              OHCIDescriptor::kIntShift == 4 && OHCIDescriptor::kBranchShift == 2,
+              "Descriptor control high-word shifts must match Linux ohci.c descriptor bits");
+static_assert(OHCIDescriptor::kCmdOutputMore == 0x0 &&
+              OHCIDescriptor::kCmdOutputLast == 0x1 &&
+              OHCIDescriptor::kCmdInputMore == 0x2 &&
+              OHCIDescriptor::kCmdInputLast == 0x3);
+static_assert(OHCIDescriptor::kKeyStandard == 0x0 &&
+              OHCIDescriptor::kKeyImmediate == 0x2);
+static_assert(OHCIDescriptor::kIntNever == 0x0 &&
+              OHCIDescriptor::kIntOnError == 0x1 &&
+              OHCIDescriptor::kIntAlways == 0x3);
+static_assert(OHCIDescriptor::kBranchNever == 0x0 &&
+              OHCIDescriptor::kBranchAlways == 0x3);
+static_assert(OHCIDescriptor::kZShift == 0,
+              "AT/AR branch Z is encoded in the low nibble, not the high nibble");
+
+struct alignas(16) OHCIDescriptorImmediate {
+    OHCIDescriptor common;
+    // For OHCI IT OUTPUT_MORE-Immediate, reqCount=8 and these first two
+    // quadlets form the controller-specific transmit header. Linux programs
+    // the same bytes through (__le32 *)&d[1].
+    // Cross-validated with Linux: firewire/ohci.c:3364-3375.
+    uint32_t immediateData[4]{};
+};
+static_assert(sizeof(OHCIDescriptorImmediate) == 32, "OHCIDescriptorImmediate must be 32 bytes per OHCI");
+
+[[nodiscard]] inline uint16_t AR_xferStatus(const OHCIDescriptor& d) noexcept { return static_cast<uint16_t>(d.statusWord >> 16); }
+[[nodiscard]] inline uint16_t AR_resCount(const OHCIDescriptor& d) noexcept { return static_cast<uint16_t>(d.statusWord & 0xFFFF); }
+inline void AR_init_status(OHCIDescriptor& d, uint16_t reqCount_host) noexcept { d.statusWord = (0x0000u << 16) | reqCount_host; }
+[[nodiscard]] inline uint16_t AT_xferStatus(const OHCIDescriptor& d) noexcept { return d.xferStatus; }
+[[nodiscard]] inline uint16_t AT_timeStamp(const OHCIDescriptor& d) noexcept { return d.timeStamp; }
+
+[[nodiscard]] inline bool IsImmediate(const OHCIDescriptor& d) noexcept {
+    const uint32_t controlHi = d.control >> OHCIDescriptor::kControlHighShift;
+    const uint8_t keyField = (controlHi >> OHCIDescriptor::kKeyShift) & 0x7;
+    return keyField == OHCIDescriptor::kKeyImmediate;
+}
+
+[[nodiscard]] inline uint8_t ExtractTLabel(const OHCIDescriptorImmediate* immDesc) noexcept {
+    if (!immDesc) return 0xFF;
+    const uint32_t controlHost = immDesc->immediateData[0];
+    const uint8_t tLabel = static_cast<uint8_t>((controlHost >> 10) & 0x3F);
+    return tLabel;
+}
+
+// ============================================================================
+// Isochronous Transmit Helpers
+// ============================================================================
+
+struct IsochHeader {
+    uint32_t val;
+
+    // Build Host-Endian IsochHeader (to be byte-swapped later)
+    // Note: OHCI overwrites the data_length (top 16 bits), so we set it to 0.
+    static constexpr uint32_t Build(uint8_t tag, uint8_t chan, uint8_t tcode, uint8_t sy) {
+        return (static_cast<uint32_t>(tag & 0x3) << 14) |
+               (static_cast<uint32_t>(chan & 0x3F) << 8) |
+               (static_cast<uint32_t>(tcode & 0xF) << 4) |
+               (static_cast<uint32_t>(sy & 0xF));
+    }
+};
+
+struct ITDescriptorBuilder {
+    struct OutputMoreImmediateParams {
+        uint32_t itHeaderQ0LE{0};
+        uint32_t itHeaderQ1LE{0};
+        uint32_t skipIOVA{0};
+        uint8_t zValue{0};
+        uint8_t interruptBits{OHCIDescriptor::kIntNever};
+    };
+
+    struct OutputLastParams {
+        uint32_t dataIOVA{0};
+        uint16_t payloadSize{0};
+        uint32_t branchIOVA{0};
+        uint8_t zValue{0};
+        uint8_t interruptBits{OHCIDescriptor::kIntNever};
+    };
+
+    // OUTPUT_MORE-Immediate (32 bytes)
+    // - Control: cmd=0, key=2 (Immediate), b=0, i=0/3, reqCount=8
+    // - common.branchWord: cycle-loss skip address
+    // - immediateData[0]: IT Q0 (speed/tag/channel/tcode/sy)
+    // - immediateData[1]: IT Q1 (data length in bits 31:16)
+    // Cross-validated with Linux: firewire/ohci.c:3364-3383 and
+    // firewire/ohci.h:277-288.
+    static void BuildOutputMoreImmediate(OHCIDescriptorImmediate& desc,
+                                         const OutputMoreImmediateParams& params) {
+        constexpr uint16_t kReqCount = 8;
+        desc = {};
+        desc.common.control = OHCIDescriptor::BuildControl({
+            .reqCount = kReqCount,
+            .command = OHCIDescriptor::kCmdOutputMore,
+            .key = OHCIDescriptor::kKeyImmediate,
+            .interruptBits = params.interruptBits,
+            .branchBits = OHCIDescriptor::kBranchNever,
+        });
+        desc.common.branchWord = MakeBranchWordAT(params.skipIOVA, params.zValue);
+        desc.immediateData[0] = params.itHeaderQ0LE;
+        desc.immediateData[1] = params.itHeaderQ1LE;
+    }
+
+    // OUTPUT_LAST (16 bytes)
+    // - Control: cmd=1, s=1 (update status), key=0, b=3, reqCount=payloadSize
+    // - DataAddress: Payload Ptr
+    // - Branch: Next Descriptor
+    static void BuildOutputLast(OHCIDescriptor& desc, const OutputLastParams& params) {
+        desc.control = OHCIDescriptor::BuildControl({
+            .reqCount = params.payloadSize,
+            .command = OHCIDescriptor::kCmdOutputLast,
+            .key = OHCIDescriptor::kKeyStandard,
+            .interruptBits = params.interruptBits,
+            .branchBits = OHCIDescriptor::kBranchAlways,
+        });
+        // Set Status Update bit (s=1)
+        desc.control |= (1u << (OHCIDescriptor::kStatusShift + OHCIDescriptor::kControlHighShift));
+        
+        desc.dataAddress = params.dataIOVA;
+        desc.branchWord = MakeBranchWordAT(params.branchIOVA, params.zValue); // Note: IT uses "Z" too
+        AR_init_status(desc, params.payloadSize);
+    }
+    
+    // OUTPUT_LAST-Immediate removed per expert recommendation.
+    // Use OUTPUT_MORE-Immediate + OUTPUT_LAST (with small buffer) instead.
+};
+
+[[nodiscard]] constexpr uint32_t MakeBranchWordAT(uint64_t physAddr, uint8_t Zblocks) noexcept {
+    if ((physAddr & 0xFULL) != 0 || physAddr > 0xFFFFFFFFu) return 0;
+    if (Zblocks != 0 && (Zblocks < 2 || Zblocks > 8)) return 0;
+    return (static_cast<uint32_t>(physAddr) & 0xFFFFFFF0u) | (static_cast<uint32_t>(Zblocks) & 0xFu);
+}
+static_assert(MakeBranchWordAT(0x12345000u, 2) == 0x12345002u,
+              "AT branch word must encode Z in bits 3:0");
+static_assert(MakeBranchWordAT(0x12345000u, 1) == 0,
+              "AT branch Z=1 is reserved for ASFW descriptor chains");
+
+[[nodiscard]] constexpr uint32_t MakeBranchWordAR(uint64_t physAddr, uint8_t Z) noexcept {
+    if ((physAddr & 0xFULL) != 0 || physAddr > 0xFFFFFFFFu) return 0;
+    if (Z > 1) return 0;
+    return (static_cast<uint32_t>(physAddr) & 0xFFFFFFF0u) | static_cast<uint32_t>(Z);
+}
+static_assert(MakeBranchWordAR(0x12345000u, 1) == 0x12345001u,
+              "AR branch word must encode single-bit Z in bit 0");
+static_assert(MakeBranchWordAR(0x12345000u, 2) == 0,
+              "AR branch Z must reject reserved bits 3:1");
+
+[[nodiscard]] constexpr uint32_t DecodeBranchPhys32_AT(uint32_t branchWord) noexcept { return branchWord & 0xFFFFFFF0u; }
+[[nodiscard]] constexpr uint32_t DecodeBranchPhys32_AR(uint32_t branchWord) noexcept { return branchWord & 0xFFFFFFF0u; }
+
+} // namespace ASFW::Async::HW

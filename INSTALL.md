@@ -39,7 +39,7 @@ Fresh-system installation and broader compatibility remain unverified.
 ## Verify the download
 
 Download the ZIP and its checksum sidecar together from
-https://github.com/rewinddv/rewindDV-LAB/releases/tag/alpha-0.0.81.
+https://github.com/rewinddv/rewindDV/releases/tag/alpha-0.0.81.
 Open Terminal in their containing folder and run:
 
 ```sh
@@ -98,7 +98,7 @@ local re-signing is required. Re-signing changes the released bytes.
 
 If activation or connection fails, avoid repeated activation/reboot attempts.
 Request help through a minimal, sanitized issue at
-https://github.com/rewinddv/rewindDV-LAB/issues or contact info@rewinddv.com.
+https://github.com/rewinddv/rewindDV/issues or contact info@rewinddv.com.
 Review diagnostic exports privately; never post raw logs, support ZIPs,
 personal paths, device identities or footage to public issues.
 

@@ -1,0 +1,34 @@
+// Modified for RewindDV Foundation Build159; see Foundation/NOTICE.md and candidate provenance.
+//
+// ASFWSBP2Nub.cpp
+// ASFWDriver
+//
+// Per-discovered-unit provider nub. See ASFWSBP2Nub.iig.
+//
+
+#include "ASFWSBP2Nub.h"
+
+#include <DriverKit/DriverKit.h>
+#include <DriverKit/IOLib.h>
+
+#include "../Logging/Logging.hpp"
+
+kern_return_t IMPL(ASFWSBP2Nub, Start)
+{
+    kern_return_t ret = Start(provider, SUPERDISPATCH);
+    if (ret != kIOReturnSuccess) {
+        return ret;
+    }
+    ASFW_LOG(Controller, "[SCSIHBA] ASFWSBP2Nub::Start — registering discovered unit");
+    ret = RegisterService();
+    if (ret != kIOReturnSuccess) {
+        ASFW_LOG(Controller, "[SCSIHBA] ASFWSBP2Nub RegisterService failed: 0x%x", ret);
+    }
+    return ret;
+}
+
+kern_return_t IMPL(ASFWSBP2Nub, Stop)
+{
+    ASFW_LOG(Controller, "[SCSIHBA] ASFWSBP2Nub::Stop");
+    return Stop(provider, SUPERDISPATCH);
+}

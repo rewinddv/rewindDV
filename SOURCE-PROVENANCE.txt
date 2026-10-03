@@ -1,0 +1,10 @@
+rewindDV Alpha 0.0.81 source projection
+Application source revision: 663623577421b30fa8235f1530b9b43c07544fcb
+Retained Build183 driver source: 67c5e03f8fd6387a34322d373523f32cf53dc2a5
+Runtime source and tests match the publishable projection of the application revision.
+Retained public transformations: portable signing settings, generic icon selection,
+synthetic-fixture provenance, public documentation and source mapping.
+The exact ad-hoc Build183 driver is retained from the Alpha 0.0.77 release.
+Current processing and NTSC/PAL playback validation is offline; no new physical
+PAL/HDV or broad hardware qualification is implied. See KNOWN-LIMITATIONS.md.
+Private Git history, evidence, profiles, research documents and media are excluded.

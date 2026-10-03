@@ -2,158 +2,97 @@
   <img src="assets/rewinddv-icon.png" alt="rewindDV cassette app icon" width="180" height="180">
 </p>
 
-<h1 align="center">rewindDV LAB</h1>
-<p align="center"><strong>Preserve the tape. Inspect the evidence.</strong><br>Native MiniDV ingest, playback and preservation tools for Apple Silicon running macOS 26 Tahoe and beyond.</p>
+<h1 align="center">rewindDV</h1>
+<p align="center"><strong>Preserve the tape. Inspect the evidence.</strong><br>Native FireWire DV/HDV preservation for modern macOS.</p>
 
 <p align="center">
-  <a href="https://github.com/rewinddv/rewindDV-LAB/releases">Releases</a> ·
-  <a href="INSTALL.md">Installation</a> ·
-  <a href="UNINSTALL.md">Remove & restore security</a> ·
-  <a href="https://ko-fi.com/rewinddv"><strong>Support on Ko-fi</strong></a>
+  <a href="https://github.com/rewinddv/rewindDV/releases">Engineering releases</a> ·
+  <a href="INSTALL.md">Install</a> ·
+  <a href="COMPATIBILITY.md">Compatibility</a> ·
+  <a href="https://github.com/rewinddv/rewindDV/issues">Report a result</a> ·
+  <a href="BUILDING.md">Build</a> ·
+  <a href="CONTRIBUTING.md">Contribute</a>
 </p>
 
-> **Help fund the standards behind tape metadata.** Funds raised go toward
-> purchasing IEC standards to research all the metadata these tapes can contain
-> and expand what rewindDV can decode.
-> [**Support on Ko-fi →**](https://ko-fi.com/rewinddv)
+rewindDV brings tape acquisition, native DV playback, metadata inspection and
+preservation evidence into one Mac workspace. This repository contains the
+application and driver source, engineering downloads, documentation, issues and
+contributions. Visit [rewinddv.com](https://rewinddv.com) for the project website.
 
-## Release status
+## Download and install
 
-Alpha 0.0.63 / Driver B178 is an older development build and has been withdrawn from distribution.
+Choose an engineering prerelease from [Releases](https://github.com/rewinddv/rewindDV/releases)
+and verify its attached ZIP against its checksum. Read [installation](INSTALL.md)
+and [removal, rollback and security restoration](UNINSTALL.md) before proceeding.
 
-**[Alpha 0.0.81 / Driver Build183 — engineering alpha](https://github.com/rewinddv/rewindDV-LAB/releases/tag/alpha-0.0.81)** is ad-hoc signed and not notarized.
+**The current engineering binaries are ad-hoc signed and not notarized.
+Installation requires disabling System Integrity Protection (SIP), which reduces
+macOS security.** They are intended for experienced users and dedicated test
+systems. Developer ID signing, notarization and normal SIP-on distribution remain
+future work. These releases are not a production-readiness claim.
 
-rewindDV currently uses an ad-hoc-signed DriverKit extension.
-Installation requires disabling System Integrity Protection (SIP).
-Disabling SIP reduces macOS security.
+Application version, source revision and driver build are separate identities.
+[Release notes](RELEASE-NOTES.md) record the available releases and withdrawal
+status. Historical LAB tags still point to their original hub snapshots: their
+automatic “Source code” archives are not the corresponding application source.
+See [release provenance and future releases](RELEASING.md).
 
-Intended for experienced users and dedicated/test systems. Read the
-[installation and checksum instructions](INSTALL.md) and
-[removal/rollback instructions](UNINSTALL.md) before proceeding.
+## Preserve and inspect
 
-This is the testing and release hub for rewindDV. The
-[canonical open-source repository](https://github.com/rewinddv/rewindDV) contains
-the current source snapshot, build instructions, and qualification limits. Visit
-the [project website](https://rewinddv.com) for more about the project.
+- Manual ingest and whole-tape capture retain received bytes and transport evidence.
+  Missing timecode or a blank stretch alone does not establish end-of-tape.
+- Live monitoring and bounded deck controls support the tested DV workflow.
+- Saved raw DV playback supports offline-validated NTSC/PAL transitions, seeking,
+  frame stepping and source-frame inspector values. Preview controls do not
+  rewrite captured media.
+- Metadata, tape maps, reports and recovery tools preserve unknown, invalid and
+  conflicting observations. Recovery derivatives remain separate from originals.
+- Local diagnostic evidence helps investigate failures without automatically
+  uploading footage or logs.
 
-This repository preserves project documentation and release history.
-GitHub’s automatic “Source code” archives contain this hub’s documentation and
-assets; they do not contain the application.
+Matching saved-byte hashes do not prove pristine pictures or sound, lossless
+transport or successful recovery. Preserve original tapes and acquisition evidence.
 
-## What rewindDV does
+## Compatibility and limits
 
-**Apple removed built-in FireWire support with macOS 26 Tahoe in 2025.**
-Apple now lists native FireWire support as requiring macOS Sequoia 15 or earlier,
-leaving legacy DV decks and camcorders without that built-in connection path on
-Tahoe and later macOS versions. [Apple's FireWire compatibility guidance](https://support.apple.com/en-us/109523#firewire)
+Apple silicon is the supported architecture; Intel is unsupported. The app's
+deployment floor is macOS 26 and source builds use Xcode 27. Bounded runtime
+evidence covers macOS 27.0.1, NTSC DV and one Sony HVR-M15U setup using the
+supported PCI 11c1:5901 controller and tested adapter chain.
 
-rewindDV restores a DV-focused FireWire acquisition path for Apple Silicon,
-so existing tapes and working decks can remain part of a modern preservation workflow.
+Broader OS, deck, adapter and storage compatibility, physical PAL/HDV capture,
+HDV playback and full-length endurance remain unqualified. Offline source and
+exporter tests do not extend hardware qualification. The packaged ad-hoc releases
+have not been installed or newly physically qualified. See
+[compatibility](COMPATIBILITY.md) and [known limitations](KNOWN-LIMITATIONS.md).
+No RECORD or tape-erasure control is provided.
 
-rewindDV brings DV tape acquisition and careful inspection into one native Mac
-workspace. It preserves received DV data and separates transport-loss evidence,
-source-content defects and preview-only issues rather than hiding them behind
-a single “success” message.
+## Report, build and contribute
 
-- **Capture:** manual ingest or whole tape automated rewind & capture.
-  Missing timecode or a blank
-  stretch does not, by itself, end capture. Physical stop observations are not
-  infallible proof of BOT/EOT; hardware and operator intervention matter.
-- **Live monitoring and deck control:** picture, audio meters, source timecode,
-  approximate play elapsed time, Play/Stop, rewind/fast-forward and supported
-  forward/reverse picture search. Physical deck controls and GUI controls work
-  together on tested equipment.
-- **Verify before disconnecting:** reconstruction/reread progress, saved-byte
-  integrity checks, retained receive evidence and completion/attention
-  notifications on your Mac. Notifications are local—not email or mobile push.
-- **Native DV playback and inspection:** responsive scrubbing, field-oriented
-  viewing options, 1×/2×/4×/8× zoom and navigator, preview-only 4:3/16:9 overrides,
-  and measured highlight/shadow signal-limit overlays. These controls do not
-  rewrite the captured DV. Signal limits do not prove unrecoverable clipping.
-- **Metadata:** technical video/audio specifications, recorded date/time,
-  timecode, aspect-ratio evidence and decoded DV metadata with raw provenance.
-  Missing, invalid, conflicting and historical observations remain distinct.
-- **Analysis & Recovery:** tape maps and frame/block inspection, portable
-  reports, previewed scene segmentation, bounded recovery planning with wear
-  accounting, and multi-pass comparison/verified merge tools. These are advanced
-  alpha workflows with conservative eligibility checks—not guaranteed repair.
-- **Local flight recorder:** bounded diagnostic evidence and support export
-  to help explain failures without automatically uploading footage or logs.
+Use [issues](https://github.com/rewinddv/rewindDV/issues) for sanitized bug reports
+and compatibility results. The [test report](TEST-REPORT.md) and issue template
+ask for the app version, driver build, hardware route and observed result.
+**Do not attach support ZIPs, raw logs, private footage, personal paths or device
+identifiers publicly.** Request a private transfer channel first; see
+[privacy and support](PRIVACY.md). Public project contact: info@rewinddv.com.
 
-## Changes in Alpha 0.0.81
+Start with [building](BUILDING.md), [offline testing](TESTING.md) and
+[contributing](CONTRIBUTING.md). The application lives under `Foundation/` and
+uses selected root `ASFWDriver/` dependencies. An unsigned source build does not
+install or activate a driver. [Source provenance](SOURCE-PROVENANCE.txt) records
+the imported source identities.
 
-DV/HDV post-capture reconstruction and verification now bound temporary-object
-lifetimes during long recordings. This does not promise zero swap or a fixed
-amount of total app memory.
+## Attribution and support
 
-Saved raw DV playback handles NTSC, PAL and transitions between them, with
-validated frame boundaries, exact cadence, seeking and stepping. Inspector
-properties come from one identified source-frame snapshot; playing metadata is
-sampled twice per second, format changes clear stale values, and pausing resolves
-the selected frame. Missing or conflicting metadata stays unavailable. The
-playback viewport and controls keep a fixed layout across format changes.
+rewindDV builds on modified [ASFireWire](https://github.com/mrmidi/ASFireWire)
+and selected adaptations from MediaInfoLib, DVRescue and video-tools.
+First-party software uses Apache-2.0; retained portions preserve their Apache,
+BSD and MIT terms. Read [LICENSE](LICENSE), [NOTICE](NOTICE),
+[third-party notices](ThirdPartyNotices.txt), [acknowledgments](ACKNOWLEDGMENTS.md)
+and [license texts](licenses/). No upstream endorsement or project trademark
+rights are implied. The generic source-build icon is intentional.
 
-The retained Build183 driver is unchanged. Offline tests do not establish
-physical PAL or HDV qualification. The cancelled receive-task Stop path can still
-suppress intermediate processing progress; the final result arrives. Damaged or
-incomplete raw DV boundaries are rejected rather than guessed past.
-
-Alpha 0.0.77 remains available historically and is superseded by Alpha 0.0.81.
-Versions 0.0.78–0.0.80 were intermediate development builds, not public releases.
-See [release notes](RELEASE-NOTES.md) for validation and limits.
-
-## Compatibility and honest limits
-
-| Area | Current scope |
-|---|---|
-| Mac | Apple Silicon only; Intel unsupported |
-| macOS | Minimum 26; built with Xcode 27. bounded runtime evidence on macOS 27.0.1; broader compatibility remains unverified |
-| FireWire controller | Current driver matches PCI **11c1:5901**, used in the tested Apple Thunderbolt-to-FireWire adapter chain |
-| Source | DV25 over IEEE 1394 from a compatible deck/camcorder; select DV output (HDV coming soon; not included in this release) |
-| Other FireWire products | Not an audio-interface or SCSI/storage driver |
-| Destination | Local/external SSD recommended; APFS, HFS+ or exFAT. Avoid FAT32 and unqualified network volumes |
-
-No RECORD or tape-erasure control is provided. Tape wear, deck faults, software
-failures, storage stalls and source defects remain possible. Do not run another
-experimental FireWire driver against the same controller at the same time.
-Keep physical STOP accessible during initial tests.
-
-**Verified saved bytes do not prove flawless source content or unconditional
-lossless acquisition.** Known loss and uncertainty remain visible. Preserve
-your original tapes and acquisition evidence; never replace a master with a
-recovery derivative merely because it looks better.
-
-## Existing installations and reports
-
-For an existing installation, see [Remove & restore security](UNINSTALL.md).
-The [test report template](TEST-REPORT.md) remains available for reports about
-earlier tests.
-
-Public [issues](https://github.com/rewinddv/rewindDV-LAB/issues) are for sanitized
-bug summaries and compatibility reports. **Do not attach support ZIPs, raw logs,
-private footage, personal paths or deck identifiers publicly.** Ask for a private
-transfer channel first. See [Privacy & support evidence](PRIVACY.md).
-
-## Built on open-source work
-
-rewindDV uses a modified **[ASFireWire](https://github.com/mrmidi/ASFireWire)**
-driver foundation. It also incorporates selected DV metadata mappings adapted
-from **[MediaInfoLib](https://github.com/MediaArea/MediaInfoLib)** and nominal
-DV-block geometry adapted from **[DVRescue](https://github.com/mipops/dvrescue)**.
-Those contributions are credited explicitly; rewindDV is not an official
-release of, or endorsed by, those projects.
-
-See [Acknowledgments](ACKNOWLEDGMENTS.md), [Apache-2.0 license](ASFireWire-LICENSE.txt),
-[ASFireWire notices](ASFireWire-NOTICE.txt) and [third-party notices and BSD terms](ThirdPartyNotices.txt).
-
-## ♥ Sponsor this project
-
-Funds raised go toward purchasing **IEC standards** to research all the metadata
-these tapes can contain and expand what rewindDV can decode. These primary
-references help us interpret recorded packs and fields against documented requirements.
-
-### [Support rewindDV on Ko-fi →](https://ko-fi.com/rewinddv)
-
-Contributions will not buy guaranteed compatibility, recovery,
-Apple entitlement approval or a release date. Purchased standards will not be
-redistributed through this repository.
+[Support rewindDV on Ko-fi](https://ko-fi.com/rewinddv). Funds raised go toward
+purchasing IEC standards to research tape metadata and expand what rewindDV can
+decode. Support does not buy guaranteed compatibility, recovery, Apple approval
+or a release date; purchased standards are not redistributed.

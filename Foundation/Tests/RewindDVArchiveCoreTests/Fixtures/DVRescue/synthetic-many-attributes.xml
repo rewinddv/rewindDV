@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Copyright 2026 Rewind Digital, LLC. SPDX-License-Identifier: Apache-2.0
+     Newly authored synthetic importer data. No captured media or personal metadata.
+     Attribute vocabulary uses the retained BSD-3-Clause DVRescue schema. -->
+<dvrescue xmlns="https://mediaarea.net/dvrescue" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="https://mediaarea.net/dvrescue dvrescue.xsd" version="1.2.1">
+  <creator><program>rewindDV synthetic fixture</program><version>1</version></creator>
+  <media ref="synthetic.dv" format="DV" size="840000">
+    <frames count="4" pts="00:00:00.000" end_pts="00:00:00.133" size="720x480" video_rate="30000/1001" chroma_subsampling="4:1:1" aspect_ratio="4/3" audio_rate="48000" channels="2" captions="n">
+      <frame n="0" pos="0" pts="00:00:00.000" tc="00:00:00:00" tc_nc="2" tc_r="true" rdt="2000-01-01 00:00:00" rdt_nc="3" arb="3" arb_nc="true" arb_r="true" no_pack="true" no_pack_aud="true" full_conceal_aud="true" full_conceal_vid="true">
+        <dseq n="0"><sta t="1" n="3" n_even="2"/><aud n="2" n_even="1"/></dseq>
+        <sta t="1" n="10" n_even="6"/><aud n="7" n_even="4"/>
+      </frame>
+      <frame n="3" pos="360000" pts="00:00:00.100" tc="00:00:00:03" rdt="2000-01-01 00:00:01" arb="4">
+        <dseq n="9"><sta t="15" n="4" n_even="2"/><aud n="2" n_even="0"/></dseq>
+      </frame>
+    </frames>
+    <frames count="3" pts="00:00:00.160" end_pts="00:00:00.280" size="720x576" video_rate="25" chroma_subsampling="4:2:0" aspect_ratio="16/9" audio_rate="32000" channels="4" captions="y">
+      <frame n="4" pos="480000" pts="00:00:00.160" no_pack="false" no_pack_aud="false" full_conceal_aud="false" full_conceal_vid="false">
+        <dseq n="11"><sta t="2" n="5" n_even="3"/><aud n="3" n_even="2"/></dseq>
+      </frame>
+      <frame n="6" pos="768000" pts="00:00:00.240"><sta t="0" n="0" n_even="0"/><aud n="0" n_even="0"/></frame>
+    </frames>
+  </media>
+</dvrescue>

@@ -35,19 +35,19 @@ verification progress while processing continues; the final result still arrives
 Saved raw DV playback rejects incomplete or unordered frame boundaries rather
 than guessing past damaged structure. HDV playback is not qualified by this work.
 Existing capture, hardware, recovery and security limitations remain documented
-in the canonical source and LAB. Original captures are never rewritten by playback.
+in this repository. Original captures are never rewritten by playback.
 
 Alpha 0.0.78–0.0.80 were intermediate development builds, not public releases.
 Alpha 0.0.77 remains historical and is superseded by this engineering release.
 B178 remains withdrawn.
 
 Source: https://github.com/rewinddv/rewindDV
-Downloads and installation: https://github.com/rewinddv/rewindDV-LAB
+Downloads and installation: https://github.com/rewinddv/rewindDV
 Contact: info@rewinddv.com
 
 ## Download verification and offline validation
 
-Download the ZIP and checksum from [Alpha 0.0.81](https://github.com/rewinddv/rewindDV-LAB/releases/tag/alpha-0.0.81).
+Download the ZIP and checksum from [Alpha 0.0.81](https://github.com/rewinddv/rewindDV/releases/tag/alpha-0.0.81).
 Read [installation](INSTALL.md) and [removal/security restoration](UNINSTALL.md).
 
 ZIP SHA-256: `3da2b307e481548be3a51c2fcf9ff3cfcee892a85b8ae4b66ea1620622aaedae`.
@@ -71,12 +71,12 @@ which reduces macOS security.
 Alpha 0.0.77 / Driver Build183 is intended for experienced users and dedicated/test systems.
 
 - Canonical source: https://github.com/rewinddv/rewindDV
-- [Installation and checksum verification](https://github.com/rewinddv/rewindDV-LAB/blob/main/INSTALL.md)
-- [Uninstall, rollback and restore security](https://github.com/rewinddv/rewindDV-LAB/blob/main/UNINSTALL.md)
-- [Sanitized issue reports](https://github.com/rewinddv/rewindDV-LAB/issues)
+- [Installation and checksum verification](https://github.com/rewinddv/rewindDV/blob/main/INSTALL.md)
+- [Uninstall, rollback and restore security](https://github.com/rewinddv/rewindDV/blob/main/UNINSTALL.md)
+- [Sanitized issue reports](https://github.com/rewinddv/rewindDV/issues)
 
 Download **rewindDV-Alpha-0.0.77-Build183-AdHoc.zip** and its `.sha256` sidecar.
-GitHub's automatic source archives contain this testing hub's documentation, not the application.
+This historical tag's automatic source archives contain the former hub snapshot, not the application's source. See [release provenance](RELEASING.md).
 
 ```sh
 shasum -a 256 -c rewindDV-Alpha-0.0.77-Build183-AdHoc.zip.sha256
@@ -97,3 +97,38 @@ Alpha 0.0.63 / Driver B178 remains withdrawn. Do not post support ZIPs, raw logs
 ## Previous release
 
 Alpha 0.0.63 / Driver B178 is an older development build and has been withdrawn from distribution.
+
+---
+
+## Historical Alpha 0.0.77 source release
+
+# Alpha 0.0.77 source release notes
+
+Application source: `02ebc9eec11448c951fbacdd62b179f28a920f45`.
+Retained driver source: `67c5e03f8fd6387a34322d373523f32cf53dc2a5`, Build183.
+The export's unsigned build is distinct from the unchanged qualified binaries.
+
+The capture-start correction reserves foreground ownership before joining an
+existing device query. It prevents background observation from overtaking that
+reservation, rechecks cancellation and route, and submits receive once. The
+receiver startup allowance begins after the query join. A rejected submission
+does not clean up another session or borrow its final counters. Cancellation and
+rejection wording avoid false saved-media and new STOP-obligation claims;
+existing STOP uncertainty is preserved until appropriate proof resolves it.
+
+The 2026-10-02 targeted retest passed the first-attempt manual, cancellation,
+follow-up and idle-reconnect scenarios. Saved files finalized and representative
+playback showed no operator-noticed audiovisual issue. Physical query overlap
+and waiting cancellation were not exercised. The historical rejection owner and
+marked-frame causes remain unresolved. Details and quality caveats are in
+[COMPATIBILITY](COMPATIBILITY.md) and [KNOWN-LIMITATIONS](KNOWN-LIMITATIONS.md).
+
+This snapshot retains the preceding address representation, interrupt formatter,
+rational clock and metadata implementation work with required Apache/BSD/MIT
+notices. The admission delta adds no third-party dependency or effective license
+change. No original capture or historical qualification result is rewritten.
+
+The source package keeps reviewed synthetic fixtures, portable signing
+configuration and a generic icon. It contains no private Git history, signed
+application, development profile or original recording. An initial public import
+will be a new source snapshot, not the private development branches or tags.

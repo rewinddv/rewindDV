@@ -36,3 +36,15 @@ password, API key, signing identity or unredacted system report.
 Downloading through GitHub and using an eventual external payment link are
 subject to those services' own privacy policies. This document describes the
 rewindDV tester kit, not those external services.
+
+## Source publication preflight
+
+The local checker is a preflight, not anonymity certification:
+
+```sh
+python3 tools/check-publication-content.py SOURCE_OR_ZIP   --private-config /private/tmp/release-private-config.json   --output /private/tmp/release-content-findings.json
+```
+
+Supply a private JSON object with `terms` and `private_values` arrays. Keep actual values outside Git and outside every publication tree. The checker records redacted locations/categories, checks common text encodings, plist and ZIP metadata, and reports unsupported/manual-review gaps. Do not commit the private configuration or raw findings. Synthetic tests are in `tools/test-publication-content.py`.
+
+Review the exact final source tree, archives, image metadata and pixels, signing certificates/profiles, binary strings, and intended Git author/committer/tag metadata separately. Any changed input invalidates the approval. No command here uploads a report, checks credentials with a service, or grants permission to publish.

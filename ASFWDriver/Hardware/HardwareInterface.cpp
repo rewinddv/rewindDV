@@ -1,0 +1,1202 @@
+// Modified by Rewind Digital for rewindDV; changes relative to the retained ASFireWire baseline.
+#include "HardwareInterface.hpp"
+
+#include <algorithm>
+
+#include "../Async/Interfaces/IAsyncControllerPort.hpp"
+#include "../Bus/IRM/IRMCSRConstants.hpp"
+#include "IEEE1394.hpp"
+#include "../Logging/Logging.hpp"
+
+#ifndef ASFW_HOST_TEST
+#include <DriverKit/IOLib.h>
+#include <DriverKit/IOService.h>
+#include <DriverKit/OSAction.h>
+#include <PCIDriverKit/IOPCIFamilyDefinitions.h>
+#else
+#include <chrono>
+#include <thread>
+#endif
+
+namespace {
+struct IOLockGuard {
+    IOLock* lock;
+    explicit IOLockGuard(IOLock* l) : lock(l) {
+        if (lock)
+            IOLockLock(lock);
+    }
+    ~IOLockGuard() {
+        if (lock)
+            IOLockUnlock(lock);
+    }
+    IOLockGuard(const IOLockGuard&) = delete;
+    IOLockGuard& operator=(const IOLockGuard&) = delete;
+};
+} // namespace
+
+namespace ASFW::Driver {
+
+namespace {
+
+[[nodiscard]] constexpr bool IsProviderPresenceProbe(Register32 reg) noexcept {
+    // Linux firewire/ohci.c:2321-2323 treats an all-ones HCControl read as an
+    // ejected card. Do not generalize this to arbitrary OHCI registers: for
+    // example, InitialChannelsAvailableLo is validly all ones at startup.
+    return reg == Register32::kHCControl;
+}
+
+} // namespace
+
+namespace {
+constexpr uint8_t kDefaultBAR = 0;
+constexpr uint64_t kDefaultDMAMaxAddressBits = 32;
+#ifndef ASFW_HOST_TEST
+constexpr uint16_t kRequiredCommandBits = kIOPCICommandBusMaster | kIOPCICommandMemorySpace;
+#else
+constexpr uint16_t kRequiredCommandBits = 0;
+#endif
+} // namespace
+
+HardwareInterface::HardwareInterface() {
+    phyLock_ = IOLockAlloc();
+}
+
+HardwareInterface::~HardwareInterface() {
+    Detach();
+    if (phyLock_) {
+        IOLockFree(phyLock_);
+        phyLock_ = nullptr;
+    }
+}
+
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
+kern_return_t HardwareInterface::Attach(IOService* owner, IOService* provider) {
+    if (device_) {
+        // A revoked interface must be detached before it can be used again.
+        // Re-enabling it here would let a suspend/termination path resurrect
+        // BAR access against a provider that has already withdrawn decoding.
+        return accessGate_.IsOpen() ? kIOReturnSuccess : kIOReturnNotReady;
+    }
+
+    auto pci = OSSharedPtr(OSDynamicCast(IOPCIDevice, provider), OSRetain);
+    if (!pci) {
+        return kIOReturnBadArgument;
+    }
+
+    kern_return_t kr = pci->Open(owner);
+    if (kr != kIOReturnSuccess) {
+        return kr;
+    }
+
+#ifndef ASFW_HOST_TEST
+    uint16_t vendorId = 0, deviceId = 0;
+    pci->ConfigurationRead16(kIOPCIConfigurationOffsetVendorID, &vendorId);
+    pci->ConfigurationRead16(kIOPCIConfigurationOffsetDeviceID, &deviceId);
+
+    quirk_agere_lsi_ = (vendorId == 0x11c1 && (deviceId == 0x5901 || deviceId == 0x5900));
+    if (quirk_agere_lsi_) {
+        ASFW_LOG(Hardware, "⚠️  Agere/LSI chipset detected");
+    }
+
+    uint16_t command = 0;
+    pci->ConfigurationRead16(kIOPCIConfigurationOffsetCommand, &command);
+
+    const uint16_t desired = command | kRequiredCommandBits;
+    if (desired != command) {
+        pci->ConfigurationWrite16(kIOPCIConfigurationOffsetCommand, desired);
+    }
+
+    uint16_t commandVerify = 0;
+    pci->ConfigurationRead16(kIOPCIConfigurationOffsetCommand, &commandVerify);
+    if ((commandVerify & kRequiredCommandBits) != kRequiredCommandBits) {
+        pci->Close(owner);
+        return kIOReturnNotReady;
+    }
+#endif
+
+    constexpr uint64_t kMinRegisterBytes = 2048;
+    uint64_t barSize = 0;
+    uint8_t barType = 0;
+    uint8_t memoryIndex = 0;
+    kr = pci->GetBARInfo(kDefaultBAR, &memoryIndex, &barSize, &barType);
+    if (kr != kIOReturnSuccess) {
+        pci->Close(owner);
+        return kr;
+    }
+
+    const bool barIsMemory = (barType == kPCIBARTypeM32 || barType == kPCIBARTypeM32PF ||
+                              barType == kPCIBARTypeM64 || barType == kPCIBARTypeM64PF);
+    if (!barIsMemory) {
+        pci->Close(owner);
+        return kIOReturnUnsupported;
+    }
+
+    if (barSize < kMinRegisterBytes) {
+        pci->Close(owner);
+        return kIOReturnNoResources;
+    }
+
+    if (memoryIndex != kDefaultBAR) {
+        pci->Close(owner);
+        return kIOReturnUnsupported;
+    }
+
+    device_ = std::move(pci);
+    owner_ = owner;
+    barIndex_ = memoryIndex;
+    barSize_ = barSize;
+    barType_ = barType;
+    // No MMIO is legal until the provider and BAR metadata are complete.
+    hardwareGoneReason_.store(static_cast<uint8_t>(HardwareGoneReason::kNone),
+                              std::memory_order_release);
+    accessGate_.Open();
+    return kIOReturnSuccess;
+}
+
+void HardwareInterface::RevokeAndDrain() noexcept {
+    accessGate_.RevokeAndDrain();
+}
+
+void HardwareInterface::LatchProviderRevokedAndDrain() noexcept {
+    uint8_t expected = static_cast<uint8_t>(HardwareGoneReason::kNone);
+    if (hardwareGoneReason_.compare_exchange_strong(
+            expected, static_cast<uint8_t>(HardwareGoneReason::kProviderRevoked),
+            std::memory_order_acq_rel, std::memory_order_acquire)) {
+        ASFW_LOG(Hardware, "[Lifecycle] hardware-gone latched source=provider-revoked");
+    }
+    accessGate_.RevokeAndDrain();
+}
+
+void HardwareInterface::Detach() {
+    // Make every later BAR operation a no-op before closing the PCI client.
+    // RevokeAndDrain() also waits for any in-progress batch to finish.
+    RevokeAndDrain();
+    if (device_) {
+        if (owner_) {
+            device_->Close(owner_);
+        }
+        device_.reset();
+    }
+    owner_ = nullptr;
+    barSize_ = 0;
+    barType_ = 0;
+}
+
+bool HardwareInterface::Attached() const noexcept { return IsAvailable(); }
+
+bool HardwareInterface::IsAvailable() const noexcept {
+    return accessGate_.IsOpen() && static_cast<bool>(device_);
+}
+
+bool HardwareInterface::HardwareGone() const noexcept {
+    return hardwareGoneReason_.load(std::memory_order_acquire) !=
+           static_cast<uint8_t>(HardwareGoneReason::kNone);
+}
+
+HardwareGoneReason HardwareInterface::GoneReason() const noexcept {
+    return static_cast<HardwareGoneReason>(
+        hardwareGoneReason_.load(std::memory_order_acquire));
+}
+
+void HardwareInterface::BindAsyncControllerPort(
+    ASFW::Async::IAsyncControllerPort* controllerPort) noexcept {
+    asyncControllerPort_ = controllerPort;
+}
+
+HardwareAccessScope HardwareInterface::TryBeginAccess() noexcept {
+    return accessGate_.TryBeginAccess(*this);
+}
+
+HardwareAccessScope::~HardwareAccessScope() { Release(); }
+
+HardwareAccessScope::HardwareAccessScope(HardwareAccessScope&& other) noexcept
+    : hardware_(std::exchange(other.hardware_, nullptr)), lock_(std::exchange(other.lock_, nullptr)) {}
+
+HardwareAccessScope& HardwareAccessScope::operator=(HardwareAccessScope&& other) noexcept {
+    if (this != &other) {
+        Release();
+        hardware_ = std::exchange(other.hardware_, nullptr);
+        lock_ = std::exchange(other.lock_, nullptr);
+    }
+    return *this;
+}
+
+void HardwareAccessScope::Release() noexcept {
+    if (lock_) {
+        IOLockUnlock(lock_);
+        lock_ = nullptr;
+        hardware_ = nullptr;
+    }
+}
+
+uint32_t HardwareAccessScope::Read(Register32 reg) const noexcept {
+    return hardware_ ? hardware_->ReadScoped(reg) : 0;
+}
+
+void HardwareAccessScope::Write(Register32 reg, uint32_t value) const noexcept {
+    if (hardware_) {
+        hardware_->WriteScoped(reg, value);
+    }
+}
+
+void HardwareAccessScope::FlushPostedWrites() const noexcept {
+    if (hardware_) {
+        hardware_->FlushPostedWritesScoped();
+    }
+}
+
+void HardwareAccessScope::WriteAndFlush(Register32 reg, uint32_t value) const noexcept {
+    Write(reg, value);
+    FlushPostedWrites();
+}
+
+uint32_t HardwareInterface::ReadScoped(Register32 reg) const noexcept {
+    if (HardwareGone()) {
+        return 0xFFFFFFFFu;
+    }
+    if (!device_) {
+        return 0;
+    }
+    uint32_t value = 0;
+    device_->MemoryRead32(barIndex_, static_cast<uint64_t>(reg), &value);
+    if (value == 0xFFFFFFFFu && IsProviderPresenceProbe(reg)) {
+        LatchHardwareGoneFromPresenceProbe(reg);
+    }
+    return value;
+}
+
+void HardwareInterface::WriteScoped(Register32 reg, uint32_t value) const noexcept {
+    if (!device_ || HardwareGone()) {
+        return;
+    }
+    device_->MemoryWrite32(barIndex_, static_cast<uint64_t>(reg), value);
+}
+
+void HardwareInterface::FlushPostedWritesScoped() const noexcept {
+    if (!HardwareGone()) {
+        (void)ReadScoped(Register32::kHCControl);
+    }
+    FullBarrier();
+}
+
+void HardwareInterface::LatchHardwareGoneFromPresenceProbe(Register32 reg) const noexcept {
+    uint8_t expected = static_cast<uint8_t>(HardwareGoneReason::kNone);
+    if (hardwareGoneReason_.compare_exchange_strong(
+            expected, static_cast<uint8_t>(HardwareGoneReason::kMmioPresenceProbeAllOnes),
+            std::memory_order_acq_rel, std::memory_order_acquire)) {
+        // The caller holds the gate's lock through HardwareAccessScope. Close
+        // it in place so the current scope can finish without self-deadlocking;
+        // its destructor provides the drain barrier for subsequent callers.
+        accessGate_.RevokeFromAdmittedScope();
+        ASFW_LOG(Hardware,
+                 "[Lifecycle] hardware-gone latched source=mmio-presence-probe-all-ones register=0x%03x",
+                 static_cast<uint32_t>(reg));
+    }
+}
+
+void HardwareInterface::SetInterruptMask(uint32_t mask, bool enable) {
+    auto access = TryBeginAccess();
+    if (!access) return;
+    Register32 target = enable ? Register32::kIntMaskSet : Register32::kIntMaskClear;
+    access.WriteAndFlush(target, mask);
+}
+
+void HardwareInterface::SetLinkControlBits(uint32_t bits) {
+    if (auto access = TryBeginAccess()) access.WriteAndFlush(Register32::kLinkControlSet, bits);
+}
+
+void HardwareInterface::ClearLinkControlBits(uint32_t bits) {
+    if (auto access = TryBeginAccess()) access.WriteAndFlush(Register32::kLinkControlClear, bits);
+}
+
+void HardwareInterface::ClearIntEvents(uint32_t mask) {
+    if (!mask) {
+        return;
+    }
+    if (auto access = TryBeginAccess()) access.WriteAndFlush(Register32::kIntEventClear, mask);
+}
+
+// Global events first, then each signalled direction's context mask, read and
+// cleared once (Linux ohci.c irq_handler, cross-validated at :2203-2268).
+// IntEvent.isochTx and isochRx are not latched: each is the OR of
+// (isoXmitIntEvent & isoXmitIntMask), or of the isoRecv pair (OHCI 1.1
+// Table 6-1), so it deasserts only when those context bits are cleared.
+// Reading the Clear address returns the masked events (OHCI 1.1 §6.3.1,
+// §6.4.1), as Linux reads it, so a context whose interrupt is masked is left
+// alone. Only the bits read are cleared: a completion that lands after the
+// read keeps its bit and raises a new interrupt.
+IsochContextEvents HardwareInterface::TakeIsochContextEvents(uint32_t intEvent) noexcept {
+    IsochContextEvents events{};
+    if ((intEvent & (IntEventBits::kIsochTx | IntEventBits::kIsochRx)) == 0) {
+        return events;
+    }
+    auto access = TryBeginAccess();
+    if (!access) {
+        return events;
+    }
+    if ((intEvent & IntEventBits::kIsochRx) != 0) {
+        events.receive = access.Read(Register32::kIsoRecvIntEventClear);
+        if (events.receive != 0) {
+            access.WriteAndFlush(Register32::kIsoRecvIntEventClear, events.receive);
+        }
+    }
+    if ((intEvent & IntEventBits::kIsochTx) != 0) {
+        events.transmit = access.Read(Register32::kIsoXmitIntEventClear);
+        if (events.transmit != 0) {
+            access.WriteAndFlush(Register32::kIsoXmitIntEventClear, events.transmit);
+        }
+    }
+    return events;
+}
+
+InterruptSnapshot HardwareInterface::CaptureInterruptSnapshot(uint64_t timestamp) const noexcept {
+    InterruptSnapshot snapshot{};
+    snapshot.timestamp = timestamp;
+    auto access = const_cast<HardwareInterface*>(this)->TryBeginAccess();
+    if (!access) return snapshot;
+    snapshot.intEvent = access.Read(Register32::kIntEvent);
+    snapshot.intMask = 0;
+    return snapshot;
+}
+
+bool HardwareInterface::RearmPendingAsyncInterrupt(uint32_t& mask, uint32_t& pending) noexcept {
+    mask = pending = 0;
+    auto access = TryBeginAccess();
+    if (!access || access.Read(Register32::kHCControl) == 0xFFFFFFFFu) return false;
+    mask = access.Read(Register32::kIntMaskSet);
+    pending = access.Read(Register32::kIntEventClear);
+    constexpr uint32_t asyncEvents = IntEventBits::kReqTxComplete | IntEventBits::kRespTxComplete |
+        IntEventBits::kARRQ | IntEventBits::kARRS | IntEventBits::kRQPkt | IntEventBits::kRSPkt;
+    constexpr uint32_t excluded = IntEventBits::kBusReset | IntEventBits::kSelfIDComplete |
+        IntEventBits::kSelfIDComplete2 | IntEventBits::kUnrecoverableError | IntEventBits::kRegAccessFail |
+        IntEventBits::kPostedWriteErr;
+    if (mask == 0xFFFFFFFFu || pending == 0xFFFFFFFFu ||
+        !(mask & IntMaskBits::kMasterIntEnable) || !(pending & asyncEvents) || (pending & excluded)) return false;
+    // Force a deassert/assert edge for already-latched work. Both writes are
+    // flushed under the same provider-revocation gate. Never resurrect a
+    // disabled source, change its per-event mask or clear its queued evidence.
+    access.WriteAndFlush(Register32::kIntMaskClear, IntMaskBits::kMasterIntEnable);
+    if (HardwareGone()) return false;
+    access.WriteAndFlush(Register32::kIntMaskSet, IntMaskBits::kMasterIntEnable);
+    return true;
+}
+
+bool HardwareInterface::SendPhyConfig(std::optional<uint8_t> gapCount,
+                                      std::optional<uint8_t> forceRootPhyId,
+                                      std::string_view caller) {
+    if (!IsAvailable()) {
+        return false;
+    }
+    if (!asyncControllerPort_) {
+        ASFW_LOG_ERROR(Hardware, "PHY CONFIG send aborted - async controller port not bound");
+        return false;
+    }
+
+    AlphaPhyConfig config{};
+
+    if (forceRootPhyId.has_value()) {
+        config.rootId = static_cast<uint8_t>(*forceRootPhyId & 0x3Fu);
+        config.forceRoot = true;
+    }
+
+    if (gapCount.has_value()) {
+        uint8_t gap = static_cast<uint8_t>(*gapCount & 0x3Fu);
+        if (gap == 0) {
+            ASFW_LOG_ERROR(Hardware, "Rejecting PHY CONFIG gap update with value 0");
+            return false;
+        }
+        config.gapCountOptimization = true;
+        config.gapCount = gap;
+    }
+
+    if (!config.forceRoot && !config.gapCountOptimization) {
+        ASFW_LOG(Hardware, "PHY CONFIG skipped - no requested changes");
+        return false;
+    }
+
+    const auto quadlets = AlphaPhyConfigPacket{config}.EncodeBusOrder();
+
+    ASFW_LOG(Hardware, "PHY CONFIG (forceRoot=%d root=%u gapUpdate=%d gap=%u) quad=0x%08x",
+             config.forceRoot, config.rootId, config.gapCountOptimization, config.gapCount,
+             quadlets[0]);
+
+    ASFW::Async::PhyParams params{};
+    params.quadlet1 = quadlets[0];
+    params.quadlet2 = quadlets[1];
+
+    auto completion = [packetQuad = quadlets[0]](ASFW::Async::AsyncHandle handle,
+                                                 ASFW::Async::AsyncStatus status, uint8_t,
+                                                 std::span<const uint8_t> /*response*/) {
+        if (status == ASFW::Async::AsyncStatus::kSuccess) {
+            ASFW_LOG(Hardware, "PHY CONFIG complete handle=0x%x quad=0x%08x", handle.value,
+                     packetQuad);
+        } else {
+            ASFW_LOG_ERROR(Hardware, "PHY CONFIG handle=0x%x failed status=%{public}s quad=0x%08x",
+                           handle.value, ASFW::Async::ToString(status), packetQuad);
+        }
+    };
+
+    const auto handle = asyncControllerPort_->PhyRequest(params, std::move(completion));
+    if (!handle) {
+        ASFW_LOG_ERROR(Hardware, "PHY CONFIG submission rejected (handle=0) quad=0x%08x",
+                       quadlets[0]);
+        return false;
+    }
+
+    ASFW_LOG(Hardware, "PHY CONFIG submitted handle=0x%x data=(0x%08x, 0x%08x)", handle.value,
+             params.quadlet1, params.quadlet2);
+    return true;
+}
+
+bool HardwareInterface::SendPhyGlobalResume(uint8_t phyId) {
+    if (!IsAvailable()) {
+        return false;
+    }
+    if (!asyncControllerPort_) {
+        ASFW_LOG_ERROR(Hardware, "PHY GLOBAL RESUME aborted - async controller port not bound");
+        return false;
+    }
+
+    PhyGlobalResumePacket packet{};
+    packet.phyId = static_cast<uint8_t>(phyId & 0x3Fu);
+    const auto quadlets = packet.EncodeBusOrder();
+
+    ASFW_LOG(Hardware, "PHY GLOBAL RESUME packet: phyId=%u quad=0x%08x", packet.phyId, quadlets[0]);
+
+    ASFW::Async::PhyParams params{};
+    params.quadlet1 = quadlets[0];
+    params.quadlet2 = quadlets[1];
+
+    auto completion = [packetQuad = quadlets[0]](ASFW::Async::AsyncHandle handle,
+                                                 ASFW::Async::AsyncStatus status, uint8_t,
+                                                 std::span<const uint8_t>) {
+        if (status == ASFW::Async::AsyncStatus::kSuccess) {
+            ASFW_LOG(Hardware, "PHY GLOBAL RESUME complete handle=0x%x quad=0x%08x", handle.value,
+                     packetQuad);
+        } else {
+            ASFW_LOG_ERROR(Hardware, "PHY GLOBAL RESUME handle=0x%x failed status=%{public}s quad=0x%08x",
+                           handle.value, ASFW::Async::ToString(status), packetQuad);
+        }
+    };
+
+    const auto handle = asyncControllerPort_->PhyRequest(params, std::move(completion));
+    if (!handle) {
+        ASFW_LOG_ERROR(Hardware, "PHY GLOBAL RESUME submission rejected (handle=0) quad=0x%08x",
+                       quadlets[0]);
+        return false;
+    }
+
+    ASFW_LOG(Hardware, "PHY GLOBAL RESUME submitted handle=0x%x data=(0x%08x, 0x%08x)",
+             handle.value, params.quadlet1, params.quadlet2);
+    return true;
+}
+
+bool HardwareInterface::SendLinkOnPacket(uint8_t targetNodeId) {
+    if (!IsAvailable()) {
+        return false;
+    }
+    if (!asyncControllerPort_) {
+        ASFW_LOG_ERROR(Hardware, "Link-On aborted - async controller port not bound");
+        return false;
+    }
+
+    // Cross-validated with linux: core-cdev.c:1624-1640.
+    // Linux uses ioctl_send_phy_packet to wrap raw PHY packets.
+    // IEEE 1394a-2000 §4.3.4.2: Link-On packet.
+    const auto quadlets = LinkOnPacket{targetNodeId}.EncodeBusOrder();
+
+    ASFW_LOG(Hardware, "[M8] Send Link-On packet: target=node %u quad=0x%08x", targetNodeId,
+             quadlets[0]);
+
+    ASFW::Async::PhyParams params{};
+    params.quadlet1 = quadlets[0];
+    params.quadlet2 = quadlets[1];
+
+    auto completion = [packetQuad = quadlets[0], targetNodeId](
+                          ASFW::Async::AsyncHandle handle, ASFW::Async::AsyncStatus status, uint8_t,
+                          std::span<const uint8_t>) {
+        if (status == ASFW::Async::AsyncStatus::kSuccess) {
+            ASFW_LOG(Hardware, "Link-On complete handle=0x%x target=node %u quad=0x%08x",
+                     handle.value, targetNodeId, packetQuad);
+        } else {
+            ASFW_LOG_ERROR(Hardware, "Link-On handle=0x%x failed status=%{public}s target=node %u quad=0x%08x",
+                           handle.value, ASFW::Async::ToString(status), targetNodeId, packetQuad);
+        }
+    };
+
+    const auto handle = asyncControllerPort_->PhyRequest(params, std::move(completion));
+    if (!handle) {
+        ASFW_LOG_ERROR(Hardware, "Link-On submission rejected (handle=0) quad=0x%08x",
+                       quadlets[0]);
+        return false;
+    }
+
+    ASFW_LOG(Hardware, "Link-On submitted handle=0x%x data=(0x%08x, 0x%08x)", handle.value,
+             params.quadlet1, params.quadlet2);
+    return true;
+}
+
+bool HardwareInterface::InitiateBusReset(bool shortReset) {
+    if (shortReset) {
+        // IEEE 1394a short bus reset: PHY register 5, bit 6 (SBR)
+        return UpdatePhyRegister(kPhyReg5Address, 0, kPhyInitiateShortBusReset);
+    }
+    // Long bus reset: PHY register 1, bit 6 (IBR)
+    return UpdatePhyRegister(kPhyReg1Address, 0, kPhyInitiateBusReset);
+}
+
+void HardwareInterface::SetContender(bool enable) {
+    uint8_t newValue = enable ? (phyReg4Cache_ | 0x40) : (phyReg4Cache_ & 0xBF);
+
+    if (WritePhyRegister(4, newValue)) {
+        phyReg4Cache_ = newValue;
+        ASFW_LOG(Hardware, "PHY Register 4 updated: Contender=%d (0x%02x)", enable, newValue);
+    } else {
+        ASFW_LOG_ERROR(Hardware, "Failed to update PHY Register 4");
+    }
+}
+
+void HardwareInterface::InitializePhyReg4Cache() {
+    const auto value = ReadPhyRegister(4);
+    if (value.has_value()) {
+        phyReg4Cache_ = *value;
+        ASFW_LOG_V2(Hardware, "PHY Register 4 cache initialized: 0x%02x", *value);
+    } else {
+        ASFW_LOG_ERROR(Hardware, "Failed to initialize PHY Register 4 cache");
+    }
+}
+
+void HardwareInterface::SetRootHoldOff(bool enable) {
+    const auto currentOpt = ReadPhyRegister(kPhyReg1Address);
+    if (!currentOpt.has_value()) {
+        ASFW_LOG_ERROR(Hardware, "Failed to read PHY Register 1 for SetRootHoldOff(%d)", enable);
+        return;
+    }
+
+    const uint8_t current = currentOpt.value();
+    const bool rhbSet = (current & kPhyRootHoldOff) != 0;
+
+    if (enable) {
+        if (rhbSet) {
+            ASFW_LOG(Hardware, "PHY Register 1 RHB already set (0x%02x)", current);
+            return;
+        }
+
+        const uint8_t newValue = current | kPhyRootHoldOff;
+        if (WritePhyRegister(kPhyReg1Address, newValue)) {
+            ASFW_LOG(Hardware, "PHY Register 1 RHB enabled");
+        } else {
+            ASFW_LOG_ERROR(Hardware, "Failed to enable RHB");
+        }
+    } else {
+        if (!rhbSet) {
+            ASFW_LOG(Hardware, "PHY Register 1 RHB already clear (0x%02x)", current);
+            return;
+        }
+
+        const uint8_t newValue = current & static_cast<uint8_t>(~kPhyRootHoldOff);
+        if (WritePhyRegister(kPhyReg1Address, newValue)) {
+            ASFW_LOG(Hardware, "PHY Register 1 RHB cleared (0x%02x -> 0x%02x)",
+                     current, newValue);
+        } else {
+            ASFW_LOG_ERROR(Hardware, "Failed to clear RHB");
+        }
+    }
+}
+
+std::optional<uint8_t> HardwareInterface::ReadPhyRegister(uint8_t address) {
+    IOLockGuard guard(phyLock_);
+    return ReadPhyRegisterUnlocked(address);
+}
+
+std::optional<uint8_t> HardwareInterface::ReadPhyRegisterUnlocked(uint8_t address) {
+    const uint32_t phyControl = (static_cast<uint32_t>(address) << 8) | 0x8000u;
+
+    {
+        auto access = TryBeginAccess();
+        if (!access) return std::nullopt;
+        access.WriteAndFlush(Register32::kPhyControl, phyControl);
+    }
+
+    ASFW_LOG_PHY("[PHY] Read reg %u: wrote PhyControl=0x%08x", address, phyControl);
+
+    constexpr int kImmediateTries = 3;
+    constexpr int kTotalTries = 103;
+
+    for (int i = 0; i < kTotalTries; i++) {
+        auto access = TryBeginAccess();
+        if (!access) return std::nullopt;
+        const uint32_t val = access.Read(Register32::kPhyControl);
+
+        if (val == 0xFFFFFFFF) {
+            ASFW_LOG(Hardware, "[PHY] Read reg %u failed - card ejected", address);
+            return std::nullopt;
+        }
+
+        if (val & 0x80000000u) {
+            const uint8_t data = static_cast<uint8_t>((val >> 16) & 0xFF);
+            ASFW_LOG_PHY("[PHY] Read reg %u success: 0x%02x", address, data);
+            return data;
+        }
+
+        if (i >= kImmediateTries) {
+            IOSleep(1);
+        }
+    }
+
+    ASFW_LOG(Hardware, "[PHY] Read reg %u TIMEOUT", address);
+    return std::nullopt;
+}
+
+bool HardwareInterface::WritePhyRegister(uint8_t address, uint8_t value) {
+    IOLockGuard guard(phyLock_);
+    return WritePhyRegisterUnlocked(address, value);
+}
+
+bool HardwareInterface::WritePhyRegisterUnlocked(uint8_t address, uint8_t value) {
+    const uint32_t phyControl =
+        (static_cast<uint32_t>(address) << 8) | static_cast<uint32_t>(value) | 0x4000u;
+
+    {
+        auto access = TryBeginAccess();
+        if (!access) return false;
+        access.WriteAndFlush(Register32::kPhyControl, phyControl);
+    }
+
+    constexpr int kImmediateTries = 3;
+    constexpr int kTotalTries = 103;
+
+    for (int i = 0; i < kTotalTries; i++) {
+        auto access = TryBeginAccess();
+        if (!access) return false;
+        const uint32_t val = access.Read(Register32::kPhyControl);
+
+        if (val == 0xFFFFFFFF) {
+            ASFW_LOG(Hardware, "PHY write failed - card ejected");
+            return false;
+        }
+
+        if ((val & 0x4000u) == 0) {
+            ASFW_LOG_PHY("PHY[%u] write OK: 0x%02x", address, value);
+            return true;
+        }
+
+        if (i >= kImmediateTries) {
+            IOSleep(1);
+        }
+    }
+
+    ASFW_LOG(Hardware, "PHY[%u] write timeout: 0x%02x", address, value);
+    return false;
+}
+
+bool HardwareInterface::UpdatePhyRegister(uint8_t address, uint8_t clearBits, uint8_t setBits) {
+    IOLockGuard guard(phyLock_);
+
+    ASFW_LOG_PHY("Updating PHY[%u]: clear=0x%02x set=0x%02x", address, clearBits, setBits);
+
+    const auto currentOpt = ReadPhyRegisterUnlocked(address);
+    if (!currentOpt.has_value()) {
+        ASFW_LOG_V0(Hardware, "PHY register %u update failed - read failed", address);
+        return false;
+    }
+
+    uint8_t current = currentOpt.value();
+
+    if (address == 5) {
+        constexpr uint8_t kPhyIntStatusBits = 0x3C;
+        clearBits |= kPhyIntStatusBits;
+    }
+
+    const uint8_t newValue = (current & ~clearBits) | setBits;
+
+    ASFW_LOG_PHY("PHY register %u: 0x%02x → 0x%02x", address, current, newValue);
+
+    return WritePhyRegisterUnlocked(address, newValue);
+}
+
+bool HardwareInterface::ReadIntEvent(uint32_t& value) {
+    auto access = TryBeginAccess();
+    if (!access) {
+        return false;
+    }
+    value = access.Read(Register32::kIntEvent);
+    return true;
+}
+
+void HardwareInterface::AckIntEvent(uint32_t bits) {
+    if (auto access = TryBeginAccess()) access.WriteAndFlush(Register32::kIntEventClear, bits);
+}
+
+void HardwareInterface::IntMaskSet(uint32_t bits) {
+    if (auto access = TryBeginAccess()) access.WriteAndFlush(Register32::kIntMaskSet, bits);
+}
+
+void HardwareInterface::IntMaskClear(uint32_t bits) {
+    if (auto access = TryBeginAccess()) access.WriteAndFlush(Register32::kIntMaskClear, bits);
+}
+
+std::optional<HardwareInterface::DMABuffer>
+HardwareInterface::AllocateDMA(size_t length, uint64_t options, size_t alignment) {
+    auto access = TryBeginAccess();
+    if (!access || !device_) {
+        ASFW_LOG_V0(Hardware, "DMA allocation failed - no PCI device");
+        return std::nullopt;
+    }
+
+    if ((options & (kIOMemoryDirectionOut | kIOMemoryDirectionIn)) !=
+        (kIOMemoryDirectionOut | kIOMemoryDirectionIn)) {
+        ASFW_LOG(Hardware, "⚠️  AllocateDMA: options=0x%llx may not be bidirectional", options);
+    }
+
+    if (alignment == 0)
+        alignment = 64;
+    if (alignment < 16)
+        alignment = 16;
+    if ((alignment & (alignment - 1)) != 0) {
+        ASFW_LOG_V0(Hardware, "AllocateDMA: alignment=%zu is not power-of-two", alignment);
+        return std::nullopt;
+    }
+
+    IOBufferMemoryDescriptor* buffer = nullptr;
+    kern_return_t kr = IOBufferMemoryDescriptor::Create(options, length, alignment, &buffer);
+    if (kr != kIOReturnSuccess || buffer == nullptr) {
+        ASFW_LOG_V0(Hardware, "IOBufferMemoryDescriptor::Create failed: 0x%08x", kr);
+        return std::nullopt;
+    }
+
+    kr = buffer->SetLength(length);
+    if (kr != kIOReturnSuccess) {
+        ASFW_LOG_V0(Hardware, "IOBufferMemoryDescriptor::SetLength failed: 0x%08x", kr);
+        buffer->release();
+        return std::nullopt;
+    }
+
+    IODMACommandSpecification spec{};
+    spec.options = kIODMACommandSpecificationNoOptions;
+    spec.maxAddressBits = kDefaultDMAMaxAddressBits;
+
+    IODMACommand* dmaCmd = nullptr;
+    kr = IODMACommand::Create(device_.get(), kIODMACommandCreateNoOptions, &spec, &dmaCmd);
+    if (kr != kIOReturnSuccess || dmaCmd == nullptr) {
+        ASFW_LOG_V0(Hardware, "IODMACommand::Create failed: 0x%08x", kr);
+        buffer->release();
+        return std::nullopt;
+    }
+    OSSharedPtr<IODMACommand> command(dmaCmd, OSNoRetain);
+
+    IOAddressSegment segments[32];
+    uint32_t segmentCount = 32;
+    uint64_t flags = 0;
+
+    kr = command->PrepareForDMA(kIODMACommandPrepareForDMANoOptions, buffer, 0, length, &flags,
+                                &segmentCount, segments);
+
+    if (kr != kIOReturnSuccess) {
+        ASFW_LOG_V0(Hardware, "IODMACommand::PrepareForDMA failed: 0x%08x", kr);
+        command->CompleteDMA(kIODMACommandCompleteDMANoOptions);
+        buffer->release();
+        return std::nullopt;
+    }
+
+    if (segmentCount != 1) {
+        ASFW_LOG_V0(Hardware, "❌ AllocateDMA: invalid segment count components=%u", segmentCount);
+        command->CompleteDMA(kIODMACommandCompleteDMANoOptions);
+        buffer->release();
+        return std::nullopt;
+    }
+
+    if (segments[0].length < length) {
+        ASFW_LOG_V0(Hardware, "❌ AllocateDMA: partial mapping len=%llu need=%zu",
+                    (unsigned long long)segments[0].length, length);
+        command->CompleteDMA(kIODMACommandCompleteDMANoOptions);
+        buffer->release();
+        return std::nullopt;
+    }
+
+    const uint64_t mappedAddress = segments[0].address;
+
+    if (mappedAddress > 0xFFFFFFFFULL) {
+        ASFW_LOG_V0(Hardware, "DMA IOVA 0x%llx exceeds 32-bit range", mappedAddress);
+        command->CompleteDMA(kIODMACommandCompleteDMANoOptions);
+        buffer->release();
+        return std::nullopt;
+    }
+
+    if ((mappedAddress & (alignment - 1)) != 0) {
+        ASFW_LOG_V0(Hardware, "❌ CRITICAL: DMA buffer misaligned! iova=0x%llx requested=%zu",
+                    mappedAddress, alignment);
+        command->CompleteDMA(kIODMACommandCompleteDMANoOptions);
+        buffer->release();
+        return std::nullopt;
+    }
+
+    ASFW_LOG_V2(Hardware, "DMA buffer allocated: iova=0x%llx size=%zu align=%zu", mappedAddress,
+                length, alignment);
+
+    return DMABuffer{.descriptor = OSSharedPtr(buffer, OSNoRetain),
+                     .dmaCommand = std::move(command),
+                     .deviceAddress = mappedAddress,
+                     .length = length};
+}
+
+OSSharedPtr<IODMACommand> HardwareInterface::CreateDMACommand() {
+    auto access = TryBeginAccess();
+    if (!access || !device_) {
+        return nullptr;
+    }
+
+    IODMACommandSpecification spec{};
+    spec.maxAddressBits = kDefaultDMAMaxAddressBits;
+    IODMACommand* command = nullptr;
+    kern_return_t kr =
+        IODMACommand::Create(device_.get(), kIODMACommandCreateNoOptions, &spec, &command);
+    if (kr != kIOReturnSuccess || command == nullptr) {
+        return nullptr;
+    }
+    return OSSharedPtr(command, OSNoRetain);
+}
+
+uint32_t HardwareInterface::ReadHCControl() const noexcept {
+    auto access = const_cast<HardwareInterface*>(this)->TryBeginAccess();
+    return access ? access.Read(Register32::kHCControl) : 0;
+}
+
+void HardwareInterface::SetHCControlBits(uint32_t bits) noexcept {
+    if (auto access = TryBeginAccess()) access.WriteAndFlush(Register32::kHCControlSet, bits);
+}
+
+void HardwareInterface::ClearHCControlBits(uint32_t bits) noexcept {
+    if (auto access = TryBeginAccess()) access.WriteAndFlush(Register32::kHCControlClear, bits);
+}
+
+uint32_t HardwareInterface::ReadNodeID() const noexcept {
+    auto access = const_cast<HardwareInterface*>(this)->TryBeginAccess();
+    return access ? access.Read(Register32::kNodeID) : 0;
+}
+
+uint32_t HardwareInterface::ReadIntEvent() const noexcept {
+    auto access = const_cast<HardwareInterface*>(this)->TryBeginAccess();
+    return access ? access.Read(Register32::kIntEvent) : 0;
+}
+
+uint32_t HardwareInterface::ReadLinkControl() const noexcept {
+    auto access = const_cast<HardwareInterface*>(this)->TryBeginAccess();
+    return access ? access.Read(Register32::kLinkControl) : 0;
+}
+
+uint32_t HardwareInterface::ReadCycleTime() const noexcept {
+    auto access = const_cast<HardwareInterface*>(this)->TryBeginAccess();
+    return access ? access.Read(Register32::kCycleTimer) : 0;
+}
+
+namespace {
+
+// Generic wait-for-register helper with device ejection detection and flexible logging.
+// Template parameters:
+//   ReadFn: callable returning uint32_t (reads the state register, NOT a strobe)
+//   LogFn: callable(const char* name, uint32_t value, uint64_t attempts, uint64_t usec, bool
+//   ejected)
+template <typename ReadFn, typename LogFn>
+static bool WaitForRegister(ReadFn&& read32, uint32_t mask, bool expectSet, uint32_t timeoutUsec,
+                            uint32_t pollIntervalUsec, const char* name, LogFn&& logFn) {
+    if (pollIntervalUsec == 0) {
+        pollIntervalUsec = 100;
+    }
+
+    uint64_t waited = 0;
+    uint64_t attempts = 0;
+
+    while (timeoutUsec == 0 || waited < timeoutUsec) {
+        const uint32_t value = read32();
+        attempts++;
+
+        // Detect device ejection: MMIO reads return 0xFFFFFFFF when device/BAR unmapped
+        if (value == 0xFFFFFFFFu) {
+            logFn(name, value, attempts, waited, /*ejected=*/true);
+            return false;
+        }
+
+        const bool bitSet = (value & mask) == mask;
+        if ((expectSet && bitSet) || (!expectSet && !bitSet)) {
+            logFn(name, value, attempts, waited, /*ejected=*/false);
+            return true;
+        }
+
+        if (waited + pollIntervalUsec > timeoutUsec && timeoutUsec != 0) {
+            break;
+        }
+
+#ifndef ASFW_HOST_TEST
+        IODelay(pollIntervalUsec);
+#else
+        std::this_thread::sleep_for(std::chrono::microseconds(pollIntervalUsec));
+#endif
+        waited += pollIntervalUsec;
+    }
+
+    // Timeout: read final value for logging
+    const uint32_t finalValue = read32();
+    logFn(name, finalValue, attempts, waited, /*ejected=*/false);
+    return false;
+}
+
+} // anonymous namespace
+
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
+bool HardwareInterface::WaitHC(uint32_t mask, bool expectSet, uint32_t timeoutUsec,
+                               uint32_t pollIntervalUsec) const {
+    if (!IsAvailable()) {
+        return false;
+    }
+
+    return WaitForRegister(
+        [this] {
+            auto access = const_cast<HardwareInterface*>(this)->TryBeginAccess();
+            return access ? access.Read(Register32::kHCControl) : 0xFFFFFFFFu;
+        }, mask, expectSet, timeoutUsec,
+        pollIntervalUsec, "HCControl",
+        [](const char* name, uint32_t value, uint64_t attempts, uint64_t usec, bool ejected) {
+            if (ejected) {
+                ASFW_LOG(Hardware, "%{public}s: device gone (0x%08x) tries=%llu t=%lluus", name,
+                         value, attempts, usec);
+            } else {
+                const char* unit = (usec >= 1000) ? "ms" : "usec";
+                const uint64_t t = (usec >= 1000) ? usec / 1000 : usec;
+                ASFW_LOG(Hardware, "%{public}s: 0x%08x tries=%llu t=%llu%{public}s", name, value,
+                         attempts, t, unit);
+            }
+        });
+}
+
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
+bool HardwareInterface::WaitLink(uint32_t mask, bool expectSet, uint32_t timeoutUsec,
+                                 uint32_t pollIntervalUsec) const {
+    if (!IsAvailable()) {
+        return false;
+    }
+
+    return WaitForRegister(
+        [this] {
+            auto access = const_cast<HardwareInterface*>(this)->TryBeginAccess();
+            return access ? access.Read(Register32::kLinkControl) : 0xFFFFFFFFu;
+        }, mask, expectSet, timeoutUsec,
+        pollIntervalUsec, "LinkControl",
+        [](const char* name, uint32_t value, uint64_t attempts, uint64_t usec, bool ejected) {
+            ASFW_LOG(Hardware, "%{public}s: 0x%08x tries=%llu t=%lluus ejected=%d", name, value,
+                     attempts, usec, ejected);
+        });
+}
+
+bool HardwareInterface::WaitNodeIdValid(uint32_t timeoutMs) const {
+    if (!IsAvailable()) {
+        return false;
+    }
+
+    return WaitForRegister(
+        [this] {
+            auto access = const_cast<HardwareInterface*>(this)->TryBeginAccess();
+            return access ? access.Read(Register32::kNodeID) : 0xFFFFFFFFu;
+        },
+        /*mask=*/0x80000000u, /*expectSet=*/true,
+        /*timeoutUsec=*/timeoutMs * 1000, /*pollIntervalUsec=*/1000, "NodeID",
+        [](const char* name, uint32_t value, uint64_t attempts, uint64_t usec, bool ejected) {
+            const uint32_t bus = (value >> 16) & 0x3FFu;
+            const uint32_t node = (value >> 0) & 0x3Fu;
+            const bool valid = (value & 0x80000000u) != 0;
+            ASFW_LOG(Hardware,
+                     "%{public}s: 0x%08x valid=%d bus=%u node=%u tries=%llu t=%lluus ejected=%d",
+                     name, value, valid, bus, node, attempts, usec, ejected);
+        });
+}
+
+void HardwareInterface::FlushPostedWrites() const {
+    auto access = const_cast<HardwareInterface*>(this)->TryBeginAccess();
+    if (access) access.FlushPostedWrites();
+}
+
+std::pair<uint32_t, uint64_t> HardwareInterface::ReadCycleTimeAndUpTime() const noexcept {
+    // Read cycle timer and capture host uptime as atomically as possible.
+    // Per Apple's getCycleTimeAndUpTime(): read register first, then get uptime.
+    // The order matters for accurate correlation between FireWire bus time and host time.
+    auto access = const_cast<HardwareInterface*>(this)->TryBeginAccess();
+    const uint32_t cycleTimer = access ? access.Read(Register32::kCycleTimer) : 0;
+    const uint64_t uptime = mach_absolute_time();
+    return {cycleTimer, uptime};
+}
+
+LocalCSRWriteResult HardwareInterface::WriteLocalIRMResource(uint32_t selectCode, uint32_t value) noexcept {
+    if (!IsAvailable()) {
+        return {LocalCSRLockResult::Status::HardwareUnavailable};
+    }
+    const auto currentValResult = ReadLocalIRMResource(selectCode);
+    if (currentValResult.status != LocalCSRLockResult::Status::Success) {
+        return {currentValResult.status};
+    }
+    if (currentValResult.value == value) {
+        return {LocalCSRLockResult::Status::Success};
+    }
+    
+    // OHCI 1.1 §5.5.1: Write sequence is kCSRData, kCSRCompareData, then kCSRControl.
+    // Cross-validated with Linux: firewire/ohci.c:1680-1682
+    const uint32_t expectedOld = currentValResult.value;
+    {
+        auto access = TryBeginAccess();
+        if (!access) return {LocalCSRLockResult::Status::HardwareUnavailable};
+        access.Write(Register32::kCSRData, value);
+        access.Write(Register32::kCSRCompareData, expectedOld);
+        access.WriteAndFlush(Register32::kCSRControl, selectCode & 0x3u);
+    }
+    
+    constexpr int kMaxTries = 10000;
+    for (int i = 0; i < kMaxTries; ++i) {
+        auto access = TryBeginAccess();
+        if (!access) return {LocalCSRLockResult::Status::HardwareUnavailable};
+        uint32_t ctrl = access.Read(Register32::kCSRControl);
+        if (ctrl & 0x80000000u) {
+            // OHCI places the previous value into CSRData upon completion.
+            const uint32_t actualOld = access.Read(Register32::kCSRData);
+            if (actualOld != expectedOld) {
+                ASFW_LOG(Hardware, "❌ WriteLocalIRMResource raced: expected old 0x%08x, got 0x%08x", expectedOld, actualOld);
+                return {LocalCSRLockResult::Status::Timeout}; // Reuse timeout or add Raced
+            }
+
+            // Final verification readback
+            access = {};
+            const auto finalVal = ReadLocalIRMResource(selectCode);
+            if (finalVal.status == LocalCSRLockResult::Status::Success && finalVal.value != value) {
+                ASFW_LOG(Hardware, "❌ WriteLocalIRMResource verification failed: expected 0x%08x, read back 0x%08x", value, finalVal.value);
+                return {LocalCSRLockResult::Status::Timeout};
+            }
+
+            return {LocalCSRLockResult::Status::Success};
+        }
+#ifndef ASFW_HOST_TEST
+        IODelay(5);
+#else
+        std::this_thread::sleep_for(std::chrono::microseconds(5));
+#endif
+    }
+    ASFW_LOG(Hardware, "WriteLocalIRMResource timeout select=%u value=0x%08x", selectCode, value);
+    return {LocalCSRLockResult::Status::Timeout};
+}
+
+LocalCSRReadResult HardwareInterface::ReadLocalIRMResource(uint32_t selectCode) noexcept {
+    if (!IsAvailable()) {
+        return {LocalCSRLockResult::Status::HardwareUnavailable, 0};
+    }
+    {
+        auto access = TryBeginAccess();
+        if (!access) return {LocalCSRLockResult::Status::HardwareUnavailable, 0};
+        // RewindDV: derived from ASFireWire ac120258. The CSR engine always
+        // compares/swaps; zero/zero makes a read non-mutating even when the
+        // target is zero. Cross-check: retained Linux ohci.c:1504-1517.
+        access.Write(Register32::kCSRData, 0u);
+        access.Write(Register32::kCSRCompareData, 0u);
+        access.WriteAndFlush(Register32::kCSRControl, selectCode & 0x3u);
+    }
+    
+    constexpr int kMaxTries = 10000;
+    for (int i = 0; i < kMaxTries; ++i) {
+        auto access = TryBeginAccess();
+        if (!access) return {LocalCSRLockResult::Status::HardwareUnavailable, 0};
+        uint32_t ctrl = access.Read(Register32::kCSRControl);
+        if (ctrl & 0x80000000u) {
+            return {LocalCSRLockResult::Status::Success, access.Read(Register32::kCSRData)};
+        }
+#ifndef ASFW_HOST_TEST
+        IODelay(5);
+#else
+        std::this_thread::sleep_for(std::chrono::microseconds(5));
+#endif
+    }
+    ASFW_LOG(Hardware, "ReadLocalIRMResource timeout select=%u", selectCode);
+    return {LocalCSRLockResult::Status::Timeout, 0};
+}
+
+LocalCSRLockResult HardwareInterface::CompareSwapLocalIRMResource(uint32_t selectCode, uint32_t compareValue, uint32_t newValue) noexcept {
+    if (!IsAvailable()) {
+        return {LocalCSRLockResult::Status::HardwareUnavailable, 0, false};
+    }
+    // OHCI 1.1 §5.5.1: Write sequence is kCSRData, kCSRCompareData, then kCSRControl.
+    // Cross-validated with Linux: firewire/ohci.c:1680-1682
+    {
+        auto access = TryBeginAccess();
+        if (!access) return {LocalCSRLockResult::Status::HardwareUnavailable, 0, false};
+        access.Write(Register32::kCSRData, newValue);
+        access.Write(Register32::kCSRCompareData, compareValue);
+        access.WriteAndFlush(Register32::kCSRControl, selectCode & 0x3u);
+    }
+    
+    constexpr int kMaxTries = 10000;
+    for (int i = 0; i < kMaxTries; ++i) {
+        auto access = TryBeginAccess();
+        if (!access) return {LocalCSRLockResult::Status::HardwareUnavailable, 0, false};
+        uint32_t ctrl = access.Read(Register32::kCSRControl);
+        if (ctrl & 0x80000000u) {
+            const uint32_t oldValue = access.Read(Register32::kCSRData);
+            return {LocalCSRLockResult::Status::Success, oldValue, (oldValue == compareValue)};
+        }
+#ifndef ASFW_HOST_TEST
+        IODelay(5);
+#else
+        std::this_thread::sleep_for(std::chrono::microseconds(5));
+#endif
+    }
+    ASFW_LOG(Hardware, "CompareSwapLocalIRMResource timeout select=%u compare=0x%08x new=0x%08x", selectCode, compareValue, newValue);
+    return {LocalCSRLockResult::Status::Timeout, 0, false};
+}
+
+kern_return_t HardwareInterface::ProgramInitialIRMResourceRegisters() noexcept {
+    if (!IsAvailable()) {
+        return kIOReturnNotAttached;
+    }
+
+    using namespace ASFW::Driver::IRMCSR;
+
+    ASFW_LOG(Hardware, "[IRM] Programming initial registers: bw=0x%08x hi=0x%08x lo=0x%08x",
+             kInitialBandwidthAvailable, kInitialChannelsAvailableHi, kInitialChannelsAvailableLo);
+
+    auto access = TryBeginAccess();
+    if (!access) return kIOReturnNotAttached;
+    access.WriteAndFlush(Register32::kInitialBandwidthAvailable, kInitialBandwidthAvailable);
+    access.WriteAndFlush(Register32::kInitialChannelsAvailableHi, kInitialChannelsAvailableHi);
+    access.WriteAndFlush(Register32::kInitialChannelsAvailableLo, kInitialChannelsAvailableLo);
+
+    // Read back verification
+    uint32_t bw = access.Read(Register32::kInitialBandwidthAvailable);
+    uint32_t hi = access.Read(Register32::kInitialChannelsAvailableHi);
+    uint32_t lo = access.Read(Register32::kInitialChannelsAvailableLo);
+
+    if (bw != kInitialBandwidthAvailable || hi != kInitialChannelsAvailableHi || lo != kInitialChannelsAvailableLo) {
+        ASFW_LOG(Hardware, "❌ [IRM] Initial register readback mismatch! read: bw=0x%08x hi=0x%08x lo=0x%08x",
+                 bw, hi, lo);
+        initialIRMRegistersProgrammed_ = false;
+        return kIOReturnError;
+    }
+
+    initialIRMRegistersProgrammed_ = true;
+    return kIOReturnSuccess;
+}
+
+bool HardwareInterface::IsLocalCycleMasterEnabled() const noexcept {
+    return (ReadLinkControl() & LinkControlBits::kCycleMaster) != 0;
+}
+
+bool HardwareInterface::SetLocalCycleMasterEnabled(bool enable) noexcept {
+    if (!IsAvailable()) {
+        return false;
+    }
+    auto access = TryBeginAccess();
+    if (!access) return false;
+    if (enable) {
+        access.WriteAndFlush(Register32::kLinkControlSet, LinkControlBits::kCycleMaster);
+    } else {
+        access.WriteAndFlush(Register32::kLinkControlClear, LinkControlBits::kCycleMaster);
+    }
+
+    // Verify via readback.
+    return ((access.Read(Register32::kLinkControl) & LinkControlBits::kCycleMaster) != 0) == enable;
+}
+
+} // namespace ASFW::Driver
