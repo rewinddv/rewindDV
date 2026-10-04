@@ -41,7 +41,7 @@ final class RewindDVModel: ObservableObject {
   @Published var isBusy = false
   @Published private(set) var wholeTapeActive = false
   @Published var controlLockedOut = false
-  @Published var headline = "Build183 product preview"
+  @Published var headline = "Build188 product preview"
   @Published var detail =
     "Checking driver readiness in the background. Live monitoring and ingest become available after a matching driver and device are found."
   @Published var controlReport: ControlAttemptReport?
@@ -304,9 +304,9 @@ final class RewindDVModel: ObservableObject {
           inspectionError = nil; capabilityError = nil
         }
         handshakeGate.observe(selectedRoute)
-        headline = "Exact Build183 driver matched"
+        headline = "Exact Build188 driver matched"
         detail = snapshot.discoveryNote
-        refreshFeedback = "Build183 is attached and responding. \(snapshot.discoveryNote)"
+        refreshFeedback = "Build188 is attached and responding. \(snapshot.discoveryNote)"
         Self.readinessLog.notice("refresh_finished exact_driver=true discovered_decks=\(snapshot.decks.count)")
         // Only an actual route transition can enter the bounded handshake.
         // Normal idle checks never disable controls or repeat device inquiries.
@@ -563,14 +563,15 @@ final class SystemExtensionInstaller: NSObject, ObservableObject,
   }
 
   @Published private(set) var state: State = .idle
+  @Published private(set) var settingsOpenFailed = false
   nonisolated private static let identifier = "net.rewinddigital.RewindDV.Driver"
   var isInFlight: Bool { state == .submitting || state == .pendingApproval }
 
   func submitActivation() {
     guard !isInFlight else { return }
-    guard Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String == "183"
+    guard Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String == "188"
     else {
-      state = .failed("The host app is not the explicit Build183 candidate.")
+      state = .failed("The host app is not the explicit Build188 candidate.")
       return
     }
     state = .submitting
@@ -581,7 +582,18 @@ final class SystemExtensionInstaller: NSObject, ObservableObject,
   }
 
   nonisolated func requestNeedsUserApproval(_ request: OSSystemExtensionRequest) {
-    Task { @MainActor [weak self] in self?.state = .pendingApproval }
+    Task { @MainActor [weak self] in
+      guard let self else { return }
+      self.state = .pendingApproval
+      self.openDriverSettings()
+    }
+  }
+
+  func openDriverSettings() {
+    // This pane advertises the x-apple.systempreferences scheme on macOS 27.
+    // Keep manual navigation visible if a later OS stops accepting the link.
+    let url = URL(string: "x-apple.systempreferences:com.apple.LoginItems-Settings.extension")!
+    settingsOpenFailed = !NSWorkspace.shared.open(url)
   }
 
   nonisolated func request(
@@ -591,7 +603,7 @@ final class SystemExtensionInstaller: NSObject, ObservableObject,
   ) -> OSSystemExtensionRequest.ReplacementAction {
     guard existing.bundleIdentifier == Self.identifier,
       ext.bundleIdentifier == Self.identifier,
-      ext.bundleVersion == "183"
+      ext.bundleVersion == "188"
     else { return .cancel }
     return .replace
   }
@@ -694,7 +706,7 @@ struct RewindDVApp: App {
       }
       .onAppear { appDelegate.bind(model: model, live: live) }
       .confirmationDialog(
-        "Request Build183 driver activation?",
+        "Request Build188 driver activation?",
         isPresented: $showActivationConfirmation,
         titleVisibility: .visible
       ) {
@@ -784,7 +796,7 @@ struct RewindDVApp: App {
           } else { AlphaDiagnosticsModel.shared.latestCaptureFolder = live.flightURL }
           AlphaDiagnosticsModel.shared.latestAccessRoot = live.ingestDestinationURL
           var snapshot = RewindDVAutomationSnapshot(
-            schemaVersion: 1, generatedAt: Date(), build: "183",
+            schemaVersion: 1, generatedAt: Date(), build: "188",
             page: (model.page ?? .capture).accessibilityID,
             monitorSource: model.monitorSource.rawValue,
             driverState: model.status.driver.rawValue,
@@ -1061,9 +1073,18 @@ private struct DiagnosticsPage: View {
     ScrollView {
       VStack(alignment: .leading, spacing: 20) {
         Text("DIAGNOSTICS").font(.largeTitle.bold()).foregroundStyle(.white)
-        Button("Activate Driver…") { showActivationConfirmation = true }
-          .disabled(activationLocked || installer.isInFlight)
-          .accessibilityIdentifier("activate-driver")
+        HStack {
+          Button("Activate Driver…") { showActivationConfirmation = true }
+            .disabled(activationLocked || installer.isInFlight)
+            .accessibilityIdentifier("activate-driver")
+          Button("Open Driver Settings…") { installer.openDriverSettings() }
+            .disabled(activationLocked)
+            .accessibilityIdentifier("open-driver-settings")
+        }
+        if installer.state == .pendingApproval || installer.settingsOpenFailed {
+          Text("In System Settings, open General → Login Items & Extensions → rewindDV. Enable the driver extension and complete the macOS approval prompt.")
+            .font(.callout).foregroundStyle(.secondary).textSelection(.enabled)
+        }
         ArchiveSection("Driver readiness") {
           Label(model.refreshFailed ? "Driver not ready" : "Driver readiness",
             systemImage: model.refreshFailed ? "exclamationmark.triangle" : "info.circle")
@@ -1079,7 +1100,7 @@ private struct DiagnosticsPage: View {
           VStack(alignment: .leading, spacing: 8) {
             LabeledContent("Driver class", value: "ASFWDriver")
             LabeledContent("Bundle / server", value: "net.rewinddigital.RewindDV.Driver")
-            LabeledContent("Required Foundation marker", value: "183")
+            LabeledContent("Required Foundation marker", value: "188")
             LabeledContent("PCI provider", value: "11c1:5901")
             LabeledContent("Activation", value: installer.state.title)
           }

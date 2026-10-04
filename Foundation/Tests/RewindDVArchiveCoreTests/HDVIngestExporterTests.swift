@@ -17,7 +17,7 @@ private struct HDVFlightFixture {
 
   init(
     packets: [Data], losses: [Int: UInt64] = [:], tailDrops: UInt64 = 0,
-    oversized: UInt64 = 0, acknowledged: UInt64? = nil
+    oversized: UInt64 = 0, acknowledged: UInt64? = nil, state: UInt32 = 2
   ) throws {
     url = FileManager.default.temporaryDirectory
       .appendingPathComponent("HDVIngest-\(UUID().uuidString)")
@@ -45,7 +45,7 @@ private struct HDVFlightFixture {
     hdvPut(UInt16(1), into: &status, at: 4); hdvPut(UInt16(256), into: &status, at: 6)
     hdvPut(UInt32(4160), into: &status, at: 8); hdvPut(UInt32(8192), into: &status, at: 12)
     hdvPut(UInt64(1), into: &status, at: 16); status.replaceSubrange(24..<72, with: route)
-    hdvPut(UInt32(2), into: &status, at: 80)
+    hdvPut(state, into: &status, at: 80)
     hdvPut(UInt64(packets.count), into: &status, at: 88)
     hdvPut(UInt64(packets.count) + drops + tailDrops, into: &status, at: 96)
     hdvPut(drops + tailDrops, into: &status, at: 104); hdvPut(oversized, into: &status, at: 112)
@@ -227,4 +227,22 @@ func hdvExporterRejectsSymlinkAndFIFOInput(useFIFO: Bool) throws {
   #expect((try FileManager.default.attributesOfItem(atPath: partial.path)[.size] as! NSNumber).uint64Value > 0)
   #expect(try Data(contentsOf: fixture.url.appendingPathComponent("receive.records.raw")) == fixture.raw)
   #expect(!FileManager.default.fileExists(atPath: fixture.url.appendingPathComponent("hdv-verification.json").path))
+}
+
+@Test func hdvResetSegmentKeepsInterruptionAndRejectsUncertainACK() throws {
+  let packets = [hdvCIP(blocks: hdvSourcePacket(hdvTSPacket()), dbc: 0)]
+  let f = try HDVFlightFixture(packets: packets, state: 3); defer { f.cleanup() }
+  #expect(throws: (any Error).self) { try HDVIngestExporter.exportClosedFlight(at: f.url) }
+  let r = try HDVIngestExporter.exportClosedFlight(at: f.url, allowBusResetSegment: true)
+  #expect(r.busResetTerminated && r.needsLossReview && r.integritySHA256Verified)
+  #expect(r.transportPacketCount == 1 && r.nativeTSRereadVerified)
+  let unacked = try HDVFlightFixture(packets: packets, acknowledged: 0, state: 3)
+  defer { unacked.cleanup() }
+  #expect(throws: (any Error).self) {
+    try HDVIngestExporter.exportClosedFlight(at: unacked.url, allowBusResetSegment: true)
+  }
+  for state: UInt32 in [0, 1, 4, 5, 6] {
+    let bad = try HDVFlightFixture(packets: packets, state: state); defer { bad.cleanup() }
+    #expect(throws: (any Error).self) { try HDVIngestExporter.exportClosedFlight(at: bad.url, allowBusResetSegment: true) }
+  }
 }

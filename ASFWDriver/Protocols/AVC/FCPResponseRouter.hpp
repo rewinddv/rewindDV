@@ -26,7 +26,8 @@ class FCPResponseRouter {
         : avcDiscovery_(avcDiscovery) {}
 
     Protocols::Ports::BlockWriteDisposition
-    RouteBlockWrite(const Protocols::Ports::BlockWriteRequestView& request) {
+    RouteBlockWrite(const Protocols::Ports::BlockWriteRequestView& request,
+                    bool responseReady = true) {
         ASFW_LOG_V3(FCP,
                     "🔍 FCPResponseRouter::RouteBlockWrite CALLED: srcID=0x%04x payloadLen=%zu",
                     request.sourceID, request.payload.size());
@@ -68,7 +69,7 @@ class FCPResponseRouter {
         ASFW_LOG_V2(FCP, "🔄 FCPResponseRouter: Routing to FCPTransport %p (%zu bytes copied)",
                     transport.get(), payloadCopy.size());
         transport->OnFCPResponse(srcNodeID, generation,
-                                 std::span<const uint8_t>(payloadCopy.data(), payloadCopy.size()));
+                                 std::span<const uint8_t>(payloadCopy.data(), payloadCopy.size()), responseReady);
 
         return Protocols::Ports::BlockWriteDisposition::kComplete;
     }

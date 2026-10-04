@@ -50,7 +50,7 @@ actor AlphaSessionRecorder {
         "alpha": Bundle.main.object(forInfoDictionaryKey: "RewindDVAlphaVersion") as? String ?? "development",
         "revision": Bundle.main.object(forInfoDictionaryKey: "RewindDVCandidateRevision") as? String ?? "development",
         "memoryBytes": String(ProcessInfo.processInfo.physicalMemory),
-        "architecture": "arm64", "driver": "Build183", "hardwareDisabled": String(RewindDVRuntimeOptions.hardwareDisabled),
+        "architecture": "arm64", "driver": "Build188", "hardwareDisabled": String(RewindDVRuntimeOptions.hardwareDisabled),
         "limitations": "One-second UI observations, five-second sync. Crash/power loss may lose recent samples. Detailed command/receive evidence is in separate flights. No packet payloads here. No automatic upload."]
       journal = try SessionDiagnosticJournal(root: Self.root, metadata: JSONEncoder().encode(info))
     }

@@ -4,7 +4,13 @@
 #include <cstdint>
 #include <utility>
 
+#include "../Hardware/RegisterMap.hpp"
+
 namespace ASFW::Driver::InterruptEventSequencer {
+
+// The reset FSM owns busReset W1C until positive AT quiescence. Self-ID has
+// already been latched at IRQ ingress and belongs to the ordinary early ack.
+inline constexpr uint32_t kDeferredHardwareAcks = IntEventBits::kBusReset;
 
 // Keep the ControllerCore interrupt work and its W1C acknowledgement in one
 // testable production seam. Linux acknowledges ordinary OHCI interrupt events

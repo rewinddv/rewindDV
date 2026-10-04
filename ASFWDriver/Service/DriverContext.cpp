@@ -308,14 +308,10 @@ void DriverWiring::EnsureDeps(ASFWDriver* driver, ::ServiceContext& ctx) {
     // depend only on IFireWireBus ports (ControllerCore::Bus()).
 }
 
-kern_return_t DriverWiring::EnsureSbp2Deps(ASFWDriver& service, ::ServiceContext& ctx) {
+kern_return_t DriverWiring::PrepareControlTimer(ASFWDriver& service, ::ServiceContext& ctx) {
     auto& d = ctx.deps;
-
-#ifdef REWINDDV_FOUNDATION
-    // FCP needs the existing cancellable DriverKit timer implementation, which
-    // historically lives in the SBP-2 namespace. Construct that scheduler only;
-    // storage address spaces, sessions, login bridges, and nub publication are
-    // excluded from the Foundation control article.
+    // ControllerCore copies Dependencies at construction. Prepare the shared
+    // reset/FCP timer before that copy, on both cold start and runtime rebuild.
     if (!d.sbp2SessionScheduler) {
         d.sbp2SessionScheduler =
             std::make_shared<ASFW::Protocols::SBP2::DriverKitSessionScheduler>();
@@ -324,8 +320,19 @@ kern_return_t DriverWiring::EnsureSbp2Deps(ASFWDriver& service, ::ServiceContext
             d.sbp2SessionScheduler.reset();
             return kr;
         }
-        ASFW_LOG(Controller, "[Controller] Foundation control timer initialized");
+        ASFW_LOG(Controller, "[Controller] Control timer initialized");
     }
+    return kIOReturnSuccess;
+}
+
+kern_return_t DriverWiring::EnsureSbp2Deps(ASFWDriver& service, ::ServiceContext& ctx) {
+    auto& d = ctx.deps;
+    const auto timerStatus = PrepareControlTimer(service, ctx);
+    if (timerStatus != kIOReturnSuccess) return timerStatus;
+
+#ifdef REWINDDV_FOUNDATION
+    // Only the shared control timer is used by Foundation. Storage address
+    // spaces, sessions, login bridges and nub publication remain excluded.
     if (ctx.controller) {
         ctx.controller->SetSbp2AddressSpaceManager(nullptr);
         ctx.controller->SetSbp2SessionRegistry(nullptr);
@@ -337,17 +344,6 @@ kern_return_t DriverWiring::EnsureSbp2Deps(ASFWDriver& service, ::ServiceContext
         d.sbp2AddressSpaceManager =
             std::make_shared<ASFW::Protocols::SBP2::AddressSpaceManager>(d.hardware.get());
         ASFW_LOG(Controller, "[Controller] SBP2 AddressSpaceManager initialized");
-    }
-
-    if (!d.sbp2SessionScheduler) {
-        d.sbp2SessionScheduler =
-            std::make_shared<ASFW::Protocols::SBP2::DriverKitSessionScheduler>();
-        const auto kr = d.sbp2SessionScheduler->Prepare(service, ctx.workQueue);
-        if (kr != kIOReturnSuccess) {
-            d.sbp2SessionScheduler.reset();
-            return kr;
-        }
-        ASFW_LOG(Controller, "[Controller] SBP2 session scheduler initialized");
     }
 
     if (d.audioRuntimeRegistry && d.sbp2SessionScheduler) {

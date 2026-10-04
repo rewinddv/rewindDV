@@ -1,10 +1,7 @@
 // Modified by Rewind Digital for rewindDV; changes relative to the retained ASFireWire baseline.
 #include "BusResetCoordinator.hpp"
 
-#ifdef ASFW_HOST_TEST
-#include <chrono>
-#include <thread>
-#else
+#ifndef ASFW_HOST_TEST
 #include <DriverKit/IOLib.h>
 #endif
 
@@ -40,27 +37,6 @@ void LogDeferredRunAlreadyScheduled(const char* reason) {
                 (reason != nullptr) ? reason : "unspecified");
 }
 
-// TODO(ASFW-concurrency, deferred / not critical): this blocks the dext's "Default"
-// IODispatchQueue, which also owns the OHCI interrupt dispatch source — so sleeping
-// here stalls AR/AT/isoch DMA interrupt servicing for the sleep duration. Tolerable
-// for bus-reset settle (stop-the-world, µs-scale per OHCI "5µs→255µs" rule), but
-// IOSleep is ms-granularity: verify callers pass µs-equivalent delays, not ms. Part
-// of a broader audit of which IOSleep/DispatchSync sites run on Default vs a side
-// queue (FCPTransport, IsochService, DICE bring-up, PayloadRegistry). Possible future
-// fix if it bites: move the OHCI interrupt source to a dedicated queue (which then
-// reintroduces a lock requirement for shared bus state, e.g. TopologyManager).
-void SleepForDelay(uint32_t delayMs) {
-#ifdef ASFW_HOST_TEST
-    if (delayMs > 0U) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(delayMs));
-    }
-#else
-    if (delayMs > 0U) {
-        IOSleep(delayMs);
-    }
-#endif
-}
-
 void LogStateTransition(ASFW::Driver::BusResetCoordinator::State previousState,
                         ASFW::Driver::BusResetCoordinator::State nextState, const char* reason) {
     ASFW_LOG_V2(BusReset, "[FSM] %{public}s -> %{public}s: %{public}s",
@@ -88,7 +64,8 @@ bool BusResetCoordinator::Initialize(HardwareInterface* hw, OSSharedPtr<IODispat
                                      SelfIDCapture* selfIdCapture, ConfigROMStager* configRom,
                                      InterruptManager* interrupts, TopologyManager* topology,
                                      BusManager* busManager, Discovery::ROMScanner* romScanner,
-                                     Bus::TopologyMapService* topologyMapService) {
+                                     Bus::TopologyMapService* topologyMapService,
+                                     Scheduling::ITimerScheduler* timerScheduler) {
     // Initialization/rebinding requires a quiesced owner. Queued work from the
     // prior binding keeps its retired token and cannot enter the new runtime.
     if (!RetireDeferredWork()) {
@@ -107,6 +84,7 @@ bool BusResetCoordinator::Initialize(HardwareInterface* hw, OSSharedPtr<IODispat
     busManager_ = busManager;
     romScanner_ = romScanner;
     topologyMapService_ = topologyMapService;
+    timerScheduler_ = timerScheduler;
 
     state_ = State::Idle;
     selfIdLatch_.Reset();
@@ -128,6 +106,12 @@ bool BusResetCoordinator::Initialize(HardwareInterface* hw, OSSharedPtr<IODispat
         ASFW_LOG(BusReset, "ERROR: BusResetCoordinator initialized with null dependencies");
         return false;
     }
+#ifndef ASFW_HOST_TEST
+    if (timerScheduler_ == nullptr) {
+        ASFW_LOG_ERROR(BusReset, "Bus reset coordinator requires a nonblocking timer");
+        return false;
+    }
+#endif
     return true;
 }
 
@@ -136,6 +120,11 @@ void BusResetCoordinator::OnIrq(uint32_t intEvent, uint64_t timestamp) {
     bool relevant = false;
 
     if ((intEvent & IntEventBits::kBusReset) != 0U) {
+        // Mask the level source before returning to the interrupt dispatcher.
+        // Reset only the previous cycle's software evidence, then retain any
+        // completion carried by this same snapshot for the deferred FSM.
+        MaskBusReset();
+        selfIdLatch_.Reset();
         cycle_.timing.lastBusResetEdgeNs = timestamp;
         pendingBusResetEdge_ = true;
         relevant = true;
@@ -264,26 +253,36 @@ void BusResetCoordinator::YieldAndReschedule(uint32_t delayMs, const char* reaso
         return;
     }
 
+    if (!ScheduleDeferred(delayMs, [this] {
+        deferredRunScheduled_.store(false, std::memory_order_release);
+        RunStateMachine();
+    })) {
+        deferredRunScheduled_.store(false, std::memory_order_release);
+        RecordRecoveryReason("Bus reset timer scheduling failed; recovery blocked");
+        TransitionTo(State::QuiesceFailed, "Deferred timer unavailable");
+    }
+}
+
+bool BusResetCoordinator::ScheduleDeferred(uint32_t delayMs, std::function<void()> work) {
     const auto epoch = deferredWorkEpoch_;
+    auto guarded = [epoch, work = std::move(work)] {
+        Shared::PostedWorkEpoch::Lease lease(*epoch);
+        if (lease) work();
+    };
+    const uint64_t delayNs = static_cast<uint64_t>(delayMs) * 1'000'000ULL;
+    if (timerScheduler_ != nullptr) {
+        return timerScheduler_->ScheduleAfter(delayNs, std::move(guarded)) !=
+               Scheduling::kInvalidTimerToken;
+    }
 #ifdef ASFW_HOST_TEST
-    if (workQueue_->UsesManualDispatchForTesting()) {
-        workQueue_->DispatchAsyncAfter(static_cast<uint64_t>(delayMs) * 1'000'000ULL, ^{
-          Shared::PostedWorkEpoch::Lease lease(*epoch);
-          if (!lease) return;
-          deferredRunScheduled_.store(false, std::memory_order_release);
-          RunStateMachine();
-        });
-        return;
+    // Legacy test rigs use the same deferred virtual-clock semantics. The
+    // production initialization rejects a missing injected timer.
+    if (workQueue_) {
+        workQueue_->DispatchAsyncAfter(delayNs, std::move(guarded));
+        return true;
     }
 #endif
-
-    workQueue_->DispatchAsync(^{
-      Shared::PostedWorkEpoch::Lease lease(*epoch);
-      if (!lease) return;
-      SleepForDelay(delayMs);
-      deferredRunScheduled_.store(false, std::memory_order_release);
-      RunStateMachine();
-    });
+    return false;
 }
 
 bool BusResetCoordinator::G_ATInactive() {

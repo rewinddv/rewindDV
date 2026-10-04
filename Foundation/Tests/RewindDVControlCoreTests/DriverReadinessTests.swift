@@ -238,15 +238,15 @@ private func handshakeRoute(_ changedOffset: Int? = nil) throws -> FoundationRou
   let refresh = model[refreshStart.lowerBound..<refreshEnd.lowerBound]
   #expect(refresh.contains("refresh_started") && refresh.contains("refresh_finished") && refresh.contains("refresh_failed"))
   #expect(!refresh.contains("submitActivation") && !refresh.contains("perform("))
-  #expect(model.contains("LabeledContent(\"Required Foundation marker\", value: \"183\")"))
-  #expect(bridge.contains("private static let requiredBuildNumber = 183"))
-  #expect(bridge.contains("mismatchMessage(builds, required: 183)"))
+  #expect(model.contains("LabeledContent(\"Required Foundation marker\", value: \"188\")"))
+  #expect(bridge.contains("private static let requiredBuildNumber = 188"))
+  #expect(bridge.contains("mismatchMessage(builds, required: 188)"))
   let project = try String(contentsOf: root.appendingPathComponent("RewindDV.xcodeproj/project.pbxproj"), encoding: .utf8)
   // Xcode 27 must not silently drop the existing macOS 26 runtime floor.
   #expect(project.components(separatedBy: "\"MACOSX_DEPLOYMENT_TARGET\" = \"26.0\"").count == 3)
   #expect(project.components(separatedBy: "\"DRIVERKIT_DEPLOYMENT_TARGET\" = \"25.0\"").count == 3)
   #expect(project.components(separatedBy: "\"ARCHS\" = \"arm64e\"").count == 3)
-  #expect(project.components(separatedBy: "\"CURRENT_PROJECT_VERSION\" = \"183\"").count == 3)
+  #expect(project.components(separatedBy: "\"CURRENT_PROJECT_VERSION\" = \"188\"").count == 3)
   // Both configurations sanitize compile-time file macros, not just debug symbols.
   #expect(project.components(separatedBy: "-ffile-prefix-map=$(SRCROOT:dir)=/rewindDV/").count == 3)
   #expect(project.components(separatedBy: "\"-file-prefix-map\", \"$(SRCROOT:dir)=/rewindDV/\"").count == 3)
@@ -254,7 +254,29 @@ private func handshakeRoute(_ changedOffset: Int? = nil) throws -> FoundationRou
   #expect(project.contains("\"DEPLOYMENT_POSTPROCESSING\" = \"YES\""))
   #expect(project.contains("\"STRIP_INSTALLED_PRODUCT\" = \"YES\""))
   #expect(project.contains("\"STRIP_STYLE\" = \"debugging\""))
-  #expect(model.contains("ext.bundleVersion == \"183\""))
+  #expect(model.contains("ext.bundleVersion == \"188\""))
   #expect(model.contains("DriverRefreshPolicy.mayCheck"))
   #expect(!view.contains("Button(\"Refresh Driver\""))
+}
+
+// Native startup ordering is outside SwiftPM's executable scope. This source
+// integration gate catches the Build187 cold-start dependency-copy regression;
+// it does not substitute for an actual DriverKit attachment check.
+@Test func controlTimerIsPreparedBeforeControllerCopiesDependencies() throws {
+  let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+    .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+  let driver = try String(contentsOf: root.appendingPathComponent("ASFWDriver/ASFWDriver.cpp"), encoding: .utf8)
+  let prepare = try #require(driver.range(of: "kr = DriverWiring::PrepareControlTimer(*this, ctx);"))
+  let construct = try #require(driver.range(of: "ctx.controller = std::make_shared<ControllerCore>"))
+  #expect(prepare.lowerBound < construct.lowerBound)
+  #expect(driver[prepare.upperBound..<construct.lowerBound].contains("return failStart(kr, \"control timer preparation failed\")"))
+  let wiring = try String(contentsOf: root.appendingPathComponent("ASFWDriver/Service/DriverContext.cpp"), encoding: .utf8)
+  let method = try #require(wiring.range(of: "kern_return_t DriverWiring::PrepareControlTimer"))
+  let protocolMethod = try #require(wiring.range(of: "kern_return_t DriverWiring::EnsureSbp2Deps"))
+  let timer = wiring[method.lowerBound..<protocolMethod.lowerBound]
+  #expect(timer.contains("d.sbp2SessionScheduler->Prepare(service, ctx.workQueue)"))
+  #expect(timer.contains("d.sbp2SessionScheduler.reset();"))
+  #expect(!timer.contains("#ifdef REWINDDV_FOUNDATION"))
+  #expect(wiring.components(separatedBy: "std::make_shared<ASFW::Protocols::SBP2::DriverKitSessionScheduler>()").count == 2)
+  #expect(wiring[protocolMethod.lowerBound...].contains("const auto timerStatus = PrepareControlTimer(service, ctx);"))
 }

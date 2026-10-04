@@ -135,13 +135,11 @@ void ControllerCore::HandleInterrupt(const InterruptSnapshot& snapshot) {
         }
     }
     const uint32_t faultAcks = FaultAckMask(events);
-    constexpr uint32_t kPreservedAcks = IntEventBits::kBusReset |
-                                         IntEventBits::kSelfIDComplete |
-                                         IntEventBits::kSelfIDComplete2;
+
     InterruptEventSequencer::DispatchAndAcknowledge(
         events,
         faultAcks,
-        kPreservedAcks,
+        ASFW::Driver::InterruptEventSequencer::kDeferredHardwareAcks,
         [this](uint32_t dispatchedEvents) { DispatchAsyncInterrupts(dispatchedEvents); },
         [this, events, timestamp = snapshot.timestamp] {
             if ((events & IntEventBits::kBusReset) != 0U &&

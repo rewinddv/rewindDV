@@ -89,7 +89,7 @@ ResponseSender::ResponseSender(DescriptorBuilder& builder,
     , hostSubmitCaptureContext_(captureContext) {}
 #endif
 
-void ResponseSender::SendResponse(const ARPacketView& request,
+ResponseSender::WriteDisposition ResponseSender::SendResponse(const ARPacketView& request,
                                   ResponseCode rcode,
                                   uint8_t responseTCode,
                                   uint32_t* header,
@@ -99,7 +99,7 @@ void ResponseSender::SendResponse(const ARPacketView& request,
     // Per IEEE 1394, broadcast requests (destID=0xFFFF) do not get responses.
     if (request.destID == 0xFFFF) {
         ASFW_LOG_V3(Async, "ResponseSender: skip response for broadcast destID=0xFFFF");
-        return;
+        return WriteDisposition::NotRequired;
     }
 
     const auto q0 = Tx::ATResponseHeader::Build(
@@ -124,7 +124,8 @@ void ResponseSender::SendResponse(const ARPacketView& request,
                            responseTCode,
                            static_cast<unsigned>(request.tLabel & 0x3F));
         }
-        return;
+        return q0.eventCode == 0x11 && q0.speedCode <= Tx::ATResponseHeader::kMaxSupportedSpeedCode
+            ? WriteDisposition::NotRequired : WriteDisposition::Failed;
     }
 
     // Callers own fixed-size local header arrays. Patch Q0 only after the AR
@@ -140,7 +141,7 @@ void ResponseSender::SendResponse(const ARPacketView& request,
         if (!atRspCtx || !submitter_) {
             ASFW_LOG_ERROR(Async,
                            "ResponseSender: ATResponseContext unavailable, cannot send response");
-            return;
+            return WriteDisposition::Failed;
         }
 #if defined(ASFW_HOST_TEST)
     }
@@ -161,13 +162,13 @@ void ResponseSender::SendResponse(const ARPacketView& request,
             "ResponseSender: failed to build response chain (tCode=0x%x payload=%zu)",
             responseTCode,
             payloadLength);
-        return;
+        return WriteDisposition::Failed;
     }
 
 #if defined(ASFW_HOST_TEST)
     if (hostSubmitCapture_) {
         hostSubmitCapture_(chain.first, chain.TotalBlocks(), hostSubmitCaptureContext_);
-        return;
+        return WriteDisposition::Submitted;
     }
 #endif
 
@@ -178,7 +179,7 @@ void ResponseSender::SendResponse(const ARPacketView& request,
             "ResponseSender: submit_tx_chain failed (tCode=0x%x kr=0x%x)",
             responseTCode,
             submitRes.kr);
-        return;
+        return WriteDisposition::Failed;
     }
 
     const uint8_t proofBit = static_cast<uint8_t>(1u << q0.speedCode);
@@ -210,20 +211,21 @@ void ResponseSender::SendResponse(const ARPacketView& request,
         request.sourceID,
         static_cast<unsigned>(rcode),
         payloadLength);
+    return WriteDisposition::Submitted;
 }
 
-void ResponseSender::SendWriteResponse(const ARPacketView& request, ResponseCode rcode) noexcept {
+ResponseSender::WriteDisposition ResponseSender::SendWriteResponse(const ARPacketView& request, ResponseCode rcode) noexcept {
     // Only write requests (quadlet/block) receive a WrResp.
     if (request.tCode != 0x0 && request.tCode != 0x1) {
         ASFW_LOG_V3(Async, "ResponseSender: skip WrResp for non-write tCode=0x%x", request.tCode);
-        return;
+        return WriteDisposition::Failed;
     }
 
     uint32_t header[3]{};
     header[1] = BuildQ1(request.sourceID, rcode);
     header[2] = 0;
 
-    SendResponse(request,
+    return SendResponse(request,
                  rcode,
                  /*responseTCode*/ 0x2,
                  header,

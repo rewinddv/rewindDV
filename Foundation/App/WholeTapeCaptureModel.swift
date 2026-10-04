@@ -17,6 +17,71 @@ private actor WholeTapeEvidence {
   private var ordinal = 0
   private var captureURL: URL?
   private var captureBinding: WholeTapeJobEvidence.Capture?
+  private var pendingReset: (route: String, receipt: String)?
+  private var resetPayloads: [(url: URL, binding: WholeTapeJobEvidence.Capture, hdv: Bool, mixed: Bool)] = []
+  private var verifiedResetCaptures = Set<UUID>()
+
+  func preserveResetSegment(_ source: URL?, route: String, hdv: Bool, mixed: Bool) throws {
+    guard pendingReset == nil, let source, source.standardizedFileURL == captureURL,
+      let binding = captureBinding else { throw DVIngestError.invalidEvidence("Unbound reset segment") }
+    try finalEvidence(capture: source, dv: nil, hdv: nil, receiveClosed: true)
+    let receipt = try evidence("FireWire reset ended this generation. Final ACK and owner close confirmed. Missing footage and cross-segment continuity unknown; no transport command replay.",
+      source: source.appendingPathComponent("flight.ndjson"))
+    pendingReset = (route, receipt)
+    resetPayloads.append((source, binding, hdv, mixed))
+    try record(.signalGap, digest: receipt)
+  }
+
+  func bindContinuation(_ source: URL, newRoute: String) throws {
+    let url = source.standardizedFileURL
+    guard let pendingReset, url.deletingLastPathComponent() == directory.standardizedFileURL,
+      url != captureURL else { throw DVIngestError.invalidEvidence("Invalid continuation capture") }
+    let binding = WholeTapeJobEvidence.Capture(relativeDirectory: url.lastPathComponent)
+    // Persist actual route identity and fresh capture path before accepting it.
+    _ = try evidence("Receive continuation only: new route=\(newRoute); directory=\(url.lastPathComponent); previous reset receipt=\(pendingReset.receipt). Same device GUID; physical tape identity remains unverified.")
+    var value = update(); value.continueCapture = binding
+    value.interruptedRouteIdentity = pendingReset.route
+    value.interruptionReceiptSHA256 = pendingReset.receipt
+    try journal.account(value)
+    captureURL = url; captureBinding = binding; self.pendingReset = nil
+  }
+
+  /// Expensive rereads run after reception ends, never in the reconnect gap.
+  func verifyResetSegments() async throws {
+    for segment in resetPayloads where !verifiedResetCaptures.contains(segment.binding.id) {
+      guard !segment.mixed else { throw DVIngestError.invalidEvidence("Mixed-format reset segment retained as raw evidence") }
+      let result: WholeTapeJobEvidence.Verification
+      let report: URL
+      if segment.hdv {
+        let value = try await Task.detached(priority: .utility) {
+          try HDVIngestExporter.exportClosedFlight(at: segment.url, allowBusResetSegment: true)
+        }.value
+        report = segment.url.appendingPathComponent(value.verificationFile)
+        result = .init(format: .hdv,
+          passed: value.finalAcknowledgementConfirmed && value.integritySHA256Verified
+            && (value.transportPacketCount == 0 || value.nativeTSRereadVerified),
+          reportSHA256: SHA256.hash(data: try Data(contentsOf: report)).map { String(format: "%02x", $0) }.joined(),
+          transportPackets: value.transportPacketCount, transportBytes: value.transportBytes, needsLossReview: true)
+      } else {
+        let value = try await Task.detached(priority: .utility) {
+          try DVIngestExporter.exportClosedFlight(at: segment.url, allowBusResetSegment: true)
+        }.value
+        report = segment.url.appendingPathComponent(value.verificationFile)
+        result = .init(format: .dv,
+          passed: value.finalAcknowledgementConfirmed && value.integritySHA256Verified
+            && (value.completeDVFrames == 0 || value.nativeDVRereadVerified),
+          reportSHA256: SHA256.hash(data: try Data(contentsOf: report)).map { String(format: "%02x", $0) }.joined(),
+          completeDVFrames: value.completeDVFrames, needsLossReview: true)
+      }
+      _ = try evidence("Verified saved bytes of interrupted segment; missing footage remains unknown", source: report)
+      var value = update()
+      if segment.binding.id == captureBinding?.id {
+        value.captureID = segment.binding.id; value.verification = result
+      } else { value.segmentVerification = .init(captureID: segment.binding.id, verification: result) }
+      try journal.account(value)
+      verifiedResetCaptures.insert(segment.binding.id)
+    }
+  }
 
   private func update() -> WholeTapeJobEvidence.Update {
     .init(jobID: journal.job.jobID, routeIdentity: route)
@@ -209,6 +274,8 @@ private actor WholeTapeEvidence {
   var canRequestStop: Bool { active && !stopRequested && !finalizing }
   var canConfirmPhysicalStop: Bool { active && !finalizing }
   private var physicalStopConfirmed = false
+  @Published private(set) var resetRecoveryCount = 0
+  private var progressRecorded = false
   private var receiverPrepared = false
   private var motionMayPersist = false
   private var accountingFailure: String?
@@ -252,6 +319,7 @@ private actor WholeTapeEvidence {
     active = true; needsAttention = false; stopRequested = false; finalizing = false
     stopRequestedUptime = nil
     physicalStopConfirmed = false; receiverPrepared = false; evidenceURL = nil
+    resetRecoveryCount = 0; progressRecorded = false
     motionMayPersist = false
     accountingFailure = nil
     recoveryForcePhysicalStop = false; recoveryStarted = nil; recoveryStopped = nil; recoveryBudgetStop = false
@@ -260,6 +328,8 @@ private actor WholeTapeEvidence {
     // Retain the active job until its existing finalization path releases it.
     // Explicit ownership avoids Swift 6.4's nested weak-capture ambiguity.
     task = Task { [self] in
+      var deck = deck
+      var route = route
       let access = destination.startAccessingSecurityScopedResource()
       let activity = ProcessInfo.processInfo.beginActivity(options: [.userInitiated, .idleSystemSleepDisabled],
         reason: "Preserving a moving tape without interrupting FireWire reception")
@@ -354,8 +424,22 @@ private actor WholeTapeEvidence {
         live.prepareCaptureTransportPlay()
         status = "Capturing the tape. Missing timecode, metadata or DV signal does not stop receive."
         var playback = TapeMotionEvidence(routeIdentity: routeID, direction: .forwardPlayback)
-        let endReceipt = try await waitForNaturalStop(gate: &playback, model: model, live: live,
-          deck: deck, route: route, evidence: evidence, receiving: true)
+        let endReceipt: String
+        while true {
+          do {
+            endReceipt = try await waitForNaturalStop(gate: &playback, model: model, live: live,
+              deck: deck, route: route, evidence: evidence, receiving: true)
+            break
+          } catch {
+            // Gentle recovery has a separate motion budget and never reacquires
+            // route authority automatically. Only an ordinary whole-tape job
+            // can continue an explicitly closed bus-reset receive segment.
+            guard recovery == nil, !stopRequested else { throw error }
+            try await reconnectAfterReset(model: model, live: live, deck: &deck,
+              route: &route, evidence: evidence, originalError: error)
+            playback = TapeMotionEvidence(routeIdentity: Self.identity(route), direction: .forwardPlayback)
+          }
+        }
         live.confirmReceiverTapeStopped(on: route)
         model.wholeTapeStopObserved()
         motionMayPersist = false
@@ -369,6 +453,16 @@ private actor WholeTapeEvidence {
         await live.stopAndWait()
         try await evidence.finalEvidence(capture: live.flightURL, dv: live.verification,
           hdv: live.hdvVerification, receiveClosed: !live.active && !live.busy && !live.lockedOut)
+        if resetRecoveryCount > 0 {
+          status = "Tape stopped. Verifying each interrupted segment; gaps remain unknown…"
+          try await evidence.verifyResetSegments()
+          let proof = try await evidence.evidence("All segment saved-byte checks finished. No contiguous whole-tape coverage is claimed.")
+          try await evidence.record(.segmentedEnd, digest: proof)
+          needsAttention = true
+          status = try await evidence.summary().text
+          await notify(title: "Capture finished with interruptions — review required", body: status)
+          return
+        }
         if let hdv = live.hdvVerification {
           guard recovery == nil, !live.lockedOut, hdv.integritySHA256Verified,
             hdv.finalAcknowledgementConfirmed, hdv.nativeTSRereadVerified,
@@ -465,10 +559,82 @@ private actor WholeTapeEvidence {
     }
   }
 
+  private static func identity(_ route: FoundationRoute) -> String {
+    "\(route.guid):\(route.driverInstanceID):\(route.deviceIncarnation):\(route.routeEpoch):\(route.generation):\(route.nodeID)"
+  }
+
+  private func reconnectAfterReset(model: RewindDVModel, live: LiveMonitorModel,
+    deck: inout DiscoveredDeck, route: inout FoundationRoute, evidence: WholeTapeEvidence,
+    originalError: Error) async throws {
+    while !stopRequested {
+      // A stale STATUS result can arrive just before the independent receive
+      // task observes the reset. Join that observation, never cancel it to
+      // manufacture a recoverable terminal state.
+      let observationDeadline = ContinuousClock.now.advanced(by: .seconds(2))
+      while !live.busResetObserved && (live.active || live.busy)
+        && ContinuousClock.now < observationDeadline && !stopRequested {
+        try await Task.sleep(for: .milliseconds(25))
+      }
+      if stopRequested { throw JobError.cancelled }
+      guard live.busResetObserved else { throw originalError }
+      await live.waitForReceiveEnd()
+      guard live.canReconnectAfterBusReset else {
+        throw JobError.attention("Reset recovery refused: old receive ownership or saved-data durability is uncertain. " + live.detail)
+      }
+      try await evidence.preserveResetSegment(live.flightURL, route: Self.identity(route),
+        hdv: live.mediaFormats.requiresHDVExport, mixed: live.mediaFormats.isMixed)
+      resetRecoveryCount += 1; needsAttention = true
+      status = "FireWire interrupted. Segment \(resetRecoveryCount) saved; waiting for the same deck to reconnect. Missing footage is unknown."
+
+      // Bound only reconnection, never tape duration or signal gaps. Two fresh
+      // matching snapshots avoid starting midway through a reset storm.
+      let reconnectDeadline = ContinuousClock.now.advanced(by: .seconds(30))
+      var candidate: FoundationRoute?
+      var fresh: (DiscoveredDeck, FoundationRoute)?
+      while !stopRequested && ContinuousClock.now < reconnectDeadline {
+        if let observed = try await model.bridge.rediscoverAfterBusReset(previous: route) {
+          if observed.1 == candidate { fresh = observed; break }
+          candidate = observed.1
+        } else { candidate = nil }
+        try await Task.sleep(for: .milliseconds(250))
+      }
+      if stopRequested { throw JobError.cancelled }
+      guard let fresh else {
+        throw JobError.attention("The same deck did not return within 30 seconds. Saved segments retained; use physical STOP if it is moving.")
+      }
+      _ = try await evidence.evidence("Fresh same-GUID route observed twice: \(Self.identity(fresh.1)). Rearming receive in a new segment; no PLAY, REWIND or STOP replay.")
+      if stopRequested { throw JobError.cancelled }
+      live.carryStopObligationAcrossReset(from: route, to: fresh.1)
+      deck = fresh.0; route = fresh.1
+      live.start(bridge: model.bridge, deck: deck, ingestParent: evidence.directory,
+        captureFolderKind: .wholeTapePayload, expectedRoute: route)
+      var bound = false
+      while !live.receiverReady && (live.active || live.busy) {
+        if !bound, live.hasReceiveSession, let source = live.flightURL {
+          try await evidence.bindContinuation(source, newRoute: Self.identity(route)); bound = true
+        }
+        if stopRequested { throw JobError.cancelled }
+        try await Task.sleep(for: .milliseconds(25))
+      }
+      if !bound, live.hasReceiveSession, let source = live.flightURL {
+        try await evidence.bindContinuation(source, newRoute: Self.identity(route)); bound = true
+      }
+      if stopRequested { throw JobError.cancelled }
+      if live.receiverReady, bound {
+        status = "Capture resumed in segment \(resetRecoveryCount + 1) after FireWire interruption. Earlier segment preserved; gap length unknown."
+        return
+      }
+      guard bound, live.canReconnectAfterBusReset else {
+        throw JobError.attention("Receive could not reconnect safely. " + live.detail)
+      }
+      // A second reset during receive preparation gets its own closed segment.
+    }
+    throw JobError.cancelled
+  }
+
   private func waitForNaturalStop(gate: inout TapeMotionEvidence, model: RewindDVModel,
     live: LiveMonitorModel, deck: DiscoveredDeck, route: FoundationRoute,
     evidence: WholeTapeEvidence, receiving: Bool) async throws -> String {
-    var recordedDV = false
     var elapsedStarted = false
     while !stopRequested {
       if receiving, !live.active || live.lockedOut {
@@ -483,10 +649,10 @@ private actor WholeTapeEvidence {
         if recoveryStarted != nil { recoveryForcePhysicalStop = true }
         throw JobError.attention("Transport observation lost authority. Capture is not declared complete.")
       }
-      if receiving, !recordedDV, live.completeFrames > 0 {
+      if receiving, !progressRecorded, live.completeFrames > 0 {
         let progress = try await evidence.evidence("Raw receiver reports \(live.completeFrames) complete frames; metadata is not a progress prerequisite")
         try await evidence.record(.receivedDV, digest: progress, frames: live.completeFrames)
-        recordedDV = true
+        progressRecorded = true
       }
       let observedAt = DispatchTime.now().uptimeNanoseconds
       let decision = gate.observe(response: report.validatedTransportState, route: gate.routeIdentity,
@@ -505,6 +671,12 @@ private actor WholeTapeEvidence {
       case .transportFault:
         throw JobError.attention("The deck reports ejection or an emergency/dew stop, not a successful tape boundary.")
       case .stoppedWithoutObservedMotion:
+        if receiving, resetRecoveryCount > 0 {
+          // Two fresh STOP observations after a gap close the segmented job.
+          // They cannot establish uninterrupted coverage or an absolute EOT.
+          live.markCaptureTransportStopped(atUptimeNanoseconds: observedAt)
+          return digest
+        }
         // A tape already at BOT may stop REWIND before the first poll. Obtain a
         // fresh idle-only ATN observation, not a cached preflight value. ATN zero
         // plus completed rewind is an explicit inference, not absolute proof.
@@ -668,6 +840,7 @@ private actor WholeTapeEvidence {
         try await recorder.finalEvidence(capture: receiverPrepared ? live.flightURL : nil,
           dv: receiverPrepared ? live.verification : nil, hdv: receiverPrepared ? live.hdvVerification : nil,
           receiveClosed: receiverPrepared && !live.active && !live.busy && !live.lockedOut)
+        if resetRecoveryCount > 0 { try await recorder.verifyResetSegments() }
         let summary = try await recorder.summary()
         status = summary.text
         if summary.evidence?.verification?.passed != true && receiverPrepared { needsAttention = true }

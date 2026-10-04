@@ -6,10 +6,10 @@
 
 namespace ASFW::Common {
 
-// FireWire async payloads are quadlet-aligned on the wire, but receive buffers can still
-// land at addresses that are 4-byte aligned while not being 8-byte aligned. Copy from the
-// source using only quadlet and byte reads so callers do not depend on wider aligned loads
-// from DMA-backed memory.
+// Cache-inhibited DMA memory requires naturally aligned reads. Even an aligned
+// source can fault in memcpy when its partial-packet tail uses an unaligned wide
+// load. Volatile reads prevent the optimizer from widening/coalescing these
+// device accesses or replacing the loop with memcpy. Destination is normal RAM.
 inline void CopyFromQuadletAlignedDeviceMemory(std::span<uint8_t> destination,
                                                const uint8_t* source) noexcept {
     if (destination.empty() || source == nullptr) {
@@ -17,14 +17,21 @@ inline void CopyFromQuadletAlignedDeviceMemory(std::span<uint8_t> destination,
     }
 
     size_t offset = 0;
+    // Receive-ring slices can start within a quadlet. Copy their prefix bytewise
+    // before using aligned 32-bit reads; never read outside the supplied extent.
+    const auto* bytes = reinterpret_cast<const volatile uint8_t*>(source);
+    for (; offset < destination.size() &&
+           (reinterpret_cast<uintptr_t>(source + offset) % alignof(uint32_t)) != 0; ++offset) {
+        destination[offset] = bytes[offset];
+    }
     for (; offset + sizeof(uint32_t) <= destination.size(); offset += sizeof(uint32_t)) {
-        uint32_t quadlet = 0;
-        __builtin_memcpy(&quadlet, source + offset, sizeof(quadlet));
+        const uint32_t quadlet =
+            *reinterpret_cast<const volatile uint32_t*>(source + offset);
         __builtin_memcpy(destination.data() + offset, &quadlet, sizeof(quadlet));
     }
 
     for (; offset < destination.size(); ++offset) {
-        destination[offset] = source[offset];
+        destination[offset] = bytes[offset];
     }
 }
 

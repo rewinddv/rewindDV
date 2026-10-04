@@ -9,7 +9,7 @@ public struct WholeTapeJob: Codable, Equatable, Sendable {
   public enum Stage: String, Codable, Sendable {
     case created, preflight, rewinding, awaitingStart, startConfirmed
     case receiveReady, awaitingDV, capturing, draining, verifying
-    case operatorBoundedVerified, transportBoundedVerified, recoveryBoundedVerified, interrupted
+    case operatorBoundedVerified, transportBoundedVerified, recoveryBoundedVerified, segmentedCaptureFinished, interrupted
   }
   public enum Event: String, Codable, Sendable {
     case preflightPassed, rewindIntent, windStopped, operatorConfirmedStart
@@ -17,7 +17,7 @@ public struct WholeTapeJob: Codable, Equatable, Sendable {
     case operatorConfirmedEnd, receiveDrained, verificationPassed
     case inferredStart, inferredEnd
     case operatorPositionedRecoveryStart, supervisedRecoveryEnd
-    case cancel, watchdogExpired, routeChanged, processRestart, failure
+    case cancel, watchdogExpired, routeChanged, processRestart, failure, segmentedEnd
   }
   public struct Entry: Codable, Equatable, Sendable {
     public let event: Event
@@ -89,7 +89,18 @@ public struct WholeTapeJob: Codable, Equatable, Sendable {
         throw Self.invalid("recovery end requires stopped proof and recovery admission")
       }
       next = .draining
+    case (.draining, .segmentedEnd):
+      guard !manualStopRequired, accounting?.receiveClosed == true,
+        accounting?.verification?.passed == true,
+        let segments = accounting?.previousSegments, !segments.isEmpty,
+        segments.allSatisfy({ $0.verification?.passed == true }) else {
+        throw Self.invalid("segmented end requires stopped transport and verification of every segment")
+      }
+      next = .segmentedCaptureFinished
     case (.draining, .receiveDrained):
+      guard accounting?.previousSegments?.isEmpty != false else {
+        throw Self.invalid("interrupted segments require segmented completion; continuity remains unknown")
+      }
       guard entry.completeFrames >= receivedFrames else { throw Self.invalid("drain cannot discard received frames") }
       next = .verifying
     case (.verifying, .verificationPassed):
@@ -106,7 +117,7 @@ public struct WholeTapeJob: Codable, Equatable, Sendable {
     stage = next; entries.append(entry)
   }
   public var isTerminal: Bool {
-    [.operatorBoundedVerified, .transportBoundedVerified, .recoveryBoundedVerified, .interrupted].contains(stage)
+    [.operatorBoundedVerified, .transportBoundedVerified, .recoveryBoundedVerified, .segmentedCaptureFinished, .interrupted].contains(stage)
   }
   fileprivate static func isHash(_ value: String) -> Bool {
     value.count == 64 && value.utf8.allSatisfy { (48...57).contains($0) || (97...102).contains($0) }

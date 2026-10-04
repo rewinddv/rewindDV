@@ -34,8 +34,13 @@ public struct HDVIngestVerification: Codable, Equatable, Sendable {
   public let verificationFile: String
   public let finalStatusWireBase64: String
 
+  /// A verified reset segment is still an interrupted acquisition.
+  public var busResetTerminated: Bool {
+    guard let bytes = Data(base64Encoded: finalStatusWireBase64), bytes.count == 128 else { return false }
+    return bytes[80..<84].elementsEqual([3, 0, 0, 0])
+  }
   public var needsLossReview: Bool {
-    captureFile == nil || knownDroppedPackets > 0 || rawTransportGapEvents > 0 ||
+    busResetTerminated || captureFile == nil || knownDroppedPackets > 0 || rawTransportGapEvents > 0 ||
       transportSummary.rejectedPreservedPackets > 0 ||
       transportSummary.CIPDBCDiscontinuities > 0 ||
       transportSummary.leadingSourceFragments > 0 ||
@@ -107,7 +112,7 @@ public enum HDVIngestExporter {
   private static let diagnosticSampleLimit = 256
 
   public static func exportClosedFlight(
-    at directory: URL,
+    at directory: URL, allowBusResetSegment: Bool = false,
     progress: (@Sendable (HDVIngestProgress) -> Void)? = nil
   ) throws -> HDVIngestVerification {
     try Task.checkCancellation()
@@ -131,7 +136,7 @@ public enum HDVIngestExporter {
       overallCompletedBytes: 0, overallTotalBytes: 0))
     let journalHandle = try regularReader(directoryFD: directoryFD, name: "flight.ndjson")
     defer { try? journalHandle.close() }
-    let journal = try readJournal(journalHandle)
+    let journal = try readJournal(journalHandle, allowBusResetSegment: allowBusResetSegment)
     let rawHandle = try regularReader(directoryFD: directoryFD, name: "receive.records.raw")
     defer { try? rawHandle.close() }
     let rawInitialInfo = try fileInfo(rawHandle, operation: "inspect raw flight")
@@ -426,7 +431,7 @@ public enum HDVIngestExporter {
     let epoch: UInt64, write: UInt64, seen: UInt64, drops: UInt64, oversized: UInt64
     let acknowledged: UInt64
     let node: UInt8
-    init(_ bytes: Data) throws {
+    init(_ bytes: Data, allowBusResetSegment: Bool = false) throws {
       guard bytes.count == 128, integer(bytes, 0, UInt32.self) == 0x58524452,
         integer(bytes, 4, UInt16.self) == 1, integer(bytes, 6, UInt16.self) == 256,
         integer(bytes, 8, UInt32.self) == 4160,
@@ -434,7 +439,7 @@ public enum HDVIngestExporter {
         integer(bytes, 24, UInt32.self) == 1, integer(bytes, 28, UInt32.self) == 48,
         [16, 32, 40, 48, 56].allSatisfy({ integer(bytes, $0, UInt64.self) != 0 }),
         integer(bytes, 70, UInt16.self) == 0, bytes[68] & 0x3f < 63,
-        integer(bytes, 80, UInt32.self) == 2, integer(bytes, 84, UInt32.self) == 0 else {
+        [UInt32(2), allowBusResetSegment ? 3 : 2].contains(integer(bytes, 80, UInt32.self)), integer(bytes, 84, UInt32.self) == 0 else {
         throw HDVIngestError.invalidEvidence("missing clean stopped status or receive ABI/route mismatch")
       }
       wire = bytes; route = bytes.subdata(in: 24..<72)
@@ -449,7 +454,7 @@ public enum HDVIngestExporter {
     }
   }
 
-  private static func readJournal(_ handle: FileHandle) throws ->
+  private static func readJournal(_ handle: FileHandle, allowBusResetSegment: Bool) throws ->
     (closed: JournalEvent, status: Terminal, sha: String) {
     try handle.seek(toOffset: 0)
     var buffer = Data(), hash = SHA256()
@@ -502,7 +507,7 @@ public enum HDVIngestExporter {
       closed.wireBase64.isEmpty || closed.wireBase64 == final.wireBase64 else {
       throw HDVIngestError.invalidEvidence("receive_closed does not bind final status")
     }
-    let status = try Terminal(finalWire)
+    let status = try Terminal(finalWire, allowBusResetSegment: allowBusResetSegment)
     guard let startRoute, startRoute == status.route else {
       throw HDVIngestError.invalidEvidence("terminal route does not match receive start intent")
     }

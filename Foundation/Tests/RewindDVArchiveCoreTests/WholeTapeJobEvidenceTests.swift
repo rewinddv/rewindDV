@@ -4,7 +4,7 @@ import Testing
 
 private let proofA = String(repeating: "a", count: 64)
 private let proofB = String(repeating: "b", count: 64)
-private func cancelledJournal(frames: UInt64 = 6) throws -> (WholeTapeJobJournal, WholeTapeJobEvidence.Capture) {
+private func cancelledJournal(frames: UInt64 = 6, cancel: Bool = true) throws -> (WholeTapeJobJournal, WholeTapeJobEvidence.Capture) {
   let parent = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
   try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: false)
   let journal = try WholeTapeJobJournal(parentDirectory: parent, routeIdentity: "route/session/1")
@@ -14,7 +14,7 @@ private func cancelledJournal(frames: UInt64 = 6) throws -> (WholeTapeJobJournal
   let capture = WholeTapeJobEvidence.Capture(relativeDirectory: "Capture")
   var binding = update(journal); binding.bindCapture = capture; try journal.account(binding)
   if frames > 0 { try journal.record(.init(event: .receivedDV, evidenceSHA256: proofA, routeIdentity: journal.job.routeIdentity, completeFrames: frames)) }
-  try journal.record(.init(event: .cancel, evidenceSHA256: proofA, routeIdentity: journal.job.routeIdentity))
+  if cancel { try journal.record(.init(event: .cancel, evidenceSHA256: proofA, routeIdentity: journal.job.routeIdentity)) }
   return (journal, capture)
 }
 private func update(_ journal: WholeTapeJobJournal) -> WholeTapeJobEvidence.Update {
@@ -148,4 +148,65 @@ private func stopped(_ journal: WholeTapeJobJournal) -> WholeTapeJobEvidence.Upd
   #expect(journal.job.currentSummary.evidence?.verification?.completeDVFrames == nil)
   #expect(journal.job.currentSummary.text.contains("100 HDV transport packets"))
   #expect(journal.job.accounting?.receiveClosed == false && journal.job.accounting?.stopped == false)
+}
+
+@Test func resetSegmentsRequireClosureDistinctPathsAndNonterminalJob() throws {
+  let (journal, capture) = try cancelledJournal(cancel: false)
+  var continuation = update(journal)
+  continuation.continueCapture = .init(relativeDirectory: "Capture-002")
+  continuation.interruptedRouteIdentity = "route/session/1"
+  continuation.interruptionReceiptSHA256 = proofB
+  #expect(throws: (any Error).self) { try journal.account(continuation) }
+  var closed = update(journal); closed.captureID = capture.id; closed.receiveClosed = true
+  try journal.account(closed)
+  for invalid in [capture, .init(relativeDirectory: "Capture"), .init(relativeDirectory: "../Capture-002")] {
+    var bad = continuation; bad.continueCapture = invalid
+    #expect(throws: (any Error).self) { try journal.account(bad) }
+  }
+  let prior = journal.job
+  var unbound = update(journal); unbound.interruptionReceiptSHA256 = proofA
+  #expect(throws: (any Error).self) { try journal.account(unbound) }
+  #expect(journal.job == prior)
+  try journal.record(.init(event: .cancel, evidenceSHA256: proofA, routeIdentity: journal.job.routeIdentity))
+  #expect(throws: (any Error).self) { try journal.account(continuation) }
+}
+
+@Test func resetSegmentsCannotBecomeContiguousCompletionAndReplayKeepsHistory() throws {
+  let (journal, first) = try cancelledJournal(cancel: false)
+  var closed = update(journal); closed.captureID = first.id; closed.receiveClosed = true
+  try journal.account(closed)
+  let originals = try FileManager.default.contentsOfDirectory(at: journal.directory,
+    includingPropertiesForKeys: nil).map { ($0, try Data(contentsOf: $0)) }
+  let second = WholeTapeJobEvidence.Capture(relativeDirectory: "Capture-002")
+  var continuation = update(journal); continuation.continueCapture = second
+  continuation.interruptedRouteIdentity = "route/session/1"
+  continuation.interruptionReceiptSHA256 = proofB
+  try journal.account(continuation)
+  #expect(journal.job.accounting?.receiveClosed == false)
+  #expect(journal.job.accounting?.verification == nil)
+  try journal.account(verified(journal, second, frames: 12))
+  for event: WholeTapeJob.Event in [.transportStopped, .inferredEnd] {
+    try journal.record(.init(event: event, evidenceSHA256: proofA, routeIdentity: journal.job.routeIdentity))
+  }
+  #expect(throws: (any Error).self) {
+    try journal.record(.init(event: .segmentedEnd, evidenceSHA256: proofA, routeIdentity: journal.job.routeIdentity))
+  }
+  var result = update(journal)
+  result.segmentVerification = .init(captureID: first.id, verification:
+    .init(format: .dv, passed: true, reportSHA256: proofA, completeDVFrames: 6, needsLossReview: false))
+  #expect(throws: (any Error).self) { try journal.account(result) }
+  result.segmentVerification = .init(captureID: first.id, verification: verified(journal, first, frames: 6).verification!)
+  try journal.account(result)
+  #expect(throws: (any Error).self) {
+    try journal.record(.init(event: .receiveDrained, evidenceSHA256: proofA,
+      routeIdentity: journal.job.routeIdentity, completeFrames: 18))
+  }
+  try journal.record(.init(event: .segmentedEnd, evidenceSHA256: proofB, routeIdentity: journal.job.routeIdentity))
+  let recovered = try WholeTapeJobJournal.recover(from: journal.directory)
+  #expect(recovered == journal.job && recovered.stage == .segmentedCaptureFinished)
+  #expect(recovered.receivedFrames == 6)
+  #expect(recovered.accounting?.previousSegments?.first?.verification?.completeDVFrames == 6)
+  #expect(recovered.accounting?.verification?.completeDVFrames == 12)
+  #expect(recovered.currentSummary.text.contains("Missing footage and continuity between segments are unknown"))
+  for (url, bytes) in originals { #expect(try Data(contentsOf: url) == bytes) }
 }

@@ -1,7 +1,21 @@
 # Known limits
 
-Current: Alpha 0.0.81 / Build183. The earlier hardware evidence below is retained
-as historical scope, not expanded qualification.
+Development source: Alpha 0.0.87 / Build188. The latest published binary remains
+Alpha 0.0.81 / Build183; this source checkpoint creates no release or installable
+artifact. The earlier hardware evidence below is retained as historical scope,
+not expanded qualification.
+
+The current source includes DMA alignment handling for partial receive completions,
+bounded capture reset recovery and shutdown supervision, FCP response submission
+ordering, reset-ingress Self-ID retention, cancellation of obsolete reset recovery,
+and control-timer startup ordering. The application also opens macOS driver
+approval settings directly. Regression coverage is offline unless separately
+identified; compiling this public projection does not qualify a signed binary.
+
+Spontaneous device disappearance remains an unresolved investigation. This source
+checkpoint does not establish its initiating cause, uninterrupted capture through
+a disconnect, or full-tape endurance. Capture recovery preserves recorded gaps and
+uncertainty instead of claiming that missing packets were recovered.
 
 - Saved raw DV25 NTSC/PAL playback and transitions are validated offline. Physical
   PAL capture, HDV playback and broader device/audio-format transitions remain

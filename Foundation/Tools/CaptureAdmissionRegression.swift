@@ -14,6 +14,8 @@ struct LiveReceiveStatus: Sendable {
   var state: UInt32 = 1
   let lastStatus: Int32 = 0
   let packetsSeen: UInt64 = 0, dropped: UInt64 = 0, oversized: UInt64 = 0
+  // This admission fixture never supplies records; its empty queue is drained.
+  let writeSequence: UInt64 = 0, acknowledged: UInt64 = 0
 }
 struct LivePersistenceHealth: Sendable {
   let pendingRecords = 0, durableThrough: UInt64 = 0

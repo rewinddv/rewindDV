@@ -19,6 +19,11 @@ preservation evidence into one Mac workspace. This repository contains the
 application and driver source, engineering downloads, documentation, issues and
 contributions. Visit [rewinddv.com](https://rewinddv.com) for the project website.
 
+The current development source is **Alpha 0.0.87 / Build188**. The latest
+published engineering binary remains **Alpha 0.0.81 / Build183**. This source
+checkpoint is not a new binary release or a full-tape qualification; see
+[known limitations](KNOWN-LIMITATIONS.md).
+
 ## Download and install
 
 Choose an engineering prerelease from [Releases](https://github.com/rewinddv/rewindDV/releases)
