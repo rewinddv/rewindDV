@@ -250,8 +250,33 @@ class SourceTests(unittest.TestCase):
         with self.assertRaises(r.GateError):
             r.source_guard(self.root, self.base)
 
+    def test_source_symlink_outside_tree(self):
+        (self.root / "Foundation/external.hpp").symlink_to("/tmp/untracked-build-input.hpp")
+        self.commit()
+        with self.assertRaises(r.GateError):
+            r.source_guard(self.root, self.g("rev-parse", "HEAD"))
+
+    def test_deleted_source_symlink(self):
+        p = self.root / "Foundation/external.hpp"
+        p.symlink_to("/tmp/untracked-build-input.hpp")
+        self.commit()
+        p.unlink()
+        self.commit()
+        with self.assertRaises(r.GateError):
+            r.source_guard(self.root, self.g("rev-parse", "HEAD"))
+
 
 class PreparationTests(unittest.TestCase):
+    def test_build_environment_drops_external_overrides(self):
+        with tempfile.TemporaryDirectory() as t, patch.dict(os.environ, {
+            "XCODE_XCCONFIG_FILE": "/tmp/override.xcconfig", "SDKROOT": "unreviewed-sdk",
+            "OTHER_CFLAGS": "-include /tmp/private.h", "DYLD_INSERT_LIBRARIES": "/tmp/injected.dylib",
+            "GH_TOKEN": "synthetic-secret", "PATH": "/tmp/untrusted-bin"}):
+            env = r.environment(Path(t))
+            for key in ["XCODE_XCCONFIG_FILE", "SDKROOT", "OTHER_CFLAGS", "DYLD_INSERT_LIBRARIES", "GH_TOKEN"]:
+                self.assertNotIn(key, env)
+            self.assertEqual(env["PATH"], "/usr/bin:/bin:/usr/sbin:/sbin")
+
     def test_complete_synthetic_preparation_and_seal(self):
         with tempfile.TemporaryDirectory() as t:
             base = Path(t).resolve()

@@ -123,13 +123,12 @@ def source_guard(root, source, public_main=None):
     # Every new parent must descend from the public boundary. This rejects
     # imported private/unrelated roots even if their files were later deleted.
     for line in git(root, "rev-list", "--parents", source, "^" + PUBLIC_BASE).splitlines():
+        source_entries(root, line.split()[0])
         parents = line.split()[1:]
         require(parents, "Unexpected new history root")
         for parent in parents:
             git(root, "merge-base", "--is-ancestor", PUBLIC_BASE, parent)
-    paths = git(root, "ls-tree", "-r", "--name-only", source).splitlines()
-    for path in paths:
-        safe_source_path(path)
+    paths = source_entries(root, source)
     for path in [PROJECT + "/project.pbxproj", "Foundation/Config/AlphaVersion.txt",
                  "Foundation/Config/DriverInfo.plist", "Foundation/Package.swift", "LICENSE", "NOTICE"]:
         require(path in paths, "Source snapshot lacks required product input: " + path)
@@ -146,6 +145,17 @@ def source_guard(root, source, public_main=None):
                 require(not re.search(r"/(?:Users|home|Volumes)/[^\s/\"<>]+|-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|github_pat_[A-Za-z0-9_]+|\bgh[pousr]_[A-Za-z0-9]{30,}\b", text),
                         "New public history contains a private-path or credential marker; review outside Git")
     return git(root, "rev-parse", source + "^{tree}")
+
+
+def source_entries(root, commit):
+    paths = []
+    for line in git(root, "ls-tree", "-r", commit).splitlines():
+        metadata, path = line.split("\t", 1)
+        mode, kind, _ = metadata.split()
+        require(mode in {"100644", "100755"} and kind == "blob", "Source symlinks/submodules require separate provenance review")
+        safe_source_path(path)
+        paths.append(path)
+    return paths
 
 
 def safe_source_path(path):
@@ -264,7 +274,11 @@ def verify_artifact(candidate, receipt, expected_receipt_hash):
 
 
 def environment(work):
-    env = os.environ.copy()
+    # Do not inherit SDKROOT, XCODE_XCCONFIG_FILE, compiler/linker overrides,
+    # signing credentials or injected search paths from the caller's shell.
+    env = {"PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "LANG": "en_US.UTF-8"}
+    if "HOME" in os.environ:
+        env["HOME"] = os.environ["HOME"]
     env["DEVELOPER_DIR"] = "/Applications/Xcode.app/Contents/Developer"
     for key, part in [("TMPDIR", "tmp"), ("CLANG_MODULE_CACHE_PATH", "clang-cache"), ("SWIFT_MODULECACHE_PATH", "swift-cache")]:
         p = work / part

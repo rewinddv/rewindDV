@@ -72,7 +72,8 @@ own reviewed version and authorization.
 Use a fresh full public clone with canonical `origin`, detached at the intended
 full source SHA. Keep outputs and private disclosure configuration outside it.
 Tracked, untracked and ignored inputs must all be clean. There is no dirty-source
-or packaging-only exception. Build both app and driver from this one source tree;
+or packaging-only exception. Source symlinks and Git submodules are refused until
+a separate provenance policy exists for them. Build both app and driver from this one source tree;
 this workflow cannot splice in a historical or separately signed driver.
 
 The reviewed consolidation commit is the ancestry trust boundary. All new parent
@@ -84,6 +85,8 @@ do not prove that arbitrary commits descending from public history are nonprivat
 the reviewed export, content inspection and independent review remain required.
 
 Preparation uses Python 3.9+ standard libraries, Git, Xcode 27 and Apple tools.
+Build commands use a fixed system tool path and selected Xcode, with isolated
+caches and no inherited compiler, signing or external xcconfig overrides.
 It performs public metadata reads only and never downloads existing binaries.
 No release credentials are needed. A rate limit or unavailable identity/tag check
 fails closed rather than assuming permission or provenance.
