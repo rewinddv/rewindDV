@@ -27,7 +27,7 @@ PROJECT = "Foundation/RewindDV.xcodeproj"
 APP_ID = "net.rewinddigital.RewindDV"
 DRIVER_ID = APP_ID + ".Driver"
 DEXT = "Contents/Library/SystemExtensions/" + DRIVER_ID + ".dext"
-ROOTS = set(".github .gitignore ACKNOWLEDGMENTS.md ASFWDriver ASFireWire-LICENSE.txt ASFireWire-NOTICE.txt BRANDING-AND-FUNDING.md BUILDING.md COMPATIBILITY.md CONTRIBUTING.md Foundation INSTALL.md INSTALLATION-PLAN.md KNOWN-LIMITATIONS.md LICENSE NOTICE PRIVACY.md README.md RELEASE-NOTES.md RELEASING.md SOURCE-PROVENANCE.txt TEST-REPORT.md TESTING.md ThirdPartyNotices.txt UNINSTALL.md assets licenses release tests tools".split())
+ROOTS = set(".github .gitignore ACKNOWLEDGMENTS.md ASFWDriver ASFireWire-LICENSE.txt ASFireWire-NOTICE.txt BRANDING-AND-FUNDING.md BUILDING.md COMPATIBILITY.md CONTRIBUTING.md Foundation INSTALL.md INSTALLATION-PLAN.md KNOWN-LIMITATIONS.md LICENSE NOTICE PRIVACY.md README.md RELEASE-NOTES.md RELEASING.md SOURCE-PROVENANCE.txt PROJECT-STATUS.json SOURCE-MANIFEST.json TEST-REPORT.md TESTING.md ThirdPartyNotices.txt UNINSTALL.md assets licenses release tests tools".split())
 
 
 class GateError(Exception):

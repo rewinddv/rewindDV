@@ -1,9 +1,10 @@
-# Known limits
+# Known limitations
 
-Development source: Alpha 0.0.87 / Build188. The latest published binary remains
-Alpha 0.0.81 / Build183; this source checkpoint creates no release or installable
-artifact. The earlier hardware evidence below is retained as historical scope,
-not expanded qualification.
+See [current development and latest public download](README.md) for independent
+lifecycle identities. Current bounded development evidence is summarized in
+[COMPATIBILITY](COMPATIBILITY.md). The earlier B183 evidence below remains
+historical; neither establishes full-tape endurance nor qualifies the downloadable
+artifact.
 
 The current source includes DMA alignment handling for partial receive completions,
 bounded capture reset recovery and shutdown supervision, FCP response submission

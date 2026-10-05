@@ -19,10 +19,13 @@ preservation evidence into one Mac workspace. This repository contains the
 application and driver source, engineering downloads, documentation, issues and
 contributions. Visit [rewinddv.com](https://rewinddv.com) for the project website.
 
-The current development source is **Alpha 0.0.87 / Build188**. The latest
-published engineering binary remains **Alpha 0.0.81 / Build183**. This source
-checkpoint is not a new binary release or a full-tape qualification; see
-[known limitations](KNOWN-LIMITATIONS.md).
+<!-- project-status:start -->
+**Current development:** Alpha 0.0.87 / Driver B188. [Reviewed public source](https://github.com/rewinddv/rewindDV/tree/eca8ebfd5bc8a5096441cf3c1b67d2a48a1cdb66).
+
+**Latest public download:** [Alpha 0.0.81 / Driver B183](https://github.com/rewinddv/rewindDV/releases/tag/alpha-0.0.81) — engineering prerelease, ad-hoc signed and not notarized. Installation requires disabling SIP, which reduces macOS security.
+
+Development source and bounded tests do not approve a new download. Application versions and driver builds advance independently. [Machine-readable status](PROJECT-STATUS.json).
+<!-- project-status:end -->
 
 ## Download and install
 

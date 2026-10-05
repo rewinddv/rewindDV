@@ -11,6 +11,8 @@ source tokens and line counts are unchanged.
 Only reviewed file content enters this repository; private Git ancestry,
 qualification reports, logs, profiles, research documents and media are excluded.
 This is a source checkpoint, not a binary release or hardware qualification.
-The latest published engineering binary remains Alpha 0.0.81 / Build183;
-historical source/binary identities remain in release/alpha081-source.json and
-RELEASING.md. Consult KNOWN-LIMITATIONS.md for unresolved behavior.
+Current download identity is recorded in PROJECT-STATUS.json; historical
+source/binary identities remain in release/alpha081-source.json and RELEASING.md. Consult KNOWN-LIMITATIONS.md for unresolved behavior.
+
+SOURCE-MANIFEST.json pins the reviewed publishable source/build/test/notice surface.
+PROJECT-STATUS.json separately records current development and the latest download.

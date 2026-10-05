@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "development": {
+    "application_version": "0.0.87",
+    "driver_build": 188,
+    "source_revision": "eca8ebfd5bc8a5096441cf3c1b67d2a48a1cdb66",
+    "state": "source-published; software-validated; bounded physical evidence; not release-approved",
+    "updated_utc": "2026-10-05T00:02:48.505907+00:00"
+  },
+  "public_release": {
+    "application_version": "0.0.81",
+    "driver_build": 183,
+    "tag": "alpha-0.0.81",
+    "source_revision": "da62378ad47bb769a3bf7230f1d80e7fce5104e3",
+    "package_name": "rewindDV-Alpha-0.0.81-Build183-AdHoc.zip",
+    "package_sha256": "3da2b307e481548be3a51c2fcf9ff3cfcee892a85b8ae4b66ea1620622aaedae",
+    "state": "prerelease",
+    "signing": "ad-hoc; not notarized",
+    "requires_sip_disabled": true
+  },
+  "qualification": {
+    "public_summary": "The Alpha 0.0.87 / B188 development candidate passed four bounded NTSC DV captures on one Sony HVR-M15U setup, including 609.442 seconds of saved DV. This does not qualify the public download, full-tape endurance, induced-reset capture, or the unresolved device-disappearance cause.",
+    "architecture": "Apple silicon (app arm64, driver arm64e); Intel unsupported",
+    "macos_deployment_floor": "26.0",
+    "bounded_runtime_macos": [
+      "27.0.1"
+    ],
+    "hardware_scope": "Sony HVR-M15U, recorded NTSC DV, tested Apple adapter chain, PCI 11c1:5901",
+    "pal_capture": "not physically qualified",
+    "hdv_capture": "not physically qualified",
+    "dv_playback": "saved raw DV25 NTSC/PAL and transitions validated offline",
+    "hdv_playback": "not qualified",
+    "full_tape_endurance": "not qualified",
+    "distribution": "Public download is ad-hoc signed, not notarized; SIP must be disabled. Developer ID, notarization and normal SIP-on distribution remain future work."
+  },
+  "links": {
+    "source": "https://github.com/rewinddv/rewindDV",
+    "releases": "https://github.com/rewinddv/rewindDV/releases",
+    "release": "https://github.com/rewinddv/rewindDV/releases/tag/alpha-0.0.81",
+    "install": "https://github.com/rewinddv/rewindDV/blob/main/INSTALL.md",
+    "issues": "https://github.com/rewinddv/rewindDV/issues",
+    "contribute": "https://github.com/rewinddv/rewindDV/blob/main/CONTRIBUTING.md",
+    "privacy": "https://github.com/rewinddv/rewindDV/blob/main/PRIVACY.md"
+  }
+}
