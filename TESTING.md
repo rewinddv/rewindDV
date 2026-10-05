@@ -50,3 +50,24 @@ Native UI rendering, physical query overlap, natural end-of-tape, active-capture
 disconnect and extended hardware endurance need separate evidence. No private
 recording or standards corpus is required by this package. The identifying XML
 report is excluded; its importer coverage uses a first-party synthetic fixture.
+
+## Current source and publication checks
+
+For the receive/reset/FCP changes in the current source, also run:
+
+```sh
+sh Foundation/DriverPolicy/Tests/run-receive-lifecycle-tests.sh
+zsh Foundation/Tools/verify-fcp-response-ordering.zsh "$test_root/fcp-ordering"
+```
+
+The OHCI hardening harness is
+`Foundation/Tools/verify-ohci-hardening.zsh`; supply an existing GoogleTest source
+checkout and an external output directory as its two arguments. This optional
+host-test prerequisite is not an application/driver dependency. These harnesses
+are offline; their success does not qualify physical reset/disconnect behavior.
+
+`python3 -B tools/test_project_status.py` tests independent app, driver and release
+identities. `python3 -B tools/project_status.py` verifies all manifested public
+inputs and generated current-status blocks; add `--live` to verify the latest
+GitHub download. Run `tools/test_release_candidate.py` and
+`tools/test-publication-content.py` for release/provenance and disclosure regressions.

@@ -4,7 +4,7 @@ This repository provides source, unsigned build instructions, and engineering re
 [Alpha 0.0.81 / Driver Build183 engineering alpha](https://github.com/rewinddv/rewindDV/releases/tag/alpha-0.0.81)
 is ad-hoc signed and not notarized.
 
-rewindDV currently uses an ad-hoc-signed DriverKit extension.
+The downloadable engineering release uses an ad-hoc-signed DriverKit extension.
 Installation requires disabling System Integrity Protection (SIP).
 Disabling SIP reduces macOS security.
 
