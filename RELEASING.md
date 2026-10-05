@@ -234,3 +234,30 @@ them. No software release, tag or binary upload is created by this cleanup.
 API semantics: [GitHub releases](https://docs.github.com/en/rest/releases/releases),
 [annotated tags](https://docs.github.com/en/rest/git/tags), and
 [workflow token permissions](https://docs.github.com/en/actions/tutorials/authenticate-with-github_token).
+
+## Project status and drift prevention
+
+`PROJECT-STATUS.json` is the public lifecycle status authority. Source metadata
+remains authoritative for the application alpha and independent driver build.
+`SOURCE-MANIFEST.json` pins the reviewed publishable source/build/test/notice
+surface to a public source revision. A later documentation/status commit need not
+change that revision when the manifest remains identical. Never put private paths,
+qualification receipts or private Git ancestry in either public file.
+
+After an approved source export, regenerate its deterministic source manifest,
+update `development` from the source metadata, and run
+`python3 -B tools/project_status.py --write-docs`. Check with
+`python3 -B tools/project_status.py` and `--live` for GitHub release metadata.
+CI checks source identity, manifest coverage, generated status blocks and live
+release state. Historical prose outside marked current-status blocks remains
+historical; historical source tags are explicitly exempted only by the established
+`HISTORICAL` release list. Future releases require manifest/provenance assets that
+bind independent versions, source, tag and package hash.
+
+The website vendors the exact public status JSON and verifies it against canonical
+public main in its validation/deployment path; it never derives driver numbers
+from application versions. To refresh it, run its `status:sync` command, review the
+diff, then validate and deploy. The organization profile links this status source
+without maintaining a second version table. An app-only update can retain a driver;
+a driver update never triggers an artificial alpha-number bump. An older public
+release than current development is an expected, validated lifecycle state.

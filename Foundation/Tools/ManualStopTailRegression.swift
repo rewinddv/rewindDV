@@ -9,6 +9,8 @@ struct LiveReceiveStatus: Sendable {
   let packetsSeen: UInt64 = 0
   let dropped: UInt64 = 0
   let oversized: UInt64 = 0
+  // Synthetic terminal receipts have no pending raw records in this fixture.
+  let writeSequence: UInt64 = 0, acknowledged: UInt64 = 0
 }
 struct LivePersistenceHealth: Sendable {
   let pendingRecords = 0

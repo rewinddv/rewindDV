@@ -5,6 +5,11 @@
 #include "../../../ASFWDriver/Async/Rx/ARPacketParser.hpp"
 #include "../../../ASFWDriver/Async/Rx/LocalRequestDispatch.hpp"
 #include "../../../ASFWDriver/Async/Rx/PacketRouter.hpp"
+#include "../../../ASFWDriver/Async/Tx/DescriptorBuilder.hpp"
+#include "../../../ASFWDriver/Async/Tx/ResponseSender.hpp"
+#include "../../../ASFWDriver/Hardware/HardwareInterface.hpp"
+#include "../../../ASFWDriver/Shared/Memory/DMAMemoryManager.hpp"
+#include "../../../ASFWDriver/Shared/Rings/DescriptorRing.hpp"
 #include "../../../ASFWDriver/Discovery/DeviceRegistry.hpp"
 #include "../../../ASFWDriver/Discovery/FWDevice.hpp"
 #include "../../../ASFWDriver/Protocols/AVC/FCPTransport.hpp"
@@ -119,6 +124,29 @@ FCPFrame PlayFrame() {
     return frame;
 }
 
+struct ResponseRig {
+    ASFW::Driver::HardwareInterface hardware;
+    ASFW::Shared::DMAMemoryManager dma;
+    ASFW::Shared::DescriptorRing ring;
+    std::unique_ptr<ASFW::Async::DescriptorBuilder> builder;
+    std::unique_ptr<ASFW::Async::ResponseSender> sender;
+    unsigned queued{0};
+
+    explicit ResponseRig(size_t capacity = 32) {
+        assert(dma.Initialize(hardware, 4096));
+        auto region = dma.AllocateRegion(capacity * sizeof(ASFW::Async::HW::OHCIDescriptor));
+        assert(region);
+        auto* descriptors = reinterpret_cast<ASFW::Async::HW::OHCIDescriptor*>(region->virtualBase);
+        assert(ring.Initialize({descriptors, capacity}));
+        assert(ring.Finalize(region->deviceBase));
+        builder = std::make_unique<ASFW::Async::DescriptorBuilder>(ring, dma);
+        sender = std::make_unique<ASFW::Async::ResponseSender>(*builder,
+            [](const void*, uint8_t, void* context) noexcept {
+                ++static_cast<ResponseRig*>(context)->queued;
+            }, this);
+    }
+};
+
 void TestPhysicalWriteQuadletRetainsCanonicalFCPBytes() {
     DeferredFireWireBus bus;
     FakeSessionScheduler scheduler;
@@ -137,6 +165,7 @@ void TestPhysicalWriteQuadletRetainsCanonicalFCPBytes() {
 
     auto transport = std::make_shared<FCPTransport>();
     assert(transport->init(&bus, &bus, device.get(), routes, scheduler, {}));
+    ResponseRig responses;
     std::vector<FCPResponseEvidence> responseEvidence;
     int completions = 0;
     FCPStatus completionStatus = FCPStatus::kTimeout;
@@ -147,6 +176,7 @@ void TestPhysicalWriteQuadletRetainsCanonicalFCPBytes() {
     policy.expectedRoute = routes.CurrentRoute(kGuid);
     policy.responseClassifier = Classify;
     policy.responseObserver = [&](FCPResponseEvidence evidence) {
+        assert(responses.queued == 1); // actual response chain precedes all FCP callbacks
         responseEvidence.push_back(std::move(evidence));
     };
     assert(transport
@@ -173,7 +203,8 @@ void TestPhysicalWriteQuadletRetainsCanonicalFCPBytes() {
     RetainedDiscovery discovery(transport);
     FCPResponseRouter responseRouter(discovery);
     dispatch.AddHandler(std::make_unique<FCPInboundLocalHandler>(&responseRouter));
-    dispatch.Install(router, nullptr);
+    router.SetResponseSender(responses.sender.get());
+    dispatch.Install(router, responses.sender.get());
     router.RouteParsedPacket(ARContextType::Request, *packet, kGeneration);
 
     assert(discovery.acquiredNodeID == 0xFFC1);
@@ -189,6 +220,119 @@ void TestPhysicalWriteQuadletRetainsCanonicalFCPBytes() {
     transport->Shutdown();
 }
 
+
+// Frozen four-byte fixture through the real parser, router, dispatch, FCP and
+// response descriptor builder. Only the final hardware submission is captured.
+void TestSubmissionBoundary(uint16_t receiveStatus, bool senderPresent,
+                            size_t capacity, bool interim, bool expectQueued,
+                            bool expectCompletion, bool block = false,
+                            bool recoverFailedResponse = false,
+                            bool lateWriteCompletion = false,
+                            bool reentrant = false, uint32_t responseGeneration = kGeneration) {
+    DeferredFireWireBus bus;
+    FakeSessionScheduler scheduler;
+    DeviceRegistry routes;
+    DeviceRecord record{};
+    record.guid = kGuid;
+    record.nodeId = 1;
+    record.gen = Generation{kGeneration};
+    auto device = FWDevice::Create(record, ConfigROM{});
+    ConfigROM rom{};
+    rom.bib.guid = kGuid;
+    rom.nodeId = 1;
+    rom.gen = Generation{kGeneration};
+    (void)routes.UpsertFromROM(rom, {});
+    auto transport = std::make_shared<FCPTransport>();
+    assert(transport->init(&bus, &bus, device.get(), routes, scheduler, {}));
+    ResponseRig responses(capacity);
+    unsigned observed = 0;
+    unsigned completed = 0;
+    unsigned expectedResponses = unsigned(expectQueued);
+    FCPStatus terminal = FCPStatus::kBusy;
+    FCPCommandPolicy policy{};
+    policy.retryClass = FCPRetryClass::kNever;
+    policy.queuePolicy = FCPQueuePolicy::kFifo;
+    policy.responseClassifier = Classify;
+    policy.maximumInterimResponses = 0;
+    policy.responseTimeoutMs = 20;
+    policy.responseObserver = [&](FCPResponseEvidence evidence) {
+        assert(responses.queued == expectedResponses);
+        assert(evidence.response.length == 4);
+        ++observed;
+        if (reentrant) {
+            assert(bus.WriteCount() == 1);
+            assert(transport->SubmitCommand(PlayFrame(), [](FCPStatus, const FCPFrame&) {}, policy).IsValid());
+            assert(bus.WriteCount() == 1);
+        }
+    };
+    assert(transport->SubmitCommand(PlayFrame(), [&](FCPStatus status, const FCPFrame&) {
+        assert(responses.queued == expectedResponses);
+        ++completed;
+        terminal = status;
+        if (reentrant) {
+            assert(responses.queued == expectedResponses);
+            assert(transport->SubmitCommand(PlayFrame(), [](FCPStatus, const FCPFrame&) {}, policy).IsValid());
+        }
+    }, policy).IsValid());
+    if (!lateWriteCompletion) assert(bus.CompleteNextWrite(AsyncStatus::kSuccess));
+    assert(transport->SubmitCommand(PlayFrame(), [](FCPStatus, const FCPFrame&) {}, policy).IsValid());
+    assert(bus.WriteCount() == 1);
+
+    std::vector<uint8_t> bytes(kSonyAcceptedPlayAR.begin(), kSonyAcceptedPlayAR.end());
+    bytes[18] = static_cast<uint8_t>(receiveStatus);
+    bytes[19] = static_cast<uint8_t>(receiveStatus >> 8);
+    if (interim) bytes[12] = 0x0F;
+    if (block) {
+        bytes.insert(bytes.begin() + 12, {0, 0, 4, 0});
+        bytes[0] = 0x10; // write-block; original Q3 becomes its byte-exact payload
+    }
+    const auto packet = ARPacketParser::ParseNext(bytes, 0);
+    assert(packet);
+    RetainedDiscovery discovery(transport);
+    FCPResponseRouter responseRouter(discovery);
+    PacketRouter router;
+    LocalRequestDispatch dispatch;
+    dispatch.AddHandler(std::make_unique<FCPInboundLocalHandler>(&responseRouter));
+    auto* sender = senderPresent ? responses.sender.get() : nullptr;
+    router.SetResponseSender(sender);
+    dispatch.Install(router, sender);
+    router.RouteParsedPacket(ARContextType::Request, *packet, responseGeneration);
+    assert(observed == 1); // failed submission still preserves received evidence
+    assert(responses.queued == unsigned(expectQueued)); // no duplicate response
+    assert(completed == unsigned(expectCompletion));
+    assert(bus.WriteCount() == (expectCompletion ? 2U : 1U));
+    if (expectCompletion) {
+        assert(terminal == (interim ? FCPStatus::kTimeout : FCPStatus::kOk));
+    } else {
+        // Failure never consumes the never-retry policy. The existing deadline
+        // remains live and bounded; receipt alone did not advance the FIFO.
+        if (lateWriteCompletion) {
+            assert(scheduler.PendingCount() == 0);
+            assert(bus.CompleteNextWrite(AsyncStatus::kSuccess));
+            assert(completed == 0 && bus.WriteCount() == 1);
+        }
+        assert(scheduler.PendingCount() == 1);
+        if (recoverFailedResponse) {
+            // The target retransmits after an unacknowledged response. Receipt
+            // is retained twice, but only the successfully submitted response
+            // advances the pending FCP command, exactly once.
+            expectedResponses = 1;
+            router.SetResponseSender(responses.sender.get());
+            dispatch.Install(router, responses.sender.get());
+            router.RouteParsedPacket(ARContextType::Request, *packet, kGeneration);
+            assert(observed == 2 && completed == 1 && responses.queued == 1);
+            assert(terminal == FCPStatus::kOk && bus.WriteCount() == 2);
+        } else {
+            scheduler.Advance(21'000'000ULL);
+            assert(completed == 1 && terminal == FCPStatus::kTimeout);
+            // Only the already-queued distinct command starts; the original
+            // never-retry request was not replayed.
+            assert(bus.WriteCount() == 2);
+        }
+    }
+    transport->Shutdown();
+}
+
 void TestStrictClassifierDoesNotAcceptReversedResponse() {
     assert(Policy::ClassifyDeckResponse(kPlayCommand, kAcceptedPlay) ==
            Policy::DeckResponseClassification::kAccepted);
@@ -201,5 +345,17 @@ void TestStrictClassifierDoesNotAcceptReversedResponse() {
 int main() {
     TestPhysicalWriteQuadletRetainsCanonicalFCPBytes();
     TestStrictClassifierDoesNotAcceptReversedResponse();
+    TestSubmissionBoundary(0x12, true, 32, false, true, true);
+    TestSubmissionBoundary(0x12, true, 32, true, true, true);
+    TestSubmissionBoundary(0x11, true, 32, false, false, true);
+    TestSubmissionBoundary(0x12, false, 32, false, false, false);
+    TestSubmissionBoundary(0x92, true, 32, false, false, false);
+    TestSubmissionBoundary(0x00, true, 32, false, false, false);
+    TestSubmissionBoundary(0x12, true, 1, false, false, false);
+    TestSubmissionBoundary(0x12, true, 32, false, true, true, true);
+    TestSubmissionBoundary(0x12, false, 32, false, false, false, false, true);
+    TestSubmissionBoundary(0x12, false, 32, false, false, false, false, false, true);
+    TestSubmissionBoundary(0x12, true, 32, false, true, true, false, false, false, true);
+    TestSubmissionBoundary(0x12, true, 32, false, true, false, false, false, false, false, kGeneration + 1);
     return 0;
 }

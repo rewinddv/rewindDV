@@ -572,3 +572,26 @@ func ingestJournalSpansReadBoundariesAndRejectsTruncatedLine(truncated: Bool) th
     #expect(result.journalSHA256 == SHA256.hash(data: journal).map { String(format: "%02x", $0) }.joined())
   }
 }
+
+@Test func resetSegmentRequiresExplicitAdmissionAndBoundFinalACK() throws {
+  let packets = ingestPackets(ingestFrame(pal: true))
+  let fixture = try IngestFixture(packets: packets, mutateStatus: { ingestPut(UInt32(3), into: &$0, at: 80) })
+  defer { try? FileManager.default.removeItem(at: fixture.url) }
+  #expect(throws: (any Error).self) { try DVIngestExporter.exportClosedFlight(at: fixture.url) }
+  let result = try DVIngestExporter.exportClosedFlight(at: fixture.url, allowBusResetSegment: true)
+  #expect(result.completeDVFrames == 1 && result.nativeDVRereadVerified && result.integritySHA256Verified)
+  #expect(result.busResetTerminated && result.needsLossReview)
+  #expect(result.completionHeadline != "Capture complete — saved bytes verified")
+  for state: UInt32 in [0, 1, 4, 5, 6] {
+    let bad = try IngestFixture(packets: packets, mutateStatus: { ingestPut(state, into: &$0, at: 80) })
+    defer { try? FileManager.default.removeItem(at: bad.url) }
+    #expect(throws: (any Error).self) { try DVIngestExporter.exportClosedFlight(at: bad.url, allowBusResetSegment: true) }
+  }
+  for final in [true, false] {
+    let bad = try IngestFixture(packets: packets, acknowledged: 0, finalStatus: final,
+      mutateStatus: { ingestPut(UInt32(3), into: &$0, at: 80) })
+    defer { try? FileManager.default.removeItem(at: bad.url) }
+    #expect(throws: (any Error).self) { try DVIngestExporter.exportClosedFlight(at: bad.url,
+      allowLegacyStoppedSnapshot: true, allowBusResetSegment: true) }
+  }
+}

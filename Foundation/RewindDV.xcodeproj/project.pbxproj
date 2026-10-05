@@ -5537,7 +5537,7 @@
         "MACOSX_DEPLOYMENT_TARGET" = "26.0";
         "SWIFT_VERSION" = "6.0";
         "CODE_SIGNING_ALLOWED" = "NO";
-        "CURRENT_PROJECT_VERSION" = "183";
+        "CURRENT_PROJECT_VERSION" = "188";
         "OTHER_CFLAGS" = (
           "$(inherited)",
           "-ffile-prefix-map=$(SRCROOT:dir)=/rewindDV/",
@@ -5566,7 +5566,7 @@
         "MACOSX_DEPLOYMENT_TARGET" = "26.0";
         "SWIFT_VERSION" = "6.0";
         "CODE_SIGNING_ALLOWED" = "NO";
-        "CURRENT_PROJECT_VERSION" = "183";
+        "CURRENT_PROJECT_VERSION" = "188";
         "OTHER_CFLAGS" = (
           "$(inherited)",
           "-ffile-prefix-map=$(SRCROOT:dir)=/rewindDV/",

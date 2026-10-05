@@ -470,6 +470,13 @@ kern_return_t ASFWDriver::StartRuntime(IOService* provider) {
     }
     ScheduleAsyncWatchdog(kAsyncWatchdogPeriodUsec);
 
+    // ControllerCore takes its own Dependencies copy. The reset coordinator
+    // must receive the prepared timer in that copy, not a later context update.
+    kr = DriverWiring::PrepareControlTimer(*this, ctx);
+    if (kr != kIOReturnSuccess) {
+        return failStart(kr, "control timer preparation failed");
+    }
+
     ctx.controller = std::make_shared<ControllerCore>(ctx.config, ctx.rolePolicy, ctx.deps);
 
     // FCP shares the driver's cancellable control-plane timer with SBP-2. It

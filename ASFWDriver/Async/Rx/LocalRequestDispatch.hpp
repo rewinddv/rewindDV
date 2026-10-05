@@ -31,6 +31,7 @@ namespace ASFW::Async {
 struct ARPacketView;
 class PacketRouter;
 class ResponseSender;
+struct ILocalAddressHandler;
 
 // Normalized view of an inbound local request, independent of OHCI byte layout.
 struct LocalRequestContext {
@@ -55,6 +56,10 @@ struct LocalRequestResult {
     uint32_t readBlockLength{0};         // read-block payload length
     uint32_t lockResponseQuadlet{0};      // host-order lock response old value
 
+    // Same-stack continuation: the dispatch owns the handler, and the request
+    // spans remain live until DispatchView returns. No work is posted/allocated.
+    ILocalAddressHandler* afterWriteResponse{nullptr};
+
     static LocalRequestResult NotMine() noexcept { return {}; }
     static LocalRequestResult Write(ResponseCode rc) noexcept {
         return {.claimed = true, .rcode = rc};
@@ -75,6 +80,7 @@ struct ILocalAddressHandler {
     virtual ~ILocalAddressHandler() = default;
     [[nodiscard]] virtual LocalRequestResult HandleLocalRequest(const LocalRequestContext& ctx) = 0;
     [[nodiscard]] virtual const char* Name() const noexcept = 0;
+    virtual void AfterWriteResponse(const LocalRequestContext&, bool) {}
 };
 
 class LocalRequestDispatch {

@@ -39,8 +39,13 @@ public struct DVIngestVerification: Codable, Equatable, Sendable {
   public var dbcDiscontinuitiesDiscardingPartialFrames: UInt64? = nil
   public var terminalPartialFrames: UInt64? = nil
 
+  /// A verified reset segment is still an interrupted acquisition.
+  public var busResetTerminated: Bool {
+    guard let bytes = Data(base64Encoded: finalStatusWireBase64), bytes.count == 128 else { return false }
+    return bytes[80..<84].elementsEqual([3, 0, 0, 0])
+  }
   public var needsLossReview: Bool {
-    captureFile == nil || knownDroppedPackets > 0 || incompleteFrames > 0 ||
+    busResetTerminated || captureFile == nil || knownDroppedPackets > 0 || incompleteFrames > 0 ||
       CIPDiscontinuities > 0 || rejectedPackets > 0 || rawTransportGapEvents > 0 ||
       !integritySHA256Verified || !nativeDVRereadVerified
   }
@@ -133,7 +138,7 @@ public enum DVIngestExporter {
   /// Legacy compatibility is an explicit offline forensic option. App capture
   /// finalization must retain the default, which requires one bound final status.
   public static func exportClosedFlight(
-    at directory: URL, allowLegacyStoppedSnapshot: Bool = false,
+    at directory: URL, allowLegacyStoppedSnapshot: Bool = false, allowBusResetSegment: Bool = false,
     progress: (@Sendable (DVIngestProgress) -> Void)? = nil
   ) throws -> DVIngestVerification {
     let names = ["capture.dv", "frames.ndjson", "verification.json"]
@@ -146,7 +151,7 @@ public enum DVIngestExporter {
     let journalURL = directory.appendingPathComponent("flight.ndjson")
     progress?(DVIngestProgress(phase: .validatingEvidence, completedBytes: 0, totalBytes: 0,
       overallCompletedBytes: 0, overallTotalBytes: 0))
-    let journal = try readJournal(journalURL, allowLegacyStoppedSnapshot: allowLegacyStoppedSnapshot)
+    let journal = try readJournal(journalURL, allowLegacyStoppedSnapshot: allowLegacyStoppedSnapshot, allowBusResetSegment: allowBusResetSegment)
     let terminal = journal.status
     let rawURL = directory.appendingPathComponent("receive.records.raw")
     let source = try regularReader(rawURL)
@@ -531,7 +536,7 @@ public enum DVIngestExporter {
     let oversized: UInt64
     let acknowledged: UInt64
 
-    init(_ bytes: Data) throws {
+    init(_ bytes: Data, allowBusResetSegment: Bool = false) throws {
       guard bytes.count == 128, integer(bytes, 0, UInt32.self) == 0x58524452,
         integer(bytes, 4, UInt16.self) == 1, integer(bytes, 6, UInt16.self) == 256,
         integer(bytes, 8, UInt32.self) == 4160,
@@ -539,7 +544,7 @@ public enum DVIngestExporter {
         integer(bytes, 24, UInt32.self) == 1, integer(bytes, 28, UInt32.self) == 48,
         [16, 32, 40, 48, 56].allSatisfy({ integer(bytes, $0, UInt64.self) != 0 }),
         integer(bytes, 70, UInt16.self) == 0, bytes[68] & 0x3f < 63,
-        integer(bytes, 80, UInt32.self) == 2, integer(bytes, 84, UInt32.self) == 0
+        [UInt32(2), allowBusResetSegment ? 3 : 2].contains(integer(bytes, 80, UInt32.self)), integer(bytes, 84, UInt32.self) == 0
       else { throw DVIngestError.invalidEvidence("missing clean stopped status or receive ABI/route mismatch") }
       wire = bytes
       route = bytes.subdata(in: 24..<72)
@@ -558,7 +563,7 @@ public enum DVIngestExporter {
   }
 
   private static func readJournal(
-    _ url: URL, allowLegacyStoppedSnapshot: Bool
+    _ url: URL, allowLegacyStoppedSnapshot: Bool, allowBusResetSegment: Bool
   ) throws -> (closed: Event, status: Terminal, sha: String, finalStatusBound: Bool, legacyPrefix: Event?) {
     let handle = try regularReader(url)
     defer { try? handle.close() }
@@ -625,7 +630,7 @@ public enum DVIngestExporter {
       }
       statusWire = legacyWire
     }
-    let status = try Terminal(statusWire)
+    let status = try Terminal(statusWire, allowBusResetSegment: allowBusResetSegment && finalEvent != nil)
     guard finalEvent == nil || status.acknowledged == status.write else {
       throw DVIngestError.invalidEvidence("final acknowledgement does not reach final publication")
     }

@@ -26,6 +26,9 @@ struct LiveReceiveBatch: Sendable {
 
 @MainActor final class LiveMonitorModel: ObservableObject {
   let preview: LiveDVPreview
+  @Published private(set) var busResetObserved = false
+  private(set) var resetSegmentClosed = false
+  var canReconnectAfterBusReset: Bool { resetSegmentClosed && !active && !busy && !lockedOut }
   @Published private(set) var active = false
   @Published private(set) var waitingForAdmission = false
   @Published private(set) var hasReceiveSession = false
@@ -182,6 +185,7 @@ struct LiveReceiveBatch: Sendable {
              onReceiving: (@MainActor () -> Void)? = nil) {
     guard !active, !busy, !lockedOut else { admissionFinished?(); return }
     busy = true
+    busResetObserved = false; resetSegmentClosed = false
     // Revoke prior connection metadata immediately, before receive preparation.
     preview.metadata.begin(automatic: false)
     startingReceive = true
@@ -311,6 +315,7 @@ struct LiveReceiveBatch: Sendable {
             do { try await bridge.recordMonitorDiagnostics(diagnostics + (hasCurrentPreview ? "; " + preview.timingDiagnostics : "")) }
             catch { diagnosticWarning = "Preview diagnostics could not be saved; raw receive continues: \(error.localizedDescription)" }
           }
+          if batch.status.state == 3 { busResetObserved = true }
           if batch.status.state >= 2 {
             // A terminal bus reset or receive failure can have successful
             // resource cleanup. Neither proves that the tape has stopped.
@@ -386,6 +391,9 @@ struct LiveReceiveBatch: Sendable {
           oversizedPackets = final.status.oversized; completeFrames = final.assembledFrames
           incompleteFrames = final.incompleteFrames; continuityBreaks = final.discontinuities
           rejectedPackets = final.rejectedPackets
+          busResetObserved = busResetObserved || final.status.state == 3
+          resetSegmentClosed = final.status.state == 3 && final.status.lastStatus == 0
+            && final.status.writeSequence == final.status.acknowledged
           let terminalFailed = final.status.state == 3 || final.status.state == 4
           if terminalFailed { failed = true }
           if !failed || terminalFailed {
@@ -516,6 +524,16 @@ struct LiveReceiveBatch: Sendable {
     task?.cancel()
   }
 
+  /// Join a reset shutdown without cancelling reception or manufacturing a STOP.
+  func waitForReceiveEnd() async { await task?.value }
+
+  func carryStopObligationAcrossReset(from old: FoundationRoute, to fresh: FoundationRoute) {
+    guard canReconnectAfterBusReset, old.guid == fresh.guid,
+      old.driverInstanceID == fresh.driverInstanceID, old != fresh else { return }
+    if receiverStopObligationRoute == old { receiverStopObligationRoute = fresh }
+    tapeStopFeedback = "Reconnecting after a bus reset. Tape STOP is still unconfirmed; any missing footage remains unknown."
+  }
+
   /// Joins raw drain AND offline export. The job never cancels a pending FCP
   /// request to get here; its status observer has already returned terminally.
   func stopAndWait() async {
@@ -597,4 +615,9 @@ struct LiveReceiveBatch: Sendable {
     tapeStopFeedback = "Deck reports stopped on the route with the outstanding STOP obligation."
   }
 }
-private enum LiveMonitorError: Error { case failed(String) }
+private enum LiveMonitorError: LocalizedError {
+  case failed(String)
+  var errorDescription: String? {
+    switch self { case .failed(let message): message }
+  }
+}

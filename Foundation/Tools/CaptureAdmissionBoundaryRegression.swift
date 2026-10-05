@@ -4,6 +4,8 @@
 import Foundation
 import OSLog
 let KERN_SUCCESS: Int32 = 0
+let kIOReturnNotFound: Int32 = -10, kIOReturnNotReady: Int32 = -11, kIOReturnAborted: Int32 = -12
+struct DriverSnapshot { let decks: [DiscoveredDeck]; let routes: [FoundationRoute] }
 struct OfflineConnection: Sendable { let failSubmission: Bool; let malformed: Bool }
 struct OpenDriverConnection: Sendable { let connect: OfflineConnection }
 func IOConnectCallStructMethod(_ connection: OfflineConnection, _ selector: Int,
@@ -54,6 +56,15 @@ actor DriverBridge {
   var liveJournalState: UInt32?, liveJournalDate = Date.distantPast
   var liveDurableThrough: UInt64 = 0, liveAcknowledgedThrough: UInt64 = 0, liveCopiedThrough: UInt64 = 0
   var finalLiveStatistics: Int? = 37
+  var discovery = DriverSnapshot(decks: [], routes: [])
+  var discoveryError: DriverBridgeError?
+  func setDiscovery(decks: [DiscoveredDeck], routes: [FoundationRoute], error: DriverBridgeError? = nil) {
+    discovery = .init(decks: decks, routes: routes); discoveryError = error
+  }
+  func refresh() throws -> DriverSnapshot {
+    if let discoveryError { throw discoveryError }; return discovery
+  }
+  // PRODUCTION_REDISCOVERY
   func configure(mask: Int = 0, mode: String = "idle") {
     self.mode = mode
     permanentlyLockedOut = mask & 1 != 0; commandInFlight = mask & 2 != 0; inspectionInFlight = mask & 4 != 0
@@ -62,7 +73,7 @@ actor DriverBridge {
     inspectionOwner = inspectionInFlight ? .init(category: "passive_transport") : nil
     receiveOwner = liveConnection != nil ? .init(category: "receive") : nil
   }
-  func openExactBuild183Connection() throws -> OpenDriverConnection {
+  func openExactBuild188Connection() throws -> OpenDriverConnection {
     connectionOpens += 1
     if mode == "open" { throw ControlWireError.invalid("fixture connection failure") }
     return .init(connect: .init(failSubmission: mode == "submit", malformed: mode == "malformed"))
@@ -87,6 +98,36 @@ actor DriverBridge {
     put(UInt32(1)); put(UInt16(1)); put(UInt16(0))
     let route = try FoundationRoute(data: bytes)
     let deck = DiscoveredDeck(guid: 1, generation: 1, node: 1, state: 1, vendor: "Synthetic", model: "Offline")
+    let discovery = DriverBridge(route: bytes)
+    var freshBytes = bytes; freshBytes[32] = 2; freshBytes[40] = 2
+    let fresh = try FoundationRoute(data: freshBytes)
+    let freshDeck = DiscoveredDeck(guid: 1, generation: 2, node: 1, state: 1, vendor: "Synthetic", model: "Offline")
+    await discovery.setDiscovery(decks: [freshDeck], routes: [fresh])
+    let found = try await discovery.rediscoverAfterBusReset(previous: route)
+    precondition(found?.1 == fresh)
+    for error: DriverBridgeError? in [nil, .deckNotFresh,
+      .callFailed(selector: 67, status: kIOReturnNotFound), .callFailed(selector: 67, status: kIOReturnNotReady),
+      .callFailed(selector: 67, status: kIOReturnAborted)] {
+      await discovery.setDiscovery(decks: [], routes: [], error: error)
+      let absent = try await discovery.rediscoverAfterBusReset(previous: route); precondition(absent == nil)
+    }
+    await discovery.setDiscovery(decks: [deck], routes: [route])
+    let stale = try await discovery.rediscoverAfterBusReset(previous: route); precondition(stale == nil)
+    var otherBytes = freshBytes; otherBytes[8] = 2
+    let other = try FoundationRoute(data: otherBytes)
+    let otherDeck = DiscoveredDeck(guid: 2, generation: 2, node: 1, state: 1, vendor: "Synthetic", model: "Offline")
+    await discovery.setDiscovery(decks: [otherDeck], routes: [other])
+    let wrong = try await discovery.rediscoverAfterBusReset(previous: route); precondition(wrong == nil)
+    var restartedBytes = freshBytes; restartedBytes[16] = 2
+    let restarted = try FoundationRoute(data: restartedBytes)
+    for item in [([freshDeck, freshDeck], [fresh], nil), ([freshDeck], [fresh, fresh], nil),
+      ([freshDeck], [restarted], nil), ([freshDeck], [fresh], DriverBridgeError.permanentSessionLockout),
+      ([freshDeck], [fresh], .callFailed(selector: 64, status: kIOReturnNotReady))] {
+      await discovery.setDiscovery(decks: item.0, routes: item.1, error: item.2)
+      do { _ = try await discovery.rediscoverAfterBusReset(previous: route); preconditionFailure("unsafe reconnect admitted") }
+      catch { /* Expected refusal; no I/O or transport commands. */ }
+    }
+    print("PASS: production rediscovery waits for same GUID and changed route; rejects ambiguous identities, restarted driver, lockout and unrelated failures")
     for mask in 1..<16 {
       let bridge = DriverBridge(route: bytes); await bridge.configure(mask: mask)
       do { _ = try await bridge.beginLiveReceive(deck); preconditionFailure("conflict admitted") }

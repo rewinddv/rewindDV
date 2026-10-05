@@ -261,25 +261,7 @@ xcrun --sdk macosx clang++ -std=c++23 -DASFW_HOST_TEST \
   -o /tmp/rewinddv-foundation-fcp-tests
 /tmp/rewinddv-foundation-fcp-tests
 
-xcrun --sdk macosx clang++ -std=c++23 -DASFW_HOST_TEST \
-  -I. -IASFWDriver -IASFWDriver/Testing -Itests/mocks -Itests/support \
-  -Idocs -IAppleHeaders -Wall -Wextra -Werror \
-  -Wno-unused-parameter -Wno-unused-private-field \
-  -Wno-missing-field-initializers -Wno-character-conversion \
-  -Wno-deprecated-copy \
-  Foundation/DriverPolicy/FoundationDriverPolicy.cpp \
-  Foundation/DriverPolicy/Tests/FoundationFCPQuadletPipelineTests.cpp \
-  ASFWDriver/Async/Rx/ARPacketParser.cpp \
-  ASFWDriver/Async/Rx/PacketRouter.cpp \
-  ASFWDriver/Async/Rx/LocalRequestDispatch.cpp \
-  ASFWDriver/Protocols/AVC/FCPTransport.cpp \
-  ASFWDriver/Discovery/DeviceRegistry.cpp \
-  ASFWDriver/Discovery/FWDevice.cpp ASFWDriver/Discovery/FWUnit.cpp \
-  ASFWDriver/Debug/AsyncTraceCapture.cpp \
-  tests/support/ResponseSenderStub.cpp tests/support/LoggingStubs.cpp \
-  ASFWDriver/Logging/LogRing.cpp \
-  -o /tmp/rewinddv-foundation-fcp-quadlet-pipeline-tests
-/tmp/rewinddv-foundation-fcp-quadlet-pipeline-tests
+zsh Foundation/Tools/verify-fcp-response-ordering.zsh /private/tmp/rewinddv-fcp-ordering
 
 sh Foundation/DriverPolicy/Tests/run-receive-lifecycle-tests.sh
 ruby Foundation/DriverPolicy/Tests/FoundationInspectorObserverSourceTests.rb
@@ -294,3 +276,12 @@ activity admission, retained receive-drain exclusion, and the retained physical
 write-quadlet byte pipeline through the production FCP
 local handler. They do not prove the corrected DriverKit binary completes FCP
 on the Sony, deck motion, or hardware qualification.
+
+The connected FCP pipeline runner links the production response descriptor builder
+and captures its final hardware-submission seam. A required write response must
+be submitted before an FCP observer, terminal completion, or FIFO successor runs.
+If submission fails, the raw response event remains observable and the pending
+command retains its existing bounded deadline and no-replay policy. The three
+Foundation observers only retain evidence; arbitrary observer callbacks that
+cancel or submit work are outside the failed-submission guarantee. Submission
+is not proof of on-wire acknowledgement or physical deck qualification.

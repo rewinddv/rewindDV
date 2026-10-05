@@ -7,7 +7,8 @@ import pathlib, sys
 bridge = pathlib.Path('Foundation/App/DriverBridge.swift').read_text()
 a = bridge.index('  func beginLiveReceive('); b = bridge.index('\n  func readLiveBatch()', a)
 fixture = pathlib.Path('Foundation/Tools/CaptureAdmissionBoundaryRegression.swift').read_text()
-pathlib.Path(sys.argv[1], 'AdmissionBoundaryFixture.swift').write_text(fixture.replace('  // PRODUCTION_BEGIN_RECEIVE', bridge[a:b]))
+c = bridge.index('  func rediscoverAfterBusReset('); d = bridge.index('\n  func perform(', c)
+pathlib.Path(sys.argv[1], 'AdmissionBoundaryFixture.swift').write_text(fixture.replace('  // PRODUCTION_BEGIN_RECEIVE', bridge[a:b]).replace('  // PRODUCTION_REDISCOVERY', bridge[c:d]))
 PY
 xcrun swiftc -swift-version 6 -parse-as-library -Onone \
   "$1/AdmissionBoundaryFixture.swift" Foundation/App/{DriverReadiness,ControlWire}.swift \

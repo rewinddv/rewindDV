@@ -117,6 +117,17 @@ ResponseCode LocalRequestDispatch::DispatchView(const ARPacketView& view, uint32
         return ResponseCode::NoResponse;
     }
 
+    if (result.afterWriteResponse != nullptr &&
+        (view.tCode == AReq::kTcodeWriteQuad || view.tCode == AReq::kTcodeWriteBlock)) {
+        const auto disposition = sender_
+            ? sender_->SendWriteResponse(view, rcode)
+            : ResponseSender::WriteDisposition::Failed;
+        result.afterWriteResponse->AfterWriteResponse(
+            ctx, disposition != ResponseSender::WriteDisposition::Failed);
+        // This path owns the response attempt; PacketRouter must not send twice.
+        return ResponseCode::NoResponse;
+    }
+
     // Write tCodes: PacketRouter sends the write response from this rcode.
     return rcode;
 }

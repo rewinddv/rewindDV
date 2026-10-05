@@ -1,3 +1,37 @@
+# Development and releases
+
+<!-- project-status:start -->
+**Current development:** Alpha 0.0.87 / Driver B188. [Reviewed public source](https://github.com/rewinddv/rewindDV/tree/eca8ebfd5bc8a5096441cf3c1b67d2a48a1cdb66).
+
+**Latest public download:** [Alpha 0.0.81 / Driver B183](https://github.com/rewinddv/rewindDV/releases/tag/alpha-0.0.81) — engineering prerelease, ad-hoc signed and not notarized. Installation requires disabling SIP, which reduces macOS security.
+
+Development source and bounded tests do not approve a new download. Application versions and driver builds advance independently. [Machine-readable status](PROJECT-STATUS.json).
+<!-- project-status:end -->
+
+## Current source changes since Alpha 0.0.81
+
+The Alpha 0.0.87 / B188 source adds DMA-safe handling of unaligned partial receive
+completions, bounded reset-segment recovery and capture shutdown supervision,
+FCP response submission before command progression, retention of reset-ingress
+Self-ID evidence, cancellation of obsolete reset recovery, and nonblocking reset
+processing. Control-timer setup now precedes controller dependency copying; the
+app also offers a direct route to macOS driver approval settings.
+
+The FCP and reset-ingress improvements derive from the reviewed ASFireWire
+behavior, with downstream preservation and ownership constraints retained.
+Original received bytes, gap accounting and unknown continuity remain authoritative;
+recovery does not claim to reconstruct missing packets. License and modification
+notices remain attached to the imported components.
+
+Software validation covers the package suite, native Release compilation, receive
+lifecycle/ownership, FCP ordering and OHCI host regressions. See
+[bounded physical evidence](COMPATIBILITY.md) and [known limitations](KNOWN-LIMITATIONS.md).
+There is no new public binary: the development-signed candidate is not an approved
+public distribution artifact. Full-tape endurance and the disappearance cause remain
+open. Intermediate development versions are not manufactured into releases.
+
+---
+
 # Alpha 0.0.81 · Driver B183 — engineering alpha
 
 Ad-hoc signed and not notarized. Installation requires disabling System Integrity

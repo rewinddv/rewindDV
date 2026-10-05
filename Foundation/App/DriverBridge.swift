@@ -40,8 +40,8 @@ struct ControlAttemptReport: Sendable {
 }
 
 enum DriverBridgeError: Error, LocalizedError, Equatable {
-  case noExactBuild183Service
-  case ambiguousBuild183Services(Int)
+  case noExactBuild188Service
+  case ambiguousBuild188Services(Int)
   case differentAttachedBuilds([UInt64?])
   case registryIdentityMismatch(String)
   case openFailed(Int32)
@@ -55,16 +55,16 @@ enum DriverBridgeError: Error, LocalizedError, Equatable {
 
   var errorDescription: String? {
     switch self {
-    case .noExactBuild183Service:
-      "No exact Build183 rewindDV Foundation driver service was found."
-    case .ambiguousBuild183Services(let count):
+    case .noExactBuild188Service:
+      "No exact Build188 rewindDV Foundation driver service was found."
+    case .ambiguousBuild188Services(let count):
       "Refusing an ambiguous driver match (\(count) exact services)."
     case .differentAttachedBuilds(let builds):
-      DriverBuildAssessment.mismatchMessage(builds, required: 183)
+      DriverBuildAssessment.mismatchMessage(builds, required: 188)
     case .registryIdentityMismatch(let reason):
       "Driver identity did not pass the exact registry gate: \(reason)"
     case .openFailed(let status):
-      "Could not open the exact Build183 driver (\(Self.hex(status)))."
+      "Could not open the exact Build188 driver (\(Self.hex(status)))."
     case .callFailed(let selector, let status):
       "Driver selector \(selector) failed (\(Self.hex(status)))."
     case .malformedReply(let reason):
@@ -228,7 +228,7 @@ actor DriverBridge {
   private static let readinessLog = Logger(subsystem: "net.rewinddigital.RewindDV", category: "DriverReadiness")
   private static let driverClass = "ASFWDriver"
   private static let driverIdentifier = "net.rewinddigital.RewindDV.Driver"
-  private static let requiredBuildNumber = 183
+  private static let requiredBuildNumber = 188
   private static let controllerVendor: UInt32 = 0x11c1
   private static let controllerDevice: UInt32 = 0x5901
   private static let capabilitiesSelector: UInt32 = 64
@@ -293,7 +293,7 @@ actor DriverBridge {
         throw DriverBridgeError.commandAlreadyInFlight
       }
       finalLiveStatistics = nil
-      let connection = try openExactBuild183Connection()
+      let connection = try openExactBuild188Connection()
       attempt.connectionCreated = true
       _ = try FoundationCapabilities(data: callStructureOutput(connection.connect,
         selector: Self.capabilitiesSelector, maximumBytes: 24))
@@ -625,7 +625,7 @@ actor DriverBridge {
     guard liveConnection == nil, !commandInFlight, !inspectionInFlight else {
       throw DriverBridgeError.commandAlreadyInFlight
     }
-    let connection = try openExactBuild183Connection()
+    let connection = try openExactBuild188Connection()
     let capabilitiesData = try callStructureOutput(
       connection.connect, selector: Self.capabilitiesSelector, maximumBytes: 24)
     let capabilities: FoundationCapabilities
@@ -708,6 +708,29 @@ actor DriverBridge {
       discoveryNote: discoveryNote, routes: routes)
   }
 
+  /// Read-only rediscovery. A new session must still revalidate this complete
+  /// route at admission. A restarted driver or ambiguous GUID is not recovery.
+  func rediscoverAfterBusReset(previous: FoundationRoute) throws -> (DiscoveredDeck, FoundationRoute)? {
+    let snapshot: DriverSnapshot
+    do { snapshot = try refresh() }
+    catch DriverBridgeError.deckNotFresh { return nil }
+    catch DriverBridgeError.callFailed(let selector, let status)
+      where selector == Self.routeSelector && [kIOReturnNotFound, kIOReturnNotReady, kIOReturnAborted].contains(status) {
+      return nil
+    }
+    let decks = snapshot.decks.filter { $0.guid == previous.guid && $0.isOperational }
+    let routes = snapshot.routes.filter { $0.guid == previous.guid }
+    guard decks.count <= 1, routes.count <= 1 else {
+      throw DriverBridgeError.malformedReply("Ambiguous deck identity during reconnect")
+    }
+    guard let deck = decks.first, let route = routes.first else { return nil }
+    guard route.driverInstanceID == previous.driverInstanceID else {
+      throw DriverBridgeError.malformedReply("Driver restarted; automatic receive recovery is unsafe")
+    }
+    guard route != previous else { return nil }
+    return (deck, route)
+  }
+
   func perform(
     _ command: DeckCommand,
     selectedDeck: DiscoveredDeck,
@@ -725,7 +748,7 @@ actor DriverBridge {
     defer { commandInFlight = false; commandOwner = nil }
     let diagnosticFlight = liveFlight
 
-    let connection = try openExactBuild183Connection()
+    let connection = try openExactBuild188Connection()
     let capabilitiesData = try callStructureOutput(
       connection.connect, selector: Self.capabilitiesSelector, maximumBytes: 24)
     do {
@@ -1116,7 +1139,7 @@ actor DriverBridge {
       tapeStateOnly ? "tape_state" : "inventory")
     defer { inspectionInFlight = false; inspectionOwner = nil }
     let diagnosticFlight = liveFlight
-    let connection = try openExactBuild183Connection()
+    let connection = try openExactBuild188Connection()
     _ = try FoundationCapabilities(data: callStructureOutput(connection.connect,
       selector: Self.capabilitiesSelector, maximumBytes: 24))
     _ = try InspectorCapabilities(data: callStructureOutput(connection.connect,
@@ -1297,7 +1320,7 @@ actor DriverBridge {
     inspectionInFlight = true
     inspectionOwner = AppOperationObservation(category: "capability_probe")
     defer { inspectionInFlight = false; inspectionOwner = nil }
-    let connection = try openExactBuild183Connection()
+    let connection = try openExactBuild188Connection()
     let catalog = try callStructureOutput(connection.connect, selector: 75, maximumBytes: 176)
     try TransportCapabilityCatalog.validate(catalog)
     let rawRoute = try callScalarInputStructureOutput(connection.connect,
@@ -1385,9 +1408,9 @@ actor DriverBridge {
       entries: entries, completion: completion, lockedOut: permanentlyLockedOut)
   }
 
-  private func openExactBuild183Connection() throws -> OpenDriverConnection {
+  private func openExactBuild188Connection() throws -> OpenDriverConnection {
     guard let matching = IOServiceNameMatching(Self.driverClass) else {
-      throw DriverBridgeError.noExactBuild183Service
+      throw DriverBridgeError.noExactBuild188Service
     }
     var iterator: io_iterator_t = 0
     let matchStatus = IOServiceGetMatchingServices(
@@ -1417,8 +1440,8 @@ actor DriverBridge {
       for service in exact { IOObjectRelease(service) }
       switch assessment {
       case .differentBuilds(let builds): throw DriverBridgeError.differentAttachedBuilds(builds)
-      case .ambiguous(let count): throw DriverBridgeError.ambiguousBuild183Services(count)
-      default: throw DriverBridgeError.noExactBuild183Service
+      case .ambiguous(let count): throw DriverBridgeError.ambiguousBuild188Services(count)
+      default: throw DriverBridgeError.noExactBuild188Service
       }
     }
     let service = exact[0]

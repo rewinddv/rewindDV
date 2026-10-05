@@ -15,12 +15,12 @@
 #include "SelfIDCapture.hpp"
 #include "Timing/PostResetTimingCoordinator.hpp"
 #include "../Shared/Completion/PostedWorkEpoch.hpp"
+#include "../Scheduling/ITimerScheduler.hpp"
 
 #ifdef ASFW_HOST_TEST
 #include "../Testing/HostDriverKitStubs.hpp"
 #else
 #include <DriverKit/IODispatchQueue.h>
-#include <DriverKit/IOTimerDispatchSource.h>
 #include <DriverKit/OSSharedPtr.h>
 #endif
 
@@ -59,7 +59,7 @@ class BusResetCoordinatorTestPeer;
  * The coordinator owns the sequencing constraints around Self-ID capture,
  * async transmit quiescence, Config ROM restoration, interrupt ownership, and
  * post-reset discovery handoff. Heavy work stays off the IRQ path; `OnIrq()`
- * only latches reset-related bits and schedules deferred processing.
+ * masks busReset, latches reset-related bits, and schedules deferred processing.
  *
  * Key spec constraints preserved here:
  * - OHCI 1.1 §6.1 / Table 6-1 and §11.5 for `selfIDComplete2` sticky semantics
@@ -73,7 +73,7 @@ class BusResetCoordinator {
 
     enum class State : uint8_t {
         Idle,               // Normal operation, no reset in progress
-        Detecting,          // busReset observed, mask interrupt, prime context
+        Detecting,          // busReset already masked at ingress; prime context
         WaitingSelfID,      // Awaiting a stable Self-ID completion indication
         QuiescingAT,        // Stop and flush AT contexts (AR continues)
         RestoringConfigROM, // 3-step ROM restoration sequence
@@ -102,15 +102,18 @@ class BusResetCoordinator {
                     ConfigROMStager* configRom, InterruptManager* interrupts,
                     TopologyManager* topology, BusManager* busManager = nullptr,
                     Discovery::ROMScanner* romScanner = nullptr,
-                    ASFW::Bus::TopologyMapService* topologyMapService = nullptr);
+                    ASFW::Bus::TopologyMapService* topologyMapService = nullptr,
+                    Scheduling::ITimerScheduler* timerScheduler = nullptr);
 
     /**
      * Latch bus-reset related interrupt bits and schedule deferred recovery work.
      *
      * OHCI 1.1 §6.1 / Table 6-1 defines `selfIDComplete2` as a sticky companion
      * to `selfIDComplete`, and §11.5 states it is cleared only via
-     * `IntEventClear`. This ingress path records the bits but leaves the
-     * ordering-sensitive clear/consume policy to the coordinator FSM.
+     * `IntEventClear`. Ingress masks busReset before deferral and retains
+     * same-snapshot Self-ID evidence. ControllerCore then acknowledges the
+     * observed Self-ID bits; the FSM consumes only the software latch and
+     * retains ownership of busReset acknowledgement until AT quiescence.
      */
     void OnIrq(uint32_t intEvent, uint64_t timestamp);
 
@@ -275,6 +278,9 @@ class BusResetCoordinator {
         std::optional<BusManager::PhyConfigCommand> phyConfig;
         std::string reason;
         std::optional<BusManager::GapDecisionReason> gapDecisionReason;
+        // Only missing/invalid Self-ID recovery may be retired by a later
+        // validated topology. Merging any unrelated request clears this flag.
+        bool selfIDRecoveryOnly{false};
     };
 
     struct ResetCycleState {
@@ -297,6 +303,7 @@ class BusResetCoordinator {
     void BeginNewResetCycle();
     void CompleteCurrentRun();
     void YieldAndReschedule(uint32_t delayMs, const char* reason);
+    [[nodiscard]] bool ScheduleDeferred(uint32_t delayMs, std::function<void()> work);
 
     StepResult StepIdle();
     StepResult StepDetecting();
@@ -311,8 +318,7 @@ class BusResetCoordinator {
     void UnmaskBusReset();
     void ForceUnmaskBusResetIfNeeded();
     void HandleStraySelfID();
-    void ClearStaleSelfIDComplete2();
-    void ClearConsumedSelfIDInterrupts();
+    void ConsumeSelfIDLatch();
     void ArmSelfIDBuffer();
     void StopFlushAT();
     bool DecodeSelfID();
@@ -369,6 +375,7 @@ class BusResetCoordinator {
     TopologyReadyCallback topologyCallback_;
 
     std::atomic<bool> deferredRunScheduled_{false};
+    Scheduling::ITimerScheduler* timerScheduler_{nullptr};
     HardwareInterface* hardware_{nullptr};
     Async::IAsyncControllerPort* asyncSubsystem_{nullptr};
     SelfIDCapture* selfIdCapture_{nullptr};

@@ -38,6 +38,7 @@
 #include "../Protocols/AVC/CMP/CMPClient.hpp"
 #include "../Audio/Protocols/DeviceProtocolFactory.hpp"
 #include "../Scheduling/Scheduler.hpp"
+#include "../Protocols/SBP2/Session/DriverKitSessionScheduler.hpp"
 #ifdef REWINDDV_FOUNDATION
 #include "DriverVersion.hpp"
 #else
@@ -460,7 +461,8 @@ kern_return_t ControllerCore::InitializeBusResetAndDiscovery() {
     if (!deps_.busReset->Initialize(deps_.hardware.get(), workQueue, deps_.asyncController.get(),
                                deps_.selfId.get(), deps_.configRomStager.get(),
                                deps_.interrupts.get(), deps_.topology.get(), deps_.busManager.get(),
-                               deps_.romScanner.get(), deps_.topologyMapService.get())) {
+                               deps_.romScanner.get(), deps_.topologyMapService.get(),
+                               deps_.sbp2SessionScheduler.get())) {
         return kIOReturnNotReady;
     }
 

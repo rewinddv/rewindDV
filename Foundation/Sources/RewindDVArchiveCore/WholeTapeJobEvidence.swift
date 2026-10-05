@@ -44,10 +44,30 @@ public struct WholeTapeJobEvidence: Codable, Equatable, Sendable {
     public var stop: Stop?
     public var receiveClosed = false
     public var verification: Verification?
+    public var continueCapture: Capture?
+    public var interruptedRouteIdentity: String?
+    public var interruptionReceiptSHA256: String?
+    public var segmentVerification: SegmentVerification?
     public init(jobID: UUID, routeIdentity: String) {
       self.jobID = jobID; self.routeIdentity = routeIdentity
     }
   }
+  public struct Segment: Codable, Equatable, Sendable {
+    public let capture: Capture
+    public let routeIdentity: String
+    public let interruptionReceiptSHA256: String
+    public var verification: Verification?
+  }
+  public struct SegmentVerification: Codable, Equatable, Sendable {
+    public let captureID: UUID
+    public let verification: Verification
+    public init(captureID: UUID, verification: Verification) {
+      self.captureID = captureID; self.verification = verification
+    }
+  }
+  /// Each entry is a fully drained, closed previous receive generation.
+  /// Optional so old journal checkpoints retain their exact decoding/replay.
+  public private(set) var previousSegments: [Segment]?
   public private(set) var capture: Capture?
   public private(set) var stops: [Stop] = []
   public private(set) var receiveClosed = false
@@ -58,6 +78,40 @@ public struct WholeTapeJobEvidence: Codable, Equatable, Sendable {
   mutating func apply(_ update: Update, terminal: Bool) throws {
     func invalid(_ message: String) -> DVIngestError { .invalidEvidence("whole-tape accounting: " + message) }
     func hash(_ value: String) -> Bool { value.count == 64 && value.utf8.allSatisfy { (48...57).contains($0) || (97...102).contains($0) } }
+    if let next = update.continueCapture {
+      guard !terminal, let capture, receiveClosed, !stopped,
+        update.bindCapture == nil, update.captureID == nil, update.stop == nil,
+        !update.receiveClosed, update.verification == nil, update.segmentVerification == nil,
+        let route = update.interruptedRouteIdentity, !route.isEmpty,
+        let receipt = update.interruptionReceiptSHA256, hash(receipt),
+        !next.relativeDirectory.isEmpty, ![".", ".."].contains(next.relativeDirectory),
+        !next.relativeDirectory.contains("/"),
+        ([capture] + (previousSegments ?? []).map(\.capture)).allSatisfy({
+          $0.id != next.id && $0.relativeDirectory != next.relativeDirectory
+        }) else { throw invalid("unsafe receive segment transition") }
+      previousSegments = (previousSegments ?? []) + [.init(capture: capture,
+        routeIdentity: route, interruptionReceiptSHA256: receipt, verification: verification)]
+      self.capture = next; receiveClosed = false; verification = nil
+      return
+    }
+    guard update.interruptedRouteIdentity == nil, update.interruptionReceiptSHA256 == nil else {
+      throw invalid("unbound interruption evidence")
+    }
+    if let segment = update.segmentVerification {
+      guard update.bindCapture == nil, update.captureID == nil, update.stop == nil,
+        !update.receiveClosed, update.verification == nil,
+        let index = previousSegments?.firstIndex(where: { $0.capture.id == segment.captureID }),
+        segment.verification.needsLossReview else { throw invalid("unbound segment verification") }
+      // Use the same verification checks as current-capture accounting.
+      var isolated = WholeTapeJobEvidence()
+      isolated.capture = previousSegments![index].capture
+      isolated.verification = previousSegments![index].verification
+      var result = Update(jobID: update.jobID, routeIdentity: update.routeIdentity)
+      result.captureID = segment.captureID; result.verification = segment.verification
+      try isolated.apply(result, terminal: terminal)
+      previousSegments![index].verification = isolated.verification
+      return
+    }
     if let binding = update.bindCapture {
       guard update.captureID == nil, update.stop == nil, !update.receiveClosed, update.verification == nil,
         !binding.relativeDirectory.isEmpty, binding.relativeDirectory != ".", binding.relativeDirectory != "..",
@@ -107,6 +161,11 @@ public struct WholeTapeJobSummary: Codable, Equatable, Sendable {
     evidence = job.accounting
     self.journalWarning = journalWarning
     var parts = [job.stage == .interrupted ? "Job interrupted — not a whole-tape completion." : "Job state: \(job.stage.rawValue)."]
+    if let segments = evidence?.previousSegments, !segments.isEmpty {
+      parts.append("\(segments.count + 1) separate capture segments after FireWire interruptions. Missing footage and continuity between segments are unknown; review required.")
+      let verified = segments.filter { $0.verification?.passed == true }.count
+      parts.append("\(verified) of \(segments.count) earlier segments have saved-byte verification. The count below describes only the final segment.")
+    }
     if let evidence, evidence.stopped {
       let kinds = evidence.stops.map(\.kind)
       parts.append(kinds.contains(.operatorConfirmed)

@@ -2,6 +2,14 @@
 set -eu
 cd "$(dirname "$0")/../../.."
 receive_test_dir=$(mktemp -d /tmp/rewinddv-receive-lifecycle.XXXXXX)
+xcrun --sdk macosx clang++ -std=c++23 -O2 \
+  Foundation/DriverPolicy/Tests/DMASafeCopyTests.cpp \
+  -o "$receive_test_dir/dma-copy-tests"
+"$receive_test_dir/dma-copy-tests"
+xcrun --sdk macosx clang++ -std=c++23 -O2 -arch arm64 -S \
+  Foundation/DriverPolicy/Tests/DMASafeCopyTests.cpp \
+  -o "$receive_test_dir/dma-copy.s"
+ruby Foundation/DriverPolicy/Tests/DMASafeCopyCodegenTests.rb "$receive_test_dir/dma-copy.s"
 compile_receive_test() {
   receive_source=$1
   receive_output=$2

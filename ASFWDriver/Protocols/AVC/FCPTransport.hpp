@@ -228,7 +228,8 @@ public:
 
     void OnFCPResponse(uint16_t srcNodeID,
                        uint32_t generation,
-                       std::span<const uint8_t> payload);
+                       std::span<const uint8_t> payload,
+                       bool responseReady = true);
 
     void OnBusReset(uint32_t newGeneration);
 

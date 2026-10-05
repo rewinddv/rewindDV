@@ -3,7 +3,23 @@
 // verification results below are synthetic; this is not hardware/byte proof.
 import AppKit
 import Combine
+import CryptoKit
 import Foundation
+
+struct FixtureMediaFormats { var requiresHDVExport = false; var isMixed = false }
+
+private extension FoundationRoute {
+  var raw: Data {
+    var data = Data(repeating: 0, count: 48)
+    func put<T: FixedWidthInteger>(_ value: T, _ offset: Int) {
+      var value = value.littleEndian
+      withUnsafeBytes(of: &value) { data.replaceSubrange(offset..<(offset + $0.count), with: $0) }
+    }
+    put(UInt32(1),0); put(UInt32(48),4); put(guid,8); put(driverInstanceID,16)
+    put(deviceIncarnation,24); put(routeEpoch,32); put(generation,40); put(nodeID,44)
+    return data
+  }
+}
 
 enum ControlAttemptDisposition { case protocolAcceptedMotionUnverified, uncertainLockedOut }
 struct ControlAttemptReport {
@@ -14,13 +30,16 @@ struct ControlAttemptReport {
 }
 
 @MainActor final class DriverBridge {
-  enum Scenario { case blankTape, operatorStop, lostStatus, alreadyBOT, uncorroboratedBOT, stoppedBeforePlayObserved,
+  enum Scenario { case busResetResume, busResetTwice, busResetDuringRearm, busResetStopWaiting, busResetUnsafe, blankTape, operatorStop, lostStatus, alreadyBOT, uncorroboratedBOT, stoppedBeforePlayObserved,
     hdvTape, hdvFailedVerification, hdvZeroPackets,
     operatorZero, operatorOther, operatorFailedVerification, operatorMissingVerification, operatorHDV, journalWriteFailure,
     preflightStop, rewindStop, pendingStatusStop, finalizationStop,
     recoveryBounded, recoveryStatusGap, recoveryUncertainPlay, recoveryRouteLoss,
     recoveryStopFailure, recoveryEarlyStop, recoveryNaturalStop, recoveryNoAdmission, recoveryJournalWriteFailure }
-  let scenario: Scenario, route: FoundationRoute, parent: URL
+  let scenario: Scenario, parent: URL
+  var route: FoundationRoute
+  var reconnectQueries = 0
+  var routeAdvanced = false
   var commands: [DeckCommand] = []
   var phase: DeckCommand?
   var phaseQueries = 0
@@ -29,6 +48,22 @@ struct ControlAttemptReport {
   var live: LiveMonitorModel?
   init(_ scenario: Scenario, route: FoundationRoute, parent: URL) {
     self.scenario = scenario; self.route = route; self.parent = parent
+  }
+  func rediscoverAfterBusReset(previous: FoundationRoute) throws -> (DiscoveredDeck, FoundationRoute)? {
+    precondition(live?.canReconnectAfterBusReset == true && !statusPending)
+    reconnectQueries += 1
+    if scenario == .busResetStopWaiting { return nil }
+    if !routeAdvanced {
+      var bytes = previous.raw
+      func put<T: FixedWidthInteger>(_ value: T, _ offset: Int) {
+        var value = value.littleEndian
+        withUnsafeBytes(of: &value) { bytes.replaceSubrange(offset..<(offset + $0.count), with: $0) }
+      }
+      put(previous.routeEpoch + 1, 32); put(previous.generation + 1, 40)
+      route = try FoundationRoute(data: bytes); routeAdvanced = true
+    }
+    return (DiscoveredDeck(guid: 1, generation: route.generation, node: 1, state: 1,
+      vendor: "Synthetic", model: "No hardware"), route)
   }
   func receipt() throws -> URL {
     let url = parent.appendingPathComponent(UUID().uuidString)
@@ -50,6 +85,13 @@ struct ControlAttemptReport {
     if phase == .play {
       precondition(live?.active == true, "Content/status gap must never terminate receiver")
       switch scenario {
+      case .busResetResume, .busResetTwice, .busResetDuringRearm, .busResetStopWaiting, .busResetUnsafe:
+        let resetLimit = scenario == .busResetTwice ? 2 : 1
+        if phaseQueries == 2, live!.receiveStarts <= resetLimit {
+          try live!.emitReset(unsafe: scenario == .busResetUnsafe)
+          routeAdvanced = false
+        }
+        response = phaseQueries >= 7 ? [0x0c,0x20,0xc4,0x60] : [0x0c,0x20,0xc3,0x75]
       case .blankTape, .alreadyBOT, .finalizationStop, .recoveryNaturalStop,
            .hdvTape, .hdvFailedVerification, .hdvZeroPackets:
         response = phaseQueries >= 7 ? [0x0c,0x20,0xc4,0x60] : phaseQueries == 2 || phaseQueries == 3 ? nil : [0x0c,0x20,0xc3,0x75]
@@ -117,6 +159,35 @@ struct ControlAttemptReport {
 
 @MainActor final class LiveMonitorModel {
   var active = false, busy = false, lockedOut = false, receiverReady = false
+  var busResetObserved = false, hasReceiveSession = false
+  var canReconnectAfterBusReset: Bool { busResetObserved && !active && !busy && !lockedOut }
+  var mediaFormats = FixtureMediaFormats()
+  var receiveStarts = 0
+  func waitForReceiveEnd() async {}
+  func carryStopObligationAcrossReset(from old: FoundationRoute, to fresh: FoundationRoute) {
+    precondition(canReconnectAfterBusReset && old.guid == fresh.guid && old.driverInstanceID == fresh.driverInstanceID)
+  }
+  func emitReset(unsafe: Bool = false) throws {
+    busResetObserved = true; active = false; busy = false; receiverReady = false; lockedOut = unsafe
+    var status = Data(repeating: 0, count: 128)
+    func put<T: FixedWidthInteger>(_ value: T, _ offset: Int) {
+      var value = value.littleEndian
+      withUnsafeBytes(of: &value) { status.replaceSubrange(offset..<(offset + $0.count), with: $0) }
+    }
+    put(UInt32(0x58524452), 0); put(UInt16(1), 4); put(UInt16(256), 6)
+    put(UInt32(4160), 8); put(UInt32(8192), 12); put(UInt64(receiveStarts), 16)
+    status.replaceSubrange(24..<72, with: bridge!.route.raw)
+    put(UInt32(3), 80)
+    let hash = SHA256.hash(data: Data()).map { String(format: "%02x", $0) }.joined()
+    func event(_ name: String, _ wire: Data) throws -> Data {
+      try JSONSerialization.data(withJSONObject: ["schemaVersion": 1, "event": name,
+        "wireBase64": wire.base64EncodedString(), "recordBytes": 0, "recordSHA256": hash], options: [.sortedKeys]) + Data([10])
+    }
+    try Data("RDRXLOG1".utf8).write(to: flightURL!.appendingPathComponent("receive.records.raw"))
+    var journal = try event("receive_start_intent", bridge!.route.raw)
+    journal.append(try event("receive_final_status", status)); journal.append(try event("receive_closed", Data()))
+    try journal.write(to: flightURL!.appendingPathComponent("flight.ndjson"))
+  }
   var awaitingTapeStop = false, receiverFailedWithoutTapeStopProof = false
   var detail = "Synthetic receive", ingestDetail = "Synthetic export"
   var completeFrames: UInt64 = 0
@@ -139,10 +210,14 @@ struct ControlAttemptReport {
              captureFolderKind: CaptureDirectory.Kind = .manual,
     expectedRoute: FoundationRoute? = nil) {
     self.bridge = bridge; bridge.live = self
-    precondition(bridge.stableStops >= 2 && expectedRoute == bridge.route)
-    flightURL = ingestParent!.appendingPathComponent("Capture")
-    try! FileManager.default.createDirectory(at: flightURL!, withIntermediateDirectories: false)
+    precondition((bridge.stableStops >= 2 || receiveStarts > 0) && expectedRoute == bridge.route)
+    receiveStarts += 1; busResetObserved = false; hasReceiveSession = true; verification = nil
+    flightURL = try! CaptureDirectory.create(parent: ingestParent!, kind: .wholeTapePayload)
     active = true; receiverReady = true
+    if receiveStarts > 1 { bridge.phaseQueries = 0 }
+    if bridge.scenario == .busResetDuringRearm && receiveStarts == 2 {
+      try! emitReset(); bridge.routeAdvanced = false
+    }
   }
   func stopAndWait() async {
     precondition(physicalStop || (bridge?.stableStops ?? 0) >= 2)
@@ -150,6 +225,7 @@ struct ControlAttemptReport {
     onFinalize?()
     try? await Task.sleep(for: .milliseconds(20))
     active = false; receiverReady = false
+    if busResetObserved { return }
     if let scenario = bridge?.scenario,
       [.hdvTape, .hdvFailedVerification, .hdvZeroPackets, .operatorHDV].contains(scenario) {
       let packets: UInt64 = scenario == .hdvZeroPackets ? 0 : 1
@@ -190,7 +266,7 @@ struct ControlAttemptReport {
   @MainActor static func main() async throws {
     var priorVerification: DVIngestVerification?
     var priorFlight: URL?
-    for scenario in [DriverBridge.Scenario.blankTape, .operatorStop, .lostStatus, .alreadyBOT,
+    for scenario in [DriverBridge.Scenario.busResetResume, .busResetTwice, .busResetDuringRearm, .busResetStopWaiting, .busResetUnsafe, .blankTape, .operatorStop, .lostStatus, .alreadyBOT,
                      .uncorroboratedBOT, .stoppedBeforePlayObserved, .preflightStop, .rewindStop,
                      .pendingStatusStop, .finalizationStop,
                      .hdvTape, .hdvFailedVerification, .hdvZeroPackets, .operatorZero, .operatorOther,
@@ -252,6 +328,10 @@ struct ControlAttemptReport {
       let deadline = ContinuousClock.now.advanced(by: .seconds(15))
       var requested = false
       while job.active && ContinuousClock.now < deadline {
+        if !requested && ((scenario == .busResetStopWaiting && bridge.reconnectQueries >= 1)
+          || (scenario == .busResetUnsafe && job.status.contains("Reset recovery refused"))) {
+          live.physicalStop = true; job.finishAfterPhysicalStop(); requested = true
+        }
         if !requested && bridge.statusPending &&
           ((scenario == .preflightStop && bridge.phase == nil) ||
            (scenario == .rewindStop && bridge.phase == .rewind) ||
@@ -292,7 +372,16 @@ struct ControlAttemptReport {
         try FileManager.default.removeItem(at: blocker)
       }
       let recovered = try WholeTapeJobJournal.recover(from: directory)
-      precondition(recovered.stage == (scenario == .blankTape || scenario == .alreadyBOT || scenario == .finalizationStop || scenario == .hdvTape ? .transportBoundedVerified : .interrupted))
+      let resetSuccess = [.busResetResume, .busResetTwice, .busResetDuringRearm].contains(scenario)
+      if resetSuccess {
+        let count = scenario == .busResetResume ? 1 : 2
+        precondition(job.resetRecoveryCount == count && live.receiveStarts == count + 1)
+        precondition(recovered.accounting?.previousSegments?.count == count)
+        precondition(recovered.accounting!.previousSegments!.allSatisfy { $0.verification?.passed == true && $0.verification?.needsLossReview == true })
+        precondition(recovered.stage == .segmentedCaptureFinished && job.needsAttention)
+        precondition(job.status.contains("Missing footage"))
+      }
+      precondition(resetSuccess || recovered.stage == (scenario == .blankTape || scenario == .alreadyBOT || scenario == .finalizationStop || scenario == .hdvTape ? .transportBoundedVerified : .interrupted))
       if scenario == .operatorStop {
         FileHandle.standardError.write(Data("JOURNAL_REPRODUCTION early=6 final=\(live.verification!.completeDVFrames) persisted=\(recovered.receivedFrames) stopRequired=\(recovered.manualStopRequired)\n".utf8))
         precondition(recovered.currentSummary.evidence?.verification?.completeDVFrames == live.verification!.completeDVFrames

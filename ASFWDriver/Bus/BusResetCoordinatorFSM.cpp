@@ -29,7 +29,6 @@ namespace ASFW::Driver {
 void BusResetCoordinator::BeginNewResetCycle() {
     if (asyncSubsystem_) asyncSubsystem_->OnBusResetObserved();
     pendingBusResetEdge_ = false;
-    selfIdLatch_.Reset();
     stopFlushIssued_ = false;
     filtersEnabled_ = false;
     atArmed_ = false;
@@ -56,8 +55,6 @@ void BusResetCoordinator::BeginNewResetCycle() {
     }
 
     TransitionTo(State::Detecting, "busReset edge observed");
-    MaskBusReset();
-    ClearStaleSelfIDComplete2();
 }
 
 BusResetCoordinator::StepResult BusResetCoordinator::StepIdle() {
@@ -91,7 +88,7 @@ BusResetCoordinator::StepResult BusResetCoordinator::StepWaitingSelfID() {
         ArmSoftwareResetHoldoffAfterSelfIDCompletion(completionTime);
 
         const bool decoded = DecodeSelfID();
-        ClearConsumedSelfIDInterrupts();
+        ConsumeSelfIDLatch();
         if (decoded) {
             // Anchor post-reset timing gates to Self-ID completion, BEFORE the
             // topology graph is built, so they stay armed even if that build
@@ -103,7 +100,7 @@ BusResetCoordinator::StepResult BusResetCoordinator::StepWaitingSelfID() {
             RecordRecoveryReasonCode(RecoveryReasonCode::SelfIDDecodeFailed);
             RequestSoftwareReset(
                 {ResetRequestKind::Recovery, ResetFlavor::Short, std::nullopt,
-                 "Self-ID decode failed"});
+                 "Self-ID decode failed", std::nullopt, true});
         }
         TransitionTo(State::QuiescingAT, decoded ? "Self-ID decoded" : "Self-ID recovery path");
         return StepResult::Continue;
@@ -113,9 +110,10 @@ BusResetCoordinator::StepResult BusResetCoordinator::StepWaitingSelfID() {
     if (waitedNs >= static_cast<uint64_t>(kSelfIDTimeoutMs) * 1'000'000ULL) {
         RecordRecoveryReason("Self-ID timeout");
         RecordRecoveryReasonCode(RecoveryReasonCode::SelfIDTimeout);
-        ClearConsumedSelfIDInterrupts();
+        ConsumeSelfIDLatch();
         RequestSoftwareReset(
-            {ResetRequestKind::Recovery, ResetFlavor::Short, std::nullopt, "Self-ID timeout"});
+            {ResetRequestKind::Recovery, ResetFlavor::Short, std::nullopt, "Self-ID timeout",
+             std::nullopt, true});
         TransitionTo(State::QuiescingAT, "Self-ID timeout");
         return StepResult::Continue;
     }
@@ -203,6 +201,12 @@ BusResetCoordinator::StepResult BusResetCoordinator::StepClearingBusReset() {
 }
 
 BusResetCoordinator::StepResult BusResetCoordinator::StepRearming() {
+    if (!cycle_.acceptedSelfId.has_value()) {
+        // A timeout does not establish a usable generation. Leave AT stopped
+        // while the deferred recovery or a late valid Self-ID resolves it.
+        TransitionTo(State::Complete, "No accepted Self-ID; AT remains quiesced");
+        return StepResult::Continue;
+    }
     if (!G_NodeIDValid()) {
         YieldAndReschedule(kDeferredPollMs, "Waiting for NodeID valid");
         return StepResult::Yield;
@@ -246,29 +250,15 @@ BusResetCoordinator::StepResult BusResetCoordinator::StepComplete() {
         }
 
         ASFW_LOG(BusReset, "Discovery delayed %ums for generation %u", delayMs, generation.value);
-        const auto epoch = deferredWorkEpoch_;
-#ifdef ASFW_HOST_TEST
-        workQueue_->DispatchAsyncAfter(static_cast<uint64_t>(delayMs) * 1'000'000ULL, ^{
-          Shared::PostedWorkEpoch::Lease lease(*epoch);
-          if (!lease) return;
+        if (!ScheduleDeferred(delayMs, [this, topo, generation] {
           if (ReadyForDiscovery(generation)) {
               discoveryCallbackCount_ = static_cast<uint8_t>(
                   std::min<uint32_t>(static_cast<uint32_t>(discoveryCallbackCount_) + 1U, 0xFFU));
               topologyCallback_(topo);
           }
-        });
-#else
-        workQueue_->DispatchAsync(^{
-          Shared::PostedWorkEpoch::Lease lease(*epoch);
-          if (!lease) return;
-          IOSleep(delayMs);
-          if (ReadyForDiscovery(generation)) {
-              discoveryCallbackCount_ = static_cast<uint8_t>(
-                  std::min<uint32_t>(static_cast<uint32_t>(discoveryCallbackCount_) + 1U, 0xFFU));
-              topologyCallback_(topo);
-          }
-        });
-#endif
+        })) {
+            RecordRecoveryReason("Discovery timer scheduling failed");
+        }
     }
 
     return StepResult::Finish;

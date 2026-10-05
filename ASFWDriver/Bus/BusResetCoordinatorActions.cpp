@@ -78,40 +78,10 @@ void BusResetCoordinator::ForceUnmaskBusResetIfNeeded() {
     busResetMasked_ = false;
 }
 
-void BusResetCoordinator::ClearStaleSelfIDComplete2() {
-    if (hardware_ == nullptr) {
-        return;
-    }
-
-    // OHCI 1.1 §6.1 / Table 6-1 and §11.5: `selfIDComplete2` retains state
-    // across bus resets and is cleared only through `IntEventClear`.
-    if (auto access = hardware_->TryBeginAccess()) {
-        access.WriteAndFlush(Register32::kIntEventClear, IntEventBits::kSelfIDComplete2);
-    }
-    selfIdLatch_.stickyComplete = false;
-    selfIdLatch_.stickyCompleteTimeNs = 0;
-}
-
-void BusResetCoordinator::ClearConsumedSelfIDInterrupts() {
-    if (hardware_ == nullptr) {
-        selfIdLatch_.Reset();
-        return;
-    }
-
-    uint32_t clearMask = 0;
-    if (selfIdLatch_.complete) {
-        clearMask |= IntEventBits::kSelfIDComplete;
-    }
-    if (selfIdLatch_.stickyComplete) {
-        clearMask |= IntEventBits::kSelfIDComplete2;
-    }
-
-    if (clearMask != 0U) {
-        if (auto access = hardware_->TryBeginAccess()) {
-            access.WriteAndFlush(Register32::kIntEventClear, clearMask);
-        }
-    }
-
+void BusResetCoordinator::ConsumeSelfIDLatch() {
+    // ControllerCore acknowledges the observed Self-ID hardware bits after IRQ
+    // ingress. A later FSM clear could erase a newer completion arriving after
+    // that acknowledgement; consuming software evidence must perform no MMIO.
     selfIdLatch_.Reset();
 }
 
@@ -212,6 +182,13 @@ bool BusResetCoordinator::BuildTopology() {
     }
 
     cycle_.acceptedTopology = *snapshot;
+    if (cycle_.pendingReset && cycle_.pendingReset->selfIDRecoveryOnly) {
+        // A deferred timeout/decode recovery is obsolete once current Self-ID
+        // and topology are both valid. Do not reset a bus that just recovered.
+        ASFW_LOG(BusReset, "Cancelled obsolete Self-ID recovery after valid topology gen=%u",
+                 snapshot->generation);
+        cycle_.pendingReset.reset();
+    }
     lastAcceptedGeneration_ = snapshot->generation;
     lastTopologyNodeCount_ =
         static_cast<uint8_t>(std::min<std::size_t>(snapshot->physical.nodes.size(), 0xFFU));
@@ -328,14 +305,21 @@ void BusResetCoordinator::HandleStraySelfID() {
     }
 
     if (!CanAttemptSelfIDDecode()) {
-        ClearConsumedSelfIDInterrupts();
+        ConsumeSelfIDLatch();
         return;
     }
 
     ASFW_LOG_V2(BusReset, "Handling late Self-ID completion outside active reset flow");
+    const uint64_t completionTime = selfIdLatch_.complete ? selfIdLatch_.completeTimeNs
+                                                         : selfIdLatch_.stickyCompleteTimeNs;
+    ArmSoftwareResetHoldoffAfterSelfIDCompletion(completionTime);
     const bool decoded = DecodeSelfID();
-    ClearConsumedSelfIDInterrupts();
+    ConsumeSelfIDLatch();
     if (decoded) {
+        postResetTiming_.OnSelfIDComplete(lastGeneration_.value, completionTime);
+        stopFlushIssued_ = false;
+        filtersEnabled_ = false;
+        atArmed_ = false;
         TransitionTo(State::QuiescingAT, "Late Self-ID completion");
     }
 }
@@ -432,6 +416,7 @@ BusResetCoordinator::ResetRequest BusResetCoordinator::MergeResetRequests(
     };
 
     ResetRequest merged = current;
+    merged.selfIDRecoveryOnly = current.selfIDRecoveryOnly && incoming.selfIDRecoveryOnly;
     merged.flavor = strongerFlavor(current.flavor, incoming.flavor);
     merged.kind = mergedKind(current.kind, incoming.kind);
 
@@ -680,30 +665,11 @@ void BusResetCoordinator::ScheduleManualResetWatchdog(uint32_t manualEpoch, uint
         return;
     }
 
-    const auto epoch = deferredWorkEpoch_;
-#ifdef ASFW_HOST_TEST
-    if (workQueue_->UsesManualDispatchForTesting()) {
-        workQueue_->DispatchAsyncAfter(static_cast<uint64_t>(kManualResetWatchdogMs) * 1'000'000ULL,
-                                       ^{
-                                         Shared::PostedWorkEpoch::Lease lease(*epoch);
-                                         if (!lease) return;
-                                         MaybeRecoverMissingManualResetIrq(manualEpoch, resetEpoch);
-                                       });
-        return;
+    if (!ScheduleDeferred(kManualResetWatchdogMs, [this, manualEpoch, resetEpoch] {
+        MaybeRecoverMissingManualResetIrq(manualEpoch, resetEpoch);
+    })) {
+        RecordRecoveryReason("Manual reset watchdog timer scheduling failed");
     }
-#endif
-
-    workQueue_->DispatchAsync(^{
-      Shared::PostedWorkEpoch::Lease lease(*epoch);
-      if (!lease) return;
-#ifdef ASFW_HOST_TEST
-      (void)manualEpoch;
-      (void)resetEpoch;
-#else
-      IOSleep(kManualResetWatchdogMs);
-      MaybeRecoverMissingManualResetIrq(manualEpoch, resetEpoch);
-#endif
-    });
 }
 
 void BusResetCoordinator::MaybeRecoverMissingManualResetIrq(uint32_t manualEpoch,

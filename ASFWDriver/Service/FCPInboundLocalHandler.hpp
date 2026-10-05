@@ -56,18 +56,32 @@ public:
 private:
     [[nodiscard]] Async::LocalRequestResult
     Route(const Async::LocalRequestContext& ctx, std::span<const uint8_t> payload) {
+        (void)payload;
+        if (ctx.destOffset < Protocols::AVC::kFCPResponseAddress ||
+            ctx.destOffset >= Protocols::AVC::kFCPResponseAddressEnd) {
+            return Async::LocalRequestResult::NotMine();
+        }
+        auto result = Async::LocalRequestResult::Write(Async::ResponseCode::Complete);
+        result.afterWriteResponse = this;
+        return result;
+    }
+
+public:
+    // Semantic adaptation of ASFireWire de53e4c00e0e22a5194e7acc52601cbc9a090ae0:
+    // queue the write response before any FCP observer/completion can issue the
+    // next command. Same-stack dispatch avoids timer failure/inline fallbacks.
+    void AfterWriteResponse(const Async::LocalRequestContext& ctx,
+                            bool responseReady) override {
         const Protocols::Ports::BlockWriteRequestView request{
             .sourceID = ctx.sourceID,
             .destOffset = ctx.destOffset,
             .generation = ctx.generation,
-            .payload = payload,
+            .payload = ctx.writePayload,
         };
-        const auto disposition = fcp_->RouteBlockWrite(request);
-        if (disposition == Protocols::Ports::BlockWriteDisposition::kAddressError) {
-            return Async::LocalRequestResult::NotMine();
-        }
-        return Async::LocalRequestResult::Write(Async::ResponseCode::Complete);
+        (void)fcp_->RouteBlockWrite(request, responseReady);
     }
+
+private:
 
     Protocols::AVC::FCPResponseRouter* fcp_;
 };

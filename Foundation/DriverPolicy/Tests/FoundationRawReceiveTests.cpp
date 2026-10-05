@@ -599,12 +599,31 @@ int main() {
         uint64_t length{};
         assert(memory->GetLength(&length) == kIOReturnSuccess);
         assert(length == RX::RawSink::RequiredBytes());
+        IOAddressSegment range{};
+        assert(memory->GetAddressRange(&range) == kIOReturnSuccess);
+        auto* records = reinterpret_cast<const RX::Record*>(range.address + sizeof(RX::RingHeader));
+        // Reset-time partial/error completion: the final drain must preserve the
+        // exact bytes and status, including a tail not divisible by 16. The real
+        // DMA alignment trap is covered separately by the ARM64 codegen check.
+        auto context = f.isoch.CopyReceiveContext();
+        // Crash registers retained statusWord=0x841d0ea4: 4096-0x0ea4=348 bytes.
+        constexpr uint16_t partialLength = 348;
+        constexpr uint16_t partialStatus = 0x841d;
+        for (uint16_t i = 0; i < partialLength; ++i) context->TestPayloadAt(0)[i] = uint8_t(i * 17);
+        context->TestDescriptorAt(0)->statusWord = (uint32_t(partialStatus) << 16) | (4096 - partialLength);
         memory->release();
         assert(f.service.Stop(11, f.session.epoch) == kIOReturnNotPrivileged);
         assert(f.service.Stop(10, f.session.epoch + 1) == kIOReturnNotPrivileged);
         f.hardware->SetTestRegister(static_cast<Register32>(DMAContextHelpers::IsoRcvContextControlSet(0)), 0);
         assert(f.service.StopAll(true) == kIOReturnSuccess);
         assert(f.Status().state == uint32_t(RX::State::BusReset));
+        assert(f.Status().writeSequence == 1 && f.Status().dropped == 0);
+        assert(records[0].payloadBytes == partialLength && records[0].transferStatus == partialStatus);
+        assert(records[0].residualCount == 4096 - partialLength);
+        for (uint16_t i = 0; i < partialLength; ++i) assert(records[0].payload[i] == uint8_t(i * 17));
+        for (size_t i = partialLength; i < RX::kPayloadBytes; ++i) assert(records[0].payload[i] == 0);
+        assert(f.service.StopAll(true) == kIOReturnSuccess);
+        assert(context->Poll() == 0 && f.Status().writeSequence == 1); // no duplicate final drain
         const auto terminalEpoch = f.session.epoch;
         assert(f.Start() == kIOReturnBusy);
         RX::SessionWire other;
@@ -620,6 +639,90 @@ int main() {
         assert(inspector != 0);
         Policy::ReleaseActivity(inspector);
         assert(f.service.CopyMemory(10, &options, &memory) == kIOReturnNotReady);
+    }
+    {
+        // Whole-tape -> whole-tape reuses the DMA context but must replace the
+        // consumer/session and reset every completion, anchor and terminal link.
+        Fixture f;
+        std::shared_ptr<ASFW::Isoch::IsochReceiveContext> reused;
+        uint64_t previousEpoch = 0;
+        for (unsigned run = 0; run < 3; ++run) {
+            f.Active();
+            auto context = f.isoch.CopyReceiveContext();
+            if (reused) assert(context == reused);
+            reused = context;
+            assert(f.session.epoch > previousEpoch);
+            previousEpoch = f.session.epoch;
+            const auto capacity = ASFW::Isoch::IsochReceiveContext::kNumDescriptors;
+            for (size_t i = 0; i < capacity; ++i) {
+                assert(context->TestDescriptorAt(i)->statusWord == 4096);
+                assert((context->TestDescriptorAt(i)->branchWord & 0xf) == (i + 1 < capacity ? 1 : 0));
+            }
+            assert(context->Poll() == 0 && f.Status().writeSequence == 0);
+            // Leave a consumed anchor away from descriptor zero after wraps.
+            const size_t packets = 2 * capacity + 184;
+            for (size_t i = 0; i < packets; ++i) {
+                const size_t index = i % capacity;
+                context->TestPayloadAt(index)[0] = uint8_t(run);
+                context->TestDescriptorAt(index)->statusWord = (0x8411u << 16) | (4096 - 496);
+                assert(context->Poll() == 1);
+            }
+            auto* finalDescriptor = context->TestDescriptorAt(packets % capacity);
+            finalDescriptor->statusWord = (0x841du << 16) | (4096 - 348);
+            f.hardware->SetTestRegister(static_cast<Register32>(DMAContextHelpers::IsoRcvContextControlSet(0)), 0);
+            const auto stopped = run == 0 ? f.service.Stop(10, f.session.epoch) : f.service.StopAll(true);
+            assert(stopped == kIOReturnSuccess);
+            assert(f.Status().writeSequence == packets + 1 && f.Status().dropped == 0);
+            assert(f.service.ReleaseOwner(10) == kIOReturnSuccess);
+            assert(f.isoch.CopyReceiveContext() == context);
+        }
+        assert(f.isoch.ReleaseQuiescedReceiveContexts() == kIOReturnSuccess);
+    }
+    {
+        // A real generation transition invalidates the old route. Rearm the
+        // same service/context only after final ACK and owner close, using a
+        // newly discovered route and new receive epoch. No stale cleanup CAS.
+        Fixture f;
+        f.ManagedActive();
+        const auto oldRoute = f.route;
+        const auto oldEpoch = f.session.epoch;
+        auto context = f.isoch.CopyReceiveContext();
+        context->TestPayloadAt(0)[0] = 0x42;
+        context->TestDescriptorAt(0)->statusWord = (0x841du << 16) | (4096 - 348);
+        f.hardware->SetTestRegister(
+            static_cast<Register32>(DMAContextHelpers::IsoRcvContextControlSet(0)), 0);
+        f.registry->InvalidateLiveMappingsForBusReset();
+        f.bus.SetGeneration(ASFW::FW::Generation{8});
+        f.irm->SetIRMNode(2, ASFW::IRM::Generation{8});
+        const auto locks = f.bus.LockCount();
+        assert(f.service.StopAll(true) == kIOReturnSuccess);
+        assert(f.Status().state == uint32_t(RX::State::BusReset));
+        assert(f.Status().writeSequence == 1 && f.Status().acknowledgedSequence == 0);
+        assert(f.bus.LockCount() == locks && f.bus.pending.empty());
+        assert(f.service.Acknowledge(10, oldEpoch, 1) == kIOReturnSuccess);
+        assert(f.service.ReleaseOwner(10) == kIOReturnSuccess);
+        ASFW::Discovery::ConfigROM rom{};
+        rom.bib.guid = oldRoute.guid; rom.gen = ASFW::FW::Generation{8}; rom.nodeId = 4;
+        ASFW::Discovery::LinkPolicy link{}; link.localToNode = ASFW::FW::FwSpeed::S100;
+        (void)f.registry->UpsertFromROM(rom, link);
+        const auto token = f.registry->CurrentRoute(oldRoute.guid); assert(token);
+        assert(f.Start() != kIOReturnSuccess); // old generation never readmitted
+        f.route.deviceIncarnation = token->deviceIncarnation; f.route.routeEpoch = token->routeEpoch;
+        f.route.generation = token->generation.value; f.route.nodeID = token->nodeId;
+        assert(f.Start() == kIOReturnSuccess);
+        f.bus.Complete(1); f.bus.Complete(0xc0020078);
+        assert(f.Status().state == uint32_t(RX::State::Active));
+        assert(f.bus.LockCount() == locks && f.bus.WriteCount() == 0);
+        assert(f.session.epoch > oldEpoch && f.Status().writeSequence == 0);
+        assert(f.isoch.CopyReceiveContext() == context);
+        assert(f.service.Acknowledge(10, oldEpoch, 1) != kIOReturnSuccess);
+        context->TestPayloadAt(0)[0] = 0x43;
+        context->TestDescriptorAt(0)->statusWord = (0x8411u << 16) | (4096 - 496);
+        assert(context->Poll() == 1 && f.Status().writeSequence == 1);
+        f.hardware->SetTestRegister(
+            static_cast<Register32>(DMAContextHelpers::IsoRcvContextControlSet(0)), 0);
+        assert(f.service.Stop(10, f.session.epoch) == kIOReturnSuccess);
+        assert(f.service.ReleaseOwner(10) == kIOReturnSuccess);
     }
     {
         auto* f = new Fixture; // deliberate retained quarantine graph

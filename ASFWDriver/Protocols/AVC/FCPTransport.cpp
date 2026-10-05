@@ -419,7 +419,8 @@ bool FCPTransport::CancelCommand(FCPHandle handle) {
 // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 void FCPTransport::OnFCPResponse(uint16_t srcNodeID,
                                  uint32_t generation,
-                                 std::span<const uint8_t> payload) {
+                                 std::span<const uint8_t> payload,
+                                 bool responseReady) {
     IOLockLock(lock_);
 
     if (shuttingDown_ || !pending_) {
@@ -514,6 +515,16 @@ void FCPTransport::OnFCPResponse(uint16_t srcNodeID,
         }
         ASFW_LOG_V3(FCP,
                      "FCPTransport: Response validation failed (likely stale/duplicate response)");
+        return;
+    }
+
+    if (!responseReady) {
+        // Preserve the received fact without advancing the command when its
+        // required write response could not be submitted. Foundation observers
+        // only retain evidence. A retransmitted response or the existing bounded
+        // deadline resolves the still-pending command; never replay kNever work.
+        IOLockUnlock(lock_);
+        if (responseObserver) responseObserver(responseEvidence);
         return;
     }
 

@@ -3,6 +3,7 @@
 #pragma once
 #include "FoundationReceiveWire.hpp"
 #include "../../ASFWDriver/Isoch/Core/IsochTypes.hpp"
+#include "../../ASFWDriver/Common/DMASafeCopy.hpp"
 #include <cstring>
 #include <new>
 
@@ -72,8 +73,9 @@ public:
         record.lossBefore = dropped_;
         record.flags = 1; // transport continuity unknown
         record.reserved = 0;
-        if (!packet.payload.empty())
-            std::memcpy(record.payload.data(), packet.payload.data(), packet.payload.size());
+        ASFW::Common::CopyFromQuadletAlignedDeviceMemory(
+            std::span<uint8_t>(record.payload.data(), packet.payload.size()),
+            packet.payload.data());
         // Do not publish stale bytes beyond this packet's actual payload length.
         std::memset(record.payload.data() + packet.payload.size(), 0,
                     kPayloadBytes - packet.payload.size());

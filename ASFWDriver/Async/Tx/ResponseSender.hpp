@@ -36,9 +36,13 @@ public:
                    void* captureContext) noexcept;
 #endif
 
+    // Submission is not proof of on-wire acknowledgement. Failed means no
+    // response chain was admitted; only ACK_COMPLETE/broadcast need none.
+    enum class WriteDisposition { Submitted, NotRequired, Failed };
+
     /// Build and transmit a WrResp for the given request packet.
     /// Skips transmission for broadcast requests (destID=0xFFFF).
-    void SendWriteResponse(const ARPacketView& request, ResponseCode rcode) noexcept;
+    WriteDisposition SendWriteResponse(const ARPacketView& request, ResponseCode rcode) noexcept;
 
     /// Build and transmit a Read Quadlet Response (tCode 0x6).
     void SendReadQuadletResponse(const ARPacketView& request,
@@ -64,7 +68,7 @@ private:
         std::atomic<uint32_t> nextSlot{0};
     };
 
-    void SendResponse(const ARPacketView& request,
+    WriteDisposition SendResponse(const ARPacketView& request,
                       ResponseCode rcode,
                       uint8_t responseTCode,
                       uint32_t* header,
