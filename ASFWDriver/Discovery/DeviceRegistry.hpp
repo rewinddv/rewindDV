@@ -76,9 +76,9 @@ private:
     mutable IOLock* lock_{nullptr};
     std::map<Guid64, DeviceRecord> devicesByGuid_;
 
-    // Preserve the last incarnation after a record is retired so replugging the
-    // same GUID cannot accidentally validate callbacks from its old service.
-    std::map<Guid64, uint64_t> lastDeviceIncarnationByGuid_;
+    // One issuance counter, not an unbounded tombstone for every historical GUID.
+    // Clear removes records without recycling identity within this registry.
+    uint64_t nextDeviceIncarnation_{0};
     uint64_t nextRouteEpoch_{0};
 
     // Secondary index: (generation, nodeId) → GUID for fast per-generation lookup

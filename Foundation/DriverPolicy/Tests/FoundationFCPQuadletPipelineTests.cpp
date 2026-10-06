@@ -151,17 +151,14 @@ void TestPhysicalWriteQuadletRetainsCanonicalFCPBytes() {
     DeferredFireWireBus bus;
     FakeSessionScheduler scheduler;
     DeviceRegistry routes;
-    DeviceRecord record{};
-    record.guid = kGuid;
-    record.nodeId = 1;
-    record.gen = Generation{kGeneration};
-    auto device = FWDevice::Create(record, ConfigROM{});
-    assert(device);
     ConfigROM rom{};
     rom.bib.guid = kGuid;
     rom.nodeId = 1;
     rom.gen = Generation{kGeneration};
-    (void)routes.UpsertFromROM(rom, {});
+    const auto& record = routes.UpsertFromROM(rom, {});
+    assert(record.deviceIncarnation != 0);
+    auto device = FWDevice::Create(record, rom);
+    assert(device);
 
     auto transport = std::make_shared<FCPTransport>();
     assert(transport->init(&bus, &bus, device.get(), routes, scheduler, {}));
@@ -232,21 +229,20 @@ void TestSubmissionBoundary(uint16_t receiveStatus, bool senderPresent,
     DeferredFireWireBus bus;
     FakeSessionScheduler scheduler;
     DeviceRegistry routes;
-    DeviceRecord record{};
-    record.guid = kGuid;
-    record.nodeId = 1;
-    record.gen = Generation{kGeneration};
-    auto device = FWDevice::Create(record, ConfigROM{});
     ConfigROM rom{};
     rom.bib.guid = kGuid;
     rom.nodeId = 1;
     rom.gen = Generation{kGeneration};
-    (void)routes.UpsertFromROM(rom, {});
+    const auto& record = routes.UpsertFromROM(rom, {});
+    assert(record.deviceIncarnation != 0);
+    auto device = FWDevice::Create(record, rom);
+    assert(device);
     auto transport = std::make_shared<FCPTransport>();
     assert(transport->init(&bus, &bus, device.get(), routes, scheduler, {}));
     ResponseRig responses(capacity);
     unsigned observed = 0;
     unsigned completed = 0;
+    unsigned rejectedQueued = 0;
     unsigned expectedResponses = unsigned(expectQueued);
     FCPStatus terminal = FCPStatus::kBusy;
     FCPCommandPolicy policy{};
@@ -275,7 +271,9 @@ void TestSubmissionBoundary(uint16_t receiveStatus, bool senderPresent,
         }
     }, policy).IsValid());
     if (!lateWriteCompletion) assert(bus.CompleteNextWrite(AsyncStatus::kSuccess));
-    assert(transport->SubmitCommand(PlayFrame(), [](FCPStatus, const FCPFrame&) {}, policy).IsValid());
+    assert(transport->SubmitCommand(PlayFrame(), [&](FCPStatus status, const FCPFrame&) {
+        if (status == FCPStatus::kTransportError) ++rejectedQueued;
+    }, policy).IsValid());
     assert(bus.WriteCount() == 1);
 
     std::vector<uint8_t> bytes(kSonyAcceptedPlayAR.begin(), kSonyAcceptedPlayAR.end());
@@ -300,9 +298,13 @@ void TestSubmissionBoundary(uint16_t receiveStatus, bool senderPresent,
     assert(observed == 1); // failed submission still preserves received evidence
     assert(responses.queued == unsigned(expectQueued)); // no duplicate response
     assert(completed == unsigned(expectCompletion));
-    assert(bus.WriteCount() == (expectCompletion ? 2U : 1U));
+    assert(bus.WriteCount() == (expectCompletion && !interim ? 2U : 1U));
     if (expectCompletion) {
         assert(terminal == (interim ? FCPStatus::kTimeout : FCPStatus::kOk));
+        if (interim) {
+            assert(rejectedQueued == 1);
+            assert(transport->CopyUncertainResponseEvidence().admissionFenced);
+        }
     } else {
         // Failure never consumes the never-retry policy. The existing deadline
         // remains live and bounded; receipt alone did not advance the FIFO.
@@ -325,9 +327,11 @@ void TestSubmissionBoundary(uint16_t receiveStatus, bool senderPresent,
         } else {
             scheduler.Advance(21'000'000ULL);
             assert(completed == 1 && terminal == FCPStatus::kTimeout);
-            // Only the already-queued distinct command starts; the original
-            // never-retry request was not replayed.
-            assert(bus.WriteCount() == 2);
+            // An issued command timed out without a definitive response. Its
+            // uncertainty rejects the queued command rather than attributing a
+            // late response to that next command.
+            assert(bus.WriteCount() == 1 && rejectedQueued == 1);
+            assert(transport->CopyUncertainResponseEvidence().admissionFenced);
         }
     }
     transport->Shutdown();

@@ -150,6 +150,7 @@ class TransactionManager {
      * Serialized via lock. Safe to call concurrently.
      */
     void Remove(TLabel label) noexcept;
+    [[nodiscard]] bool Adopt(std::unique_ptr<Transaction> transaction) noexcept;
 
     /**
      * \brief Cancel all transactions.
@@ -170,7 +171,8 @@ class TransactionManager {
      * callbacks that might re-enter the manager (e.g. Retry -> Allocate).
      * This prevents deadlocks.
      */
-    [[nodiscard]] std::unique_ptr<Transaction> Extract(TLabel label) noexcept;
+    [[nodiscard]] std::unique_ptr<Transaction> Extract(TLabel label, std::optional<uint32_t> operation = std::nullopt) noexcept;
+    [[nodiscard]] std::unique_ptr<Transaction> ExtractForAR(const MatchKey& key) noexcept;
 
     /**
      * \brief Get count of in-flight transactions.

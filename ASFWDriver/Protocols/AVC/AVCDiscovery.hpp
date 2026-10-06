@@ -81,6 +81,11 @@ public:
 
     /// Stop every FCP producer before the async subsystem is dismantled.
     void Shutdown();
+    [[nodiscard]] bool RetireDeferredWork() noexcept;
+    [[nodiscard]] std::shared_ptr<Shared::PostedWorkEpoch> DeferredWorkEpoch() const noexcept {
+        return deferredWorkEpoch_;
+    }
+    [[nodiscard]] bool RetireDeviceWork(uint64_t guid) noexcept;
 
     FCPTransport* GetFCPTransportForNodeID(uint16_t nodeID) override;
 
@@ -110,6 +115,9 @@ private:
     };
 
     struct DuetPrefetchOperation {
+        // Async protocol continuations borrow this unit's FCP transport.
+        // Preserve that owner until their terminal callback leaves.
+        std::shared_ptr<AVCUnit> unit;
         Discovery::DeviceRouteToken route{};
         uint64_t operationSerial{0};
         uint64_t startTimeNs{0};
@@ -176,6 +184,8 @@ private:
                                       const std::shared_ptr<::ASFW::Audio::Oxford::Apogee::ApogeeDuetProtocol>& protocol,
                                       const std::shared_ptr<DuetPrefetchOperation>& operation,
                                       const ::ASFW::Audio::Model::ASFWAudioDevice& config);
+    [[nodiscard]] bool IsCurrentUnit(uint64_t guid, const std::shared_ptr<AVCUnit>& unit) const;
+    void RemoveUnit(uint64_t guid, const std::shared_ptr<Discovery::FWUnit>& expected = {});
     void ScheduleRescan(uint64_t guid, const std::shared_ptr<AVCUnit>& avcUnit);
     [[nodiscard]] bool IsDuetPrefetchCurrent(
         const std::shared_ptr<DuetPrefetchOperation>& operation) const noexcept;
@@ -206,6 +216,8 @@ private:
 
     OSSharedPtr<IODispatchQueue> rescanQueue_;
 
+    std::shared_ptr<Shared::PostedWorkEpoch> deferredWorkEpoch_{
+        std::make_shared<Shared::PostedWorkEpoch>()};
     std::atomic<bool> shuttingDown_{false};
 
     os_log_t log_{OS_LOG_DEFAULT};

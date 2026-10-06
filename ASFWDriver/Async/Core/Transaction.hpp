@@ -155,6 +155,8 @@ struct TransactionStateHistory {
 
 class Transaction {
 public:
+    void SetOperationIdentity(uint32_t operation) noexcept { operationIdentity_ = operation; }
+    [[nodiscard]] uint32_t OperationIdentity() const noexcept { return operationIdentity_; }
     Transaction(TLabel label, BusGeneration gen, NodeID nodeID) noexcept
         : label_(label), generation_(gen), nodeID_(nodeID) {}
 
@@ -322,6 +324,7 @@ public:
     Transaction& operator=(Transaction&&) = delete;
 
 private:
+    uint32_t operationIdentity_{0};
     void ReleaseResources() noexcept;
 
     // Identification (tLabel is the identifier - matches Apple's pattern)

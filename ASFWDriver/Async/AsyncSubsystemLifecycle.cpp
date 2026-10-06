@@ -467,13 +467,14 @@ kern_return_t AsyncSubsystem::FailStart(const char* failureStage, kern_return_t 
     ASFW_LOG_TYPE(Async, OS_LOG_TYPE_ERROR,
                   "AsyncSubsystem::Start failed at stage %{public}s (kr=0x%08x)",
                   failureStage ? failureStage : "unknown", kr);
-    Teardown(false);
+    (void)Teardown(false); // Failed retirement remains latched for root containment.
     return kr == kIOReturnSuccess ? kIOReturnError : kr;
 }
 
 kern_return_t AsyncSubsystem::Start(Driver::HardwareInterface& hw, OSObject* owner,
                                     IODispatchQueue* workloopQueue, OSAction* completionAction,
                                     size_t completionQueueCapacityBytes) {
+    if (dmaQuarantined_) return kIOReturnNotReady;
     if (isRunning_) {
         ASFW_LOG(Async, "Already running, returning success");
         return kIOReturnSuccess;
@@ -507,6 +508,7 @@ kern_return_t AsyncSubsystem::Start(Driver::HardwareInterface& hw, OSObject* own
         return FailStart(failureStage, coreKr);
     }
 
+    dmaContextsRetired_ = false;
     const kern_return_t provisionKr = ProvisionAsyncDataPath(failureStage);
     if (provisionKr != kIOReturnSuccess) {
         return FailStart(failureStage, provisionKr);
@@ -570,6 +572,7 @@ kern_return_t AsyncSubsystem::ArmARContextsOnly() {
 
 void AsyncSubsystem::BeginQuiesce() noexcept {
     acceptingSubmissions_.store(false, std::memory_order_release);
+    DrainSubmission();
     if (postedWorkEpoch_) postedWorkEpoch_->Retire();
 }
 
@@ -587,13 +590,18 @@ bool AsyncSubsystem::RetirePostedWorkAndWait() noexcept {
     return epoch->Quiesced();
 }
 
-void AsyncSubsystem::Stop() {
+bool AsyncSubsystem::Stop() {
     const bool disableHardware =
         isRunning_ && hardware_ != nullptr && hardware_->IsAvailable();
-    Teardown(disableHardware);
+    return Teardown(disableHardware);
 }
 
-void AsyncSubsystem::Teardown(bool disableHardware) {
+bool AsyncSubsystem::Teardown(bool disableHardware) {
+    if (dmaQuarantined_) return false;
+    if (completionQueue_ && !completionQueue_->NativeRetirementComplete()) {
+        ASFW_LOG_ERROR(Async, "Async teardown requires terminal native completion-source retirement");
+        return false;
+    }
     acceptingSubmissions_.store(false, std::memory_order_release);
     if (postedWorkEpoch_) postedWorkEpoch_->Retire();
     if (disableHardware && hardware_) {
@@ -612,22 +620,27 @@ void AsyncSubsystem::Teardown(bool disableHardware) {
     // Delegate teardown to ContextManager (it owns DMA mappings/rings/contexts)
     if (contextManager_) {
         if (!contextManager_->teardown(disableHardware)) {
-            // The descriptor slab can still reference payload mappings owned by
-            // Tracking. Retain that owner too; never free payloads behind DMA.
-            if (tracking_) tracking_->QuarantinePayloads();
-            ASFW_LOG_ERROR(Async, "Async teardown: retaining posted payload registry with quarantined DMA");
+            // Root must retain the service as well as the descriptor slab,
+            // posted payloads, callbacks and every borrowed runtime owner.
+            dmaQuarantined_ = true;
+            ASFW_LOG_ERROR(Async, "Async teardown: DMA retirement unproved; entire runtime must remain retained");
+            return false;
         }
     } else {
         ASFW_LOG(Async, "Teardown: ContextManager not present");
     }
 
-    completionQueue_.reset();
-    completionAction_.reset();
-
     if (txnMgr_) {
-        txnMgr_->CancelAll();
+        // Cancellation is a logical completion, not proof that a posted
+        // request cannot produce a late remote response. Record uncertainty
+        // before invoking clients or destroying the transaction manager.
+        if (tracking_) tracking_->CancelAllAndFreeLabels();
+        else txnMgr_->CancelAll(); // Partial initialization: no tracking/publication yet.
         txnMgr_.reset();
     }
+
+    completionQueue_.reset();
+    completionAction_.reset();
 
     responseSender_.reset();
     descriptorBuilder_ = nullptr;
@@ -661,6 +674,8 @@ void AsyncSubsystem::Teardown(bool disableHardware) {
 
     is_bus_reset_in_progress_.store(0, std::memory_order_release);
     isRunning_ = false;
+    dmaContextsRetired_ = true;
+    return true;
 }
 
 // ============================================================================

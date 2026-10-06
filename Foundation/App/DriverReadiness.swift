@@ -135,3 +135,25 @@ enum DriverBuildAssessment: Equatable, Sendable {
     return "\(values) is still attached to the FireWire controller; this app requires Build\(required). Refresh only checks readiness—it does not activate or replace a driver. If activation was already accepted, the replacement has not attached yet; macOS may require a restart to finish it. Do not uninstall or repeatedly activate the driver."
   }
 }
+
+// App build and required driver build are independent identities. Missing or
+// malformed signed metadata never broadens the exact driver admission gate.
+struct DriverBuildRequirement: Equatable, Sendable {
+  let build: UInt64
+
+  init?(metadata: String?) {
+    guard let metadata, !metadata.isEmpty,
+      metadata.utf8.allSatisfy({ $0 >= 48 && $0 <= 57 }),
+      let value = UInt64(metadata), value > 0, value <= UInt64(UInt32.max),
+      String(value) == metadata else { return nil }
+    build = value
+  }
+
+  static let bundled = DriverBuildRequirement(
+    metadata: Bundle.main.object(forInfoDictionaryKey: "RewindDVRequiredDriverBuild") as? String)
+  static var display: String { bundled.map { "Driver B\($0.build)" } ?? "Driver identity unavailable" }
+
+  func permitsReplacement(bundleVersion: String) -> Bool {
+    DriverBuildRequirement(metadata: bundleVersion)?.build == build
+  }
+}

@@ -77,6 +77,7 @@
 #include "SCSIController/SBP2NubPublisher.hpp"
 #include "SCSIController/SBP2TargetBridge.hpp"
 #include "Shared/Memory/DMAMemoryManager.hpp"
+#include "Shared/Completion/NativeSourceRetirement.hpp"
 #include "ASFWAudioNub.h"
 
 using namespace ASFW::Driver;
@@ -178,8 +179,20 @@ void EnsureRomScanner(ServiceContext& ctx) {
     }
 }
 
-bool ExecuteRuntimeTeardown(ASFWDriver& service, ServiceContext& ctx, const QuiescePlan& plan) {
-    if (ctx.receiveQuarantined.load(std::memory_order_acquire)) return false;
+void QuarantineRuntime(ASFWDriver& service, ServiceContext& ctx, kern_return_t status) {
+    ctx.receiveQuiesceFailure = status;
+    ctx.receiveQuarantined.store(true, std::memory_order_release);
+    if (!ctx.quarantineServiceRetained.exchange(true, std::memory_order_acq_rel)) {
+        if (ctx.nativeDrainServiceRetained) ctx.nativeDrainServiceRetained = false;
+        else service.retain();
+    }
+}
+
+bool PrepareRuntimeTeardown(ASFWDriver& service, ServiceContext& ctx, const QuiescePlan& plan) {
+    if (ctx.receiveQuarantined.load(std::memory_order_acquire)) {
+        QuarantineRuntime(service, ctx, kIOReturnNotReady);
+        return false;
+    }
     const bool providerRevoked = plan.reason == QuiesceReason::kProviderRevoked ||
                                  (ctx.deps.hardware && ctx.deps.hardware->HardwareGone());
 
@@ -195,9 +208,9 @@ bool ExecuteRuntimeTeardown(ASFWDriver& service, ServiceContext& ctx, const Quie
     const bool resetWorkQuiesced = !ctx.deps.busReset || ctx.deps.busReset->RetireDeferredWork();
     const bool controllerWorkQuiesced = !ctx.controller || ctx.controller->RetireDeferredWork();
     const bool romWorkQuiesced = !ctx.deps.romScanner || ctx.deps.romScanner->RetireDeferredWork();
-    if (!resetWorkQuiesced || !controllerWorkQuiesced || !romWorkQuiesced) {
-        ctx.receiveQuiesceFailure = kIOReturnBusy;
-        if (!ctx.receiveQuarantined.exchange(true, std::memory_order_acq_rel)) service.retain();
+    const bool avcWorkQuiesced = !ctx.deps.avcDiscovery || ctx.deps.avcDiscovery->RetireDeferredWork();
+    if (!resetWorkQuiesced || !controllerWorkQuiesced || !romWorkQuiesced || !avcWorkQuiesced) {
+        QuarantineRuntime(service, ctx, kIOReturnBusy);
         ASFW_LOG_ERROR(Controller,
                        "[Lifecycle] CONTROLLER_CALLBACK_QUARANTINED; retaining runtime and service");
         return false;
@@ -214,27 +227,17 @@ bool ExecuteRuntimeTeardown(ASFWDriver& service, ServiceContext& ctx, const Quie
     const kern_return_t isochStatus = captureStatus == kIOReturnSuccess
         ? ctx.isoch.StopAll() : captureStatus;
     if (isochStatus != kIOReturnSuccess) {
-        ctx.receiveQuiesceFailure = isochStatus;
-        if (!ctx.receiveQuarantined.exchange(true, std::memory_order_acq_rel)) {
-            service.retain();
-        }
+        QuarantineRuntime(service, ctx, isochStatus);
         ASFW_LOG_ERROR(Controller,
                        "[Lifecycle] RECEIVE_QUARANTINED kr=0x%x; retaining entire runtime and service; restart forbidden",
                        isochStatus);
         return false;
     }
 
-#ifndef ASFW_HOST_TEST
-    ctx.DisarmProviderNotifications();
-#endif
-
     if (ctx.deps.asyncSubsystem) {
         ctx.deps.asyncSubsystem->BeginQuiesce();
         if (!ctx.deps.asyncSubsystem->RetirePostedWorkAndWait()) {
-            ctx.receiveQuiesceFailure = kIOReturnBusy;
-            if (!ctx.receiveQuarantined.exchange(true, std::memory_order_acq_rel)) {
-                service.retain();
-            }
+            QuarantineRuntime(service, ctx, kIOReturnBusy);
             ASFW_LOG_ERROR(Controller,
                            "[Lifecycle] ASYNC_CALLBACK_QUARANTINED; retaining entire runtime and service");
             return false;
@@ -258,18 +261,39 @@ bool ExecuteRuntimeTeardown(ASFWDriver& service, ServiceContext& ctx, const Quie
     }
 
     ctx.watchdog.Stop();
-    if (ctx.deps.interrupts) {
-        ctx.deps.interrupts->Disable();
-        if (plan.reason != QuiesceReason::kSystemSuspend &&
-            plan.reason != QuiesceReason::kWakeRebuild) {
-            ctx.deps.interrupts->Teardown();
-        }
-    }
+    return true;
+}
+
+bool ExecuteRuntimeTeardown(ASFWDriver& service, ServiceContext& ctx, const QuiescePlan& plan) {
+    // No callback-owned or borrowed graph may be released before every native
+    // source has positively reported cancellation (disable for suspend IRQ).
+    if (!ctx.nativeDrain || !ctx.nativeDrain->AllTerminal() ||
+        ctx.nativeDrain->Quarantined() || ctx.receiveQuarantined.load(std::memory_order_acquire))
+        return false;
 
     ctx.statusPublisher.BindListener(nullptr);
     ctx.statusPublisher.Publish(ctx.controller.get(), ctx.deps.asyncController.get(),
                                 SharedStatusReason::Disconnect);
 
+    // Async retirement is a release gate, just like isoch receive retirement.
+    // Do not free other DMA buffers, detach PCI, reset the graph or call the
+    // superclass Stop when a context's hardware ownership remains unknown.
+    if (ctx.deps.asyncSubsystem && !ctx.deps.asyncSubsystem->Stop()) {
+        QuarantineRuntime(service, ctx, kIOReturnNotReady);
+        ASFW_LOG_ERROR(Controller,
+                       "[Lifecycle] ASYNC_DMA_QUARANTINED; retaining entire runtime and service; restart forbidden");
+        return false;
+    }
+    // Shutdown and Stop above can themselves cancel an issued request and
+    // create wire uncertainty. Check only after those producers are terminal;
+    // a fresh allocator after suspend/rebuild would otherwise erase the fence.
+    // Neither a local soft reset nor a new Self-ID proves remote FCP retirement.
+    if (ctx.deps.asyncSubsystem && ctx.deps.asyncSubsystem->HasUncertainWire()) {
+        QuarantineRuntime(service, ctx, kIOReturnNotReady);
+        ASFW_LOG_ERROR(Controller,
+                       "[Lifecycle] ASYNC_WIRE_QUARANTINED; preserving runtime; automatic rebuild forbidden");
+        return false;
+    }
     const bool hardwareGone = ctx.deps.hardware && ctx.deps.hardware->HardwareGone();
     // Surprise removal skips all final register cleanup. The teardown calls
     // above are software-safe and their old direct-MMIO helpers are revoked.
@@ -287,9 +311,6 @@ bool ExecuteRuntimeTeardown(ASFWDriver& service, ServiceContext& ctx, const Quie
     if (ctx.deps.selfId) {
         ctx.deps.selfId->ReleaseBuffers();
     }
-    if (ctx.deps.asyncSubsystem) {
-        ctx.deps.asyncSubsystem->Stop();
-    }
     if (ctx.controller) {
         ctx.controller->Stop();
     }
@@ -306,13 +327,8 @@ void ReleaseQuiescedRuntime(ServiceContext& ctx, const QuiescePlan& plan) {
     }
     ctx.lifecycle->CompleteQuiesce(plan, "runtime teardown complete", mach_absolute_time());
     const auto finalState = ctx.lifecycle->CurrentState();
-    // A provider revocation can race synchronous bring-up. Leave the stopped
-    // graph intact until StartRuntime observes the failed completion and
-    // returns; otherwise the callback would free objects still in use by that
-    // stack frame.
-    if (plan.stateBefore == ControllerState::kStarting) {
-        return;
-    }
+    // The native continuation runs on Default after the start/stop callback has
+    // returned, so even failed-start resources have no live bring-up stack.
     ctx.Reset(finalState == ControllerState::kSuspended ? ServiceContext::ResetMode::ForSuspend
                                                          : ServiceContext::ResetMode::Full);
 }
@@ -347,7 +363,10 @@ void ASFWDriver::free() {
             // the complete graph and service storage. Never resurrect refcount
             // zero here or destroy DMA-visible memory without proof.
             if (ivars->context->receiveQuarantined.load(std::memory_order_acquire) ||
-                !ivars->context->isoch.ReceiveContextsQuiesced()) {
+                !ivars->context->isoch.ReceiveContextsQuiesced() ||
+                (ivars->context->nativeDrain &&
+                 (!ivars->context->nativeDrain->AllTerminal() ||
+                  ivars->context->nativeDrain->Quarantined()))) {
                 ASFW_LOG_ERROR(Controller,
                                "[Lifecycle] free containment backstop: preserving service/runtime storage");
                 return;
@@ -379,6 +398,7 @@ kern_return_t ASFWDriver::StartRuntime(IOService* provider) {
     kern_return_t kr = kIOReturnSuccess;
     auto& ctx = *ivars->context;
     if (ctx.receiveQuarantined.load(std::memory_order_acquire)) return kIOReturnNotReady;
+    if (ctx.nativeDrain || ivars->stopPending) return kIOReturnBusy;
     DriverWiring::EnsureDeps(this, ctx);
     if (!ctx.lifecycle || !ctx.lifecycle->BeginStart("runtime start", mach_absolute_time())) {
         return kIOReturnBusy;
@@ -388,14 +408,12 @@ kern_return_t ASFWDriver::StartRuntime(IOService* provider) {
         if (ctx.lifecycle) {
             if (const auto plan = ctx.lifecycle->BeginFailedStart(detail, mach_absolute_time())) {
                 if (plan->runTeardown) {
-                    if (ExecuteRuntimeTeardown(*this, ctx, *plan)) {
-                        ReleaseQuiescedRuntime(ctx, *plan);
+                    if (PrepareRuntimeTeardown(*this, ctx, *plan)) {
+                        ctx.nativeDrainPlan = *plan;
+                        BeginNativeRuntimeDrain();
                     }
                 }
             }
-        }
-        if (ctx.lifecycle && ctx.lifecycle->CurrentState() == ControllerState::kStopped) {
-            ctx.Reset(ServiceContext::ResetMode::Full);
         }
         return status;
     };
@@ -574,39 +592,53 @@ kern_return_t ASFWDriver::StartRuntime(IOService* provider) {
 }
 
 kern_return_t IMPL(ASFWDriver, Stop) {
+    if (ivars && !ivars->stopPending) {
+        ivars->stopPending = true;
+        ivars->stopProvider = provider;
+        if (provider) provider->retain();
+    }
     RequestRuntimeQuiesce(static_cast<uint32_t>(QuiesceReason::kPlannedStop));
     if (ivars && ivars->context &&
         ivars->context->receiveQuarantined.load(std::memory_order_acquire)) {
         return ivars->context->receiveQuiesceFailure.load(std::memory_order_acquire);
     }
+    if (ivars && ivars->context && ivars->context->nativeDrain) return kIOReturnSuccess;
+    // A service that never created native sources still has no drain to await.
     if (ivars) {
-        if (ivars->wakeVerifyTimer) {
-            // Final stop is terminal.  DriverKit retains the timer's action
-            // until cancellation, and invokes this completion only after any
-            // queued timer callback returns.
-            auto* timer = ivars->wakeVerifyTimer;
-            auto* action = ivars->wakeVerifyAction;
-            ivars->wakeVerifyTimer = nullptr;
-            ivars->wakeVerifyAction = nullptr;
-            const kern_return_t kr = timer->Cancel(^{
-                if (action) {
-                    action->release();
-                }
-                timer->release();
-            });
-            if (kr != kIOReturnSuccess) {
-                if (action) {
-                    action->release();
-                }
-                timer->release();
-            }
-        }
         ivars->powerProvider = nullptr;
+        ivars->stopPending = false;
+        if (ivars->stopProvider) ivars->stopProvider->release();
+        ivars->stopProvider = nullptr;
     }
     return Stop(provider, SUPERDISPATCH);
 }
 
 void ASFWDriver::RequestRuntimeQuiesce(uint32_t rawReason) {
+    // LOCALONLY callers include user-client queues. Root resource mutation and
+    // every native finalizer run on Default; retain only the service across this
+    // hop, rather than borrowing a runtime that a prior request could release.
+    IODispatchQueue* rawQueue = nullptr;
+    if (CopyDispatchQueue("Default", &rawQueue) != kIOReturnSuccess || !rawQueue) {
+        // Without the lifecycle queue, no borrowed graph can safely be
+        // inspected or torn down. Only the immutable context address and its
+        // atomic containment fields are touched on this caller's queue.
+        if (ivars && ivars->context) {
+            auto& failedContext = *ivars->context;
+            retain();
+            if (failedContext.quarantineServiceRetained.exchange(true, std::memory_order_acq_rel))
+                release();
+            failedContext.receiveQuiesceFailure.store(kIOReturnNotReady, std::memory_order_release);
+            failedContext.receiveQuarantined.store(true, std::memory_order_release);
+            ASFW_LOG_ERROR(Controller, "[Lifecycle] lifecycle queue unavailable; retaining runtime/service; restart forbidden");
+        }
+        return;
+    }
+    auto queue = OSSharedPtr(rawQueue, OSNoRetain);
+    if (!queue->OnQueue()) {
+        retain();
+        queue->DispatchAsync(^{ RequestRuntimeQuiesce(rawReason); release(); });
+        return;
+    }
     if (!ivars || !ivars->context) {
         return;
     }
@@ -624,14 +656,190 @@ void ASFWDriver::RequestRuntimeQuiesce(uint32_t rawReason) {
     // A revocation request that races an already-running planned teardown must
     // still fence OHCI immediately. The active executor will observe its
     // state as Revoked before publishing its final transition.
-    if (plan->revokeImmediately && !plan->runTeardown && ctx.deps.hardware) {
+    if (plan->revokeImmediately && ctx.deps.hardware) {
         ctx.deps.hardware->LatchProviderRevokedAndDrain();
     }
     if (plan->runTeardown) {
-        if (ExecuteRuntimeTeardown(*this, ctx, *plan)) {
-            ReleaseQuiescedRuntime(ctx, *plan);
+        if (PrepareRuntimeTeardown(*this, ctx, *plan)) {
+            ctx.nativeDrainPlan = *plan;
+            BeginNativeRuntimeDrain();
         }
     }
+}
+
+void ASFWDriver::BeginNativeRuntimeDrain() {
+    if (!ivars || !ivars->context) return;
+    auto& ctx = *ivars->context;
+    if (ctx.nativeDrain || !ctx.nativeDrainPlan) return;
+
+    // One explicit service retain covers all native callbacks and the complete
+    // borrowed runtime. On failure it becomes the permanent quarantine retain.
+    if (!ctx.nativeDrainServiceRetained) {
+        retain();
+        ctx.nativeDrainServiceRetained = true;
+    }
+    ctx.nativeDrainProvider = OSSharedPtr(ivars->powerProvider, OSRetain);
+    auto drain = std::make_shared<ASFW::Shared::NativeCallbackDrain>();
+    ctx.nativeDrain = drain;
+
+    if (!ctx.nativeDrainQueue) {
+        IODispatchQueue* rawQueue = nullptr;
+        const auto kr = IODispatchQueue::Create("com.rewinddv.native-retirement",
+                                               kIODispatchQueueReentrant, 0, &rawQueue);
+        if (kr == kIOReturnSuccess && rawQueue) {
+            ctx.nativeDrainQueue = OSSharedPtr(rawQueue, OSNoRetain);
+        } else {
+            drain->Quarantine();
+        }
+    }
+    if (!ctx.workQueue) {
+        IODispatchQueue* rawQueue = nullptr;
+        if (CopyDispatchQueue("Default", &rawQueue) == kIOReturnSuccess && rawQueue)
+            ctx.workQueue = OSSharedPtr(rawQueue, OSNoRetain);
+        else drain->Quarantine();
+    }
+    if (!ASFW::Timing::initializeHostTimebase()) drain->Quarantine();
+    if (drain->Quarantined()) {
+        QuarantineRuntime(*this, ctx, kIOReturnNoResources);
+        ASFW_LOG_ERROR(Controller, "[Lifecycle] NATIVE_CALLBACK_QUARANTINED supervisor unavailable; retaining runtime/service");
+        return;
+    }
+
+    const auto supervisor = ctx.nativeDrainQueue;
+    const std::weak_ptr<ASFW::Shared::NativeCallbackDrain> weakDrain = drain;
+    drain->SetNotifier([supervisor, weakDrain] {
+        supervisor->DispatchAsync(^{
+            if (const auto state = weakDrain.lock()) (void)supervisor->Wakeup(state.get());
+        });
+    });
+
+    // Start supervision before invoking the platform primitives, so even a
+    // stalled cancellation request cannot extend the ownership deadline. The
+    // ledger becomes quarantined off Default and continues owning the graph.
+    // DriverKit 27 SleepWithDeadline releases this reentrant supervisor queue;
+    // it never blocks Default or the callbacks needed for the native barrier.
+    constexpr uint64_t kNativeDrainTimeoutNs = 1'000'000'000ULL;
+    const uint64_t deadline = mach_continuous_time() + ASFW::Timing::nanosToHostTicks(kNativeDrainTimeoutNs);
+    const auto lifecycleQueue = ctx.workQueue;
+    supervisor->DispatchAsync(^{
+        while (!drain->AllTerminal() && !drain->Quarantined()) {
+            if (mach_continuous_time() >= deadline) { drain->Quarantine(); break; }
+            const auto kr = supervisor->SleepWithDeadline(drain.get(),
+                kIOTimerClockMachContinuousTime, deadline);
+            if (kr != kIOReturnSuccess && !drain->AllTerminal()) {
+                drain->Quarantine();
+                break;
+            }
+        }
+        lifecycleQueue->DispatchAsync(^{ CompleteNativeRuntimeDrain(); });
+    });
+
+    const bool suspend = ctx.nativeDrainPlan->reason == QuiesceReason::kSystemSuspend ||
+                         ctx.nativeDrainPlan->reason == QuiesceReason::kWakeRebuild;
+    ctx.BeginProviderNativeRetirement(drain);
+    ctx.watchdog.BeginNativeRetirement(drain);
+    if (ctx.deps.sbp2SessionScheduler) ctx.deps.sbp2SessionScheduler->BeginNativeRetirement(drain);
+    if (ctx.deps.interrupts) ctx.deps.interrupts->BeginNativeRetirement(drain, suspend);
+    if (ctx.deps.asyncSubsystem) ctx.deps.asyncSubsystem->BeginNativeRetirement(drain);
+
+    // Wake verification belongs to the service but may otherwise act on a new
+    // runtime after sleep/rebuild. Drain it on every root transition and create
+    // a fresh action if a later wake needs verification.
+    OSSharedPtr<IOTimerDispatchSource> wakeTimer(ivars->wakeVerifyTimer, OSNoRetain);
+    OSSharedPtr<OSAction> wakeAction(ivars->wakeVerifyAction, OSNoRetain);
+    ASFW::Shared::RetireNativeSource(wakeTimer, wakeAction, drain);
+    ivars->wakeVerifyTimer = wakeTimer.detach();
+    ivars->wakeVerifyAction = wakeAction.detach();
+    drain->Seal();
+    ASFW_LOG(Controller,
+             "[Lifecycle] native drain sealed: sources=%u terminal=%u ledger_owner_refs=%u",
+             unsigned(drain->RegisteredSources()), unsigned(drain->TerminalSources()),
+             unsigned(drain->RetainedOwnerReferences()));
+}
+
+void ASFWDriver::CompleteNativeRuntimeDrain() {
+    if (!ivars || !ivars->context) return;
+    auto& ctx = *ivars->context;
+    const auto drain = ctx.nativeDrain;
+    if (!drain || !ctx.nativeDrainPlan) return;
+    if (drain->Quarantined() || !drain->AllTerminal()) {
+        QuarantineRuntime(*this, ctx, kIOReturnTimeout);
+        ASFW_LOG_ERROR(Controller, "[Lifecycle] NATIVE_CALLBACK_QUARANTINED cancel failed/deadline; retaining runtime/service; restart forbidden");
+        return;
+    }
+
+    auto plan = *ctx.nativeDrainPlan;
+    const bool wasSuspend = plan.reason == QuiesceReason::kSystemSuspend ||
+                            plan.reason == QuiesceReason::kWakeRebuild;
+    const bool revoked = ctx.lifecycle && ctx.lifecycle->CurrentState() == ControllerState::kRevoked;
+    if (wasSuspend && (ivars->stopPending || revoked)) {
+        // The first wave only disabled IRQ registration. Termination/revocation
+        // arriving during that wave requires one additional terminal Cancel,
+        // while the same service retain and unchanged runtime remain owned.
+        plan.reason = revoked ? QuiesceReason::kProviderRevoked : QuiesceReason::kPlannedStop;
+        ctx.nativeDrainPlan = plan;
+        ctx.nativeDrain.reset();
+        BeginNativeRuntimeDrain();
+        return;
+    }
+
+    if (!ExecuteRuntimeTeardown(*this, ctx, plan)) {
+        QuarantineRuntime(*this, ctx, kIOReturnNotReady);
+        return;
+    }
+    ReleaseQuiescedRuntime(ctx, plan);
+    if (ctx.receiveQuarantined.load(std::memory_order_acquire)) {
+        QuarantineRuntime(*this, ctx, kIOReturnNotReady);
+        return;
+    }
+    ctx.nativeDrainPlan.reset();
+    ctx.nativeDrain.reset();
+    ctx.nativeDrainProvider.reset();
+    ctx.nativeDrainServiceRetained = false;
+    ASFW_LOG(Controller,
+             "[Lifecycle] native sources terminal; runtime teardown complete; sources=%u terminal=%u ledger_owner_refs=%u runtime_roots_empty=%u",
+             unsigned(drain->RegisteredSources()), unsigned(drain->TerminalSources()),
+             unsigned(drain->RetainedOwnerReferences()),
+             unsigned(!ctx.controller && !ctx.deps.hardware && !ctx.deps.asyncSubsystem &&
+                      !ctx.deps.romScanner && !ctx.deps.avcDiscovery));
+
+    if (ivars->stopPending) {
+        auto* provider = ivars->stopProvider;
+        ivars->stopProvider = nullptr;
+        ivars->stopPending = false;
+        ivars->powerProvider = nullptr;
+        ivars->powerAcknowledgementPending = false;
+        ivars->wakeRebuildPending = false;
+        // Stop's explicit provider reference stays valid through super and is
+        // released afterward without dereferencing provider-owned state.
+        (void)Stop(provider, SUPERDISPATCH);
+        if (provider) provider->release();
+        release();
+        return;
+    }
+
+    const bool powerPending = ivars->powerAcknowledgementPending;
+    const uint32_t powerFlags = ivars->pendingPowerFlags;
+    ivars->powerAcknowledgementPending = false;
+    const bool resume = (powerPending && (powerFlags & kIOServicePowerCapabilityOn)) ||
+                        ivars->wakeRebuildPending;
+    const uint64_t verifyAttempt = ivars->wakeRebuildPending ? ivars->wakeVerifyAttempt : 1;
+    ivars->wakeRebuildPending = false;
+    if (resume && ctx.lifecycle && ctx.lifecycle->CurrentState() == ControllerState::kSuspended &&
+        ivars->powerProvider) {
+        if (StartRuntime(ivars->powerProvider) == kIOReturnSuccess) ScheduleWakeVerify(verifyAttempt);
+    }
+    if (powerPending) {
+        if (ctx.nativeDrain) {
+            // A failed resume can open its own failed-start drain. That new
+            // continuation owns the PM acknowledgement until it is terminal.
+            ivars->powerAcknowledgementPending = true;
+            ivars->pendingPowerFlags = powerFlags;
+        } else if (!ctx.receiveQuarantined.load(std::memory_order_acquire)) {
+            (void)SetPowerState(powerFlags, SUPERDISPATCH);
+        }
+    }
+    release();
 }
 
 // Wake verification cadence. 3s puts the first check well past the dark-wake →
@@ -646,6 +854,13 @@ kern_return_t IMPL(ASFWDriver, SetPowerState) {
              poweredOn ? "on" : "sleep/low");
 
     if (ivars) {
+        if (ivars->context && ivars->context->receiveQuarantined.load(std::memory_order_acquire))
+            return kIOReturnNotReady;
+        if (ivars->context && ivars->context->nativeDrain) {
+            ivars->powerAcknowledgementPending = true;
+            ivars->pendingPowerFlags = powerFlags;
+            return kIOReturnSuccess;
+        }
         if (!poweredOn) {
             // Sleep: quiesce everything and reset the runtime while the
             // controller still answers MMIO. The silicon loses its programmed
@@ -654,7 +869,13 @@ kern_return_t IMPL(ASFWDriver, SetPowerState) {
             if (ivars->context && ivars->context->lifecycle &&
                 ivars->context->lifecycle->CurrentState() == ControllerState::kRunning) {
                 ASFW_LOG(Controller, "SetPowerState: quiescing runtime for sleep");
+                ivars->powerAcknowledgementPending = true;
+                ivars->pendingPowerFlags = powerFlags;
                 RequestRuntimeQuiesce(static_cast<uint32_t>(QuiesceReason::kSystemSuspend));
+                if (ivars->context->receiveQuarantined.load(std::memory_order_acquire))
+                    return kIOReturnNotReady;
+                if (ivars->context->nativeDrain) return kIOReturnSuccess;
+                ivars->powerAcknowledgementPending = false;
             }
         } else {
             // Pin our power desire to full-on. A bus controller must stay
@@ -697,11 +918,20 @@ kern_return_t IMPL(ASFWDriver, SetPowerState) {
         }
     }
 
+    if (ivars && ivars->context) {
+        if (ivars->context->receiveQuarantined.load(std::memory_order_acquire)) return kIOReturnNotReady;
+        if (ivars->context->nativeDrain) {
+            ivars->powerAcknowledgementPending = true;
+            ivars->pendingPowerFlags = powerFlags;
+            return kIOReturnSuccess;
+        }
+    }
     return SetPowerState(powerFlags, SUPERDISPATCH);
 }
 
 void ASFWDriver::VerifyWakeRuntime(uint64_t attempt) {
     if (!ivars || !ivars->context || !ivars->context->lifecycle ||
+        ivars->context->receiveQuarantined.load(std::memory_order_acquire) ||
         !ivars->context->lifecycle->AdmitsNormalWork()) {
         return; // slept again (or tearing down) before the check fired
     }
@@ -754,16 +984,14 @@ void ASFWDriver::VerifyWakeRuntime(uint64_t attempt) {
         return;
     }
 
+    ivars->wakeRebuildPending = true;
+    ivars->wakeVerifyAttempt = attempt + 1;
     RequestRuntimeQuiesce(static_cast<uint32_t>(QuiesceReason::kWakeRebuild));
-    const kern_return_t kr = StartRuntime(ivars->powerProvider);
-    if (kr != kIOReturnSuccess) {
-        ASFW_LOG(Controller, "Wake verify: ❌ rebuild failed: 0x%08x", kr);
-    }
-    ScheduleWakeVerify(attempt + 1);
 }
 
 void ASFWDriver::ScheduleWakeVerify(uint64_t attempt) {
-    if (!ivars || !ivars->context) {
+    if (!ivars || !ivars->context || ivars->context->nativeDrain ||
+        ivars->context->receiveQuarantined.load(std::memory_order_acquire)) {
         return;
     }
     if (!ivars->wakeVerifyTimer) {
@@ -787,16 +1015,21 @@ void ASFWDriver::ScheduleWakeVerify(uint64_t attempt) {
             timer->release();
             return;
         }
+        // From the first handler installation attempt onward, preserve both
+        // objects for observed native retirement, including setup errors.
+        ivars->wakeVerifyTimer = timer;
+        ivars->wakeVerifyAction = action;
         kr = timer->SetHandler(action);
         if (kr != kIOReturnSuccess) {
             ASFW_LOG(Controller, "Wake verify: ❌ timer SetHandler failed: 0x%08x", kr);
-            action->release();
-            timer->release();
+            RequestRuntimeQuiesce(static_cast<uint32_t>(QuiesceReason::kPlannedStop));
             return;
         }
-        (void)timer->SetEnableWithCompletion(true, nullptr);
-        ivars->wakeVerifyTimer = timer;
-        ivars->wakeVerifyAction = action;
+        kr = timer->SetEnableWithCompletion(true, nullptr);
+        if (kr != kIOReturnSuccess) {
+            RequestRuntimeQuiesce(static_cast<uint32_t>(QuiesceReason::kPlannedStop));
+            return;
+        }
     }
 
     ivars->wakeVerifyAttempt = attempt;
@@ -807,7 +1040,7 @@ void ASFWDriver::ScheduleWakeVerify(uint64_t attempt) {
 }
 
 void ASFWDriver::WakeVerifyTimerFired_Impl(ASFWDriver_WakeVerifyTimerFired_Args) {
-    if (!ivars) {
+    if (!ivars || action != ivars->wakeVerifyAction) {
         return;
     }
     VerifyWakeRuntime(ivars->wakeVerifyAttempt);
@@ -895,19 +1128,22 @@ kern_return_t ASFWDriver::CopyControllerSnapshot(OSDictionary** status, uint64_t
 }
 
 void* ASFWDriver::GetControllerCore() const {
-    if (!ivars || !ivars->context)
+    if (!ivars || !ivars->context ||
+        ivars->context->receiveQuarantined.load(std::memory_order_acquire))
         return nullptr;
     return ivars->context->controller.get();
 }
 
 void* ASFWDriver::GetAsyncSubsystem() const {
-    if (!ivars || !ivars->context)
+    if (!ivars || !ivars->context ||
+        ivars->context->receiveQuarantined.load(std::memory_order_acquire))
         return nullptr;
     return ivars->context->deps.asyncController.get();
 }
 
 void* ASFWDriver::GetServiceContext() const {
-    if (!ivars)
+    if (!ivars || !ivars->context ||
+        ivars->context->receiveQuarantined.load(std::memory_order_acquire))
         return nullptr;
     return ivars->context;
 }
@@ -955,7 +1191,6 @@ kern_return_t IMPL(ASFWDriver, NewUserClient) {
 }
 
 void ASFWDriver::InterruptOccurred_Impl(ASFWDriver_InterruptOccurred_Args) {
-    (void)action;
     (void)count;
 
     // DIAGNOSTIC: Log every interrupt invocation
@@ -966,6 +1201,8 @@ void ASFWDriver::InterruptOccurred_Impl(ASFWDriver_InterruptOccurred_Args) {
         return;
     }
     auto& ctx = *ivars->context;
+    if (ctx.receiveQuarantined.load(std::memory_order_acquire)) return;
+    if (!action || action != ctx.interruptAction.get()) return;
     if (!ctx.lifecycle || !ctx.lifecycle->AdmitsBringupInterrupts()) {
         return;
     }
@@ -993,7 +1230,8 @@ void ASFWDriver::InterruptOccurred_Impl(ASFWDriver_InterruptOccurred_Args) {
 }
 
 void ASFWDriver::ScheduleAsyncWatchdog(uint64_t delayUsec) {
-    if (!ivars || !ivars->context) {
+    if (!ivars || !ivars->context ||
+        ivars->context->receiveQuarantined.load(std::memory_order_acquire)) {
         return;
     }
     auto& ctx = *ivars->context;
@@ -1012,11 +1250,12 @@ void ASFWDriver::ScheduleAsyncWatchdog(uint64_t delayUsec) {
 }
 
 void ASFWDriver::AsyncWatchdogTimerFired_Impl(ASFWDriver_AsyncWatchdogTimerFired_Args) {
-    (void)action;
     (void)time;
 
     if (ivars && ivars->context) {
         auto& ctx = *ivars->context;
+        if (ctx.receiveQuarantined.load(std::memory_order_acquire)) return;
+        if (!ctx.watchdog.OwnsAction(action)) return;
         // Skip only the WORK when normal work is inadmissible — never the
         // reschedule below. An early return here breaks the self-rearming
         // chain permanently on a transient non-running state; the chain's
@@ -1063,22 +1302,22 @@ void ASFWDriver::AsyncWatchdogTimerFired_Impl(ASFWDriver_AsyncWatchdogTimerFired
 }
 
 void ASFWDriver::SBP2SessionTimerFired_Impl(ASFWDriver_SBP2SessionTimerFired_Args) {
-    (void)action;
     (void)time;
 
-    if (!ivars || !ivars->context) {
+    if (!ivars || !ivars->context ||
+        ivars->context->receiveQuarantined.load(std::memory_order_acquire)) {
         return;
     }
     auto& ctx = *ivars->context;
     if (!ctx.lifecycle || !ctx.lifecycle->AdmitsNormalWork() || !ctx.deps.sbp2SessionScheduler) {
         return;
     }
+    if (!ctx.deps.sbp2SessionScheduler->OwnsAction(action)) return;
 
     ctx.deps.sbp2SessionScheduler->HandleTimerFired();
 }
 
 void ASFWDriver::ProviderNotificationReady_Impl(ASFWDriver_ProviderNotificationReady_Args) {
-    (void)action;
 
     if (!ivars || !ivars->context) {
         return;
@@ -1086,7 +1325,7 @@ void ASFWDriver::ProviderNotificationReady_Impl(ASFWDriver_ProviderNotificationR
     auto& ctx = *ivars->context;
 
 #ifndef ASFW_HOST_TEST
-    if (!ctx.providerNotifications) {
+    if (!ctx.providerNotifications || !action || action != ctx.providerNotificationAction.get()) {
         return;
     }
 
@@ -1283,7 +1522,8 @@ kern_return_t ASFWDriver::StopIsochReceive() {
 }
 
 void* ASFWDriver::GetIsochReceiveContext() const {
-    if (!ivars || !ivars->context) {
+    if (!ivars || !ivars->context ||
+        ivars->context->receiveQuarantined.load(std::memory_order_acquire)) {
         return nullptr;
     }
     return ivars->context->isoch.ReceiveContext();
@@ -1374,7 +1614,8 @@ kern_return_t ASFWDriver::StopIsochTransmit() {
 }
 
 void* ASFWDriver::GetIsochTransmitContext() const {
-    if (!ivars || !ivars->context) {
+    if (!ivars || !ivars->context ||
+        ivars->context->receiveQuarantined.load(std::memory_order_acquire)) {
         return nullptr;
     }
     return ivars->context->isoch.TransmitContext();

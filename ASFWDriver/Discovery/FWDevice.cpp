@@ -8,8 +8,10 @@
 namespace ASFW::Discovery {
 
 // Private constructor
-FWDevice::FWDevice(const DeviceRecord& record)
-    : guid_(record.guid)
+FWDevice::FWDevice(const DeviceRecord& record, const ConfigROM& rom)
+    : personaROM_(rom)
+    , deviceIncarnation_(record.deviceIncarnation)
+    , guid_(record.guid)
     , vendorId_(record.vendorId)
     , modelId_(record.modelId)
     , kind_(record.kind)
@@ -33,12 +35,30 @@ std::shared_ptr<FWDevice> FWDevice::Create(
     }
 
     // Use new + shared_ptr constructor (can't use make_shared with private ctor)
-    auto device = std::shared_ptr<FWDevice>(new FWDevice(record));
+    auto device = std::shared_ptr<FWDevice>(new FWDevice(record, rom));
 
     // Parse unit directories from ROM
     device->ParseUnits(rom);
 
     return device;
+}
+
+bool FWDevice::MatchesROM(const ConfigROM& rom) const {
+    return personaROM_.bib == rom.bib &&
+           personaROM_.rawQuadlets == rom.rawQuadlets &&
+           personaROM_.rootDirMinimal == rom.rootDirMinimal &&
+           personaROM_.unitDirectories == rom.unitDirectories &&
+           personaROM_.vendorName == rom.vendorName &&
+           personaROM_.modelName == rom.modelName;
+}
+
+bool FWDevice::MatchesPersona(const DeviceRecord& record, const ConfigROM& rom) const {
+    return MatchesROM(rom) && guid_ == record.guid &&
+           deviceIncarnation_ == record.deviceIncarnation &&
+           vendorId_ == record.vendorId && modelId_ == record.modelId &&
+           kind_ == record.kind && vendorName_ == record.vendorName &&
+           modelName_ == record.modelName &&
+           isAudioCandidate_ == record.isAudioCandidate && supportsAMDTP_ == record.supportsAMDTP;
 }
 
 void FWDevice::ParseUnits(const ConfigROM& rom)

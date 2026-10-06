@@ -4,12 +4,13 @@
 
 #include "../Logging/Logging.hpp"
 #include "Core/TransactionManager.hpp"
+#include "Track/QueuedHandleSequence.hpp"
 
 namespace ASFW::Async {
 
 namespace {
 constexpr uint32_t kQueuedHandleBase = 0x80000000u;
-constexpr uint32_t kMaxTransactionHandle = 64;
+constexpr uint32_t kMaxTransactionHandle = kQueuedHandleBase - 1;
 }
 
 AsyncHandle AsyncSubsystem::ReadWithRetry(const ReadParams& params,
@@ -21,7 +22,8 @@ AsyncHandle AsyncSubsystem::ReadWithRetry(const ReadParams& params,
     }
 
     static std::atomic<uint32_t> sNextQueuedHandle{0x80000000};
-    AsyncHandle placeholderHandle{sNextQueuedHandle.fetch_add(1, std::memory_order_relaxed)};
+    const AsyncHandle placeholderHandle = ReserveQueuedHandle(sNextQueuedHandle);
+    if (!placeholderHandle) return {};
 
     ::IOLockLock(commandQueueLock_);
 
@@ -112,14 +114,16 @@ bool AsyncSubsystem::CancelTransactionHandle(AsyncHandle handle) {
         return false;
     }
 
-    const uint8_t label = static_cast<uint8_t>(handle.value - 1);
-    auto txnPtr = txnMgr_->Extract(TLabel{label});
+    const auto labelOpt = tracking_->GetLabelFromHandle(handle);
+    if (!labelOpt) return false;
+    const uint8_t label = *labelOpt;
+    auto txnPtr = txnMgr_->Extract(TLabel{label}, handle.value);
     if (!txnPtr) {
         return false;
     }
 
     if (auto* alloc = tracking_->GetLabelAllocator()) {
-        alloc->Free(label);
+        alloc->CompleteLogical(label, true);
     }
 
     auto txn = std::shared_ptr<Transaction>(std::move(txnPtr));
@@ -259,7 +263,8 @@ void AsyncSubsystem::ExecuteNextCommand() {
                 return;
             }
 
-            if (cmdPtr->retriesRemaining > 0) {
+            if (cmdPtr->retriesRemaining > 0 &&
+                !(subsystem->labelAllocator_ && subsystem->labelAllocator_->HasUncertainWire())) {
                 bool shouldRetry = false;
                 if (status == AsyncStatus::kTimeout && cmdPtr->retryPolicy.retryOnTimeout) {
                     shouldRetry = true;

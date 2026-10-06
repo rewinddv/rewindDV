@@ -15,6 +15,9 @@
 #include <functional>
 #include <map>
 #include <vector>
+#include "../../../Shared/Completion/NativeCallbackDrain.hpp"
+#include "../../../Shared/Completion/PostedWorkEpoch.hpp"
+#include <memory>
 
 class ASFWDriver;
 
@@ -34,6 +37,10 @@ public:
     [[nodiscard]] kern_return_t Prepare(::ASFWDriver& service,
                                         OSSharedPtr<IODispatchQueue> workQueue);
     void Reset() noexcept;
+    void BeginNativeRetirement(const std::shared_ptr<ASFW::Shared::NativeCallbackDrain>& drain);
+    [[nodiscard]] bool OwnsAction(const OSAction* action) const noexcept {
+        return action != nullptr && action == action_.get();
+    }
 
     [[nodiscard]] SchedulerToken ScheduleAfter(uint64_t delayNs,
                                                std::function<void()> fn) override;
@@ -53,7 +60,8 @@ private:
     // RPC-dispatched to the timer's queue (ASFWDriver-Default), whose handlers
     // re-enter the scheduler and take lock_. Holding lock_ across it is an AB-BA
     // deadlock (kernel registry busy-timeout panic, 2026-06-22).
-    void ArmTimerUnlocked(IOTimerDispatchSource* timer, uint64_t deadlineTicks) noexcept;
+    static void ArmTimerUnlocked(IOTimerDispatchSource* timer, uint64_t deadlineTicks,
+                                 const std::shared_ptr<ASFW::Shared::PostedWorkEpoch>& epoch) noexcept;
     [[nodiscard]] uint64_t DeadlineTicksFromNow(uint64_t delayNs) const noexcept;
 
     IOLock* lock_{nullptr};
@@ -62,6 +70,9 @@ private:
     OSSharedPtr<OSAction> action_{};
     std::map<SchedulerToken, PendingCallback> pending_;
     SchedulerToken nextToken_{1};
+    bool retiring_{false}; // protected by lock_; never hold lock across native RPC
+    std::shared_ptr<ASFW::Shared::PostedWorkEpoch> nativeOperationEpoch_{
+        std::make_shared<ASFW::Shared::PostedWorkEpoch>()};
 };
 
 } // namespace ASFW::Protocols::SBP2

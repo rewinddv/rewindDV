@@ -18,10 +18,12 @@
 #endif
 #include "ASFWDriver.h"
 #include "UserClientRuntimeState.hpp"
+#include "../../Service/DriverContext.hpp"
+#include "../../Protocols/AVC/AVCDiscovery.hpp"
+#include <DriverKit/IODispatchQueue.h>
 #ifdef REWINDDV_FOUNDATION
 #include "../../../Foundation/DriverPolicy/FoundationDriverPolicy.hpp"
 #include "../../../Foundation/DriverPolicy/FoundationReceiveWire.hpp"
-#include "../../Service/DriverContext.hpp"
 #endif
 
 #include <DriverKit/IOLib.h>
@@ -219,41 +221,83 @@ MethodDispatchResult DispatchConfigRomMethods(
     }
 }
 
-MethodDispatchResult DispatchAVCMethods(ASFW::UserClient::UserClientRuntimeState& runtimeState,
+MethodDispatchResult DispatchAVCMethods(ASFWDriver& driver,
                                         IOUserClientMethodArguments* arguments,
                                         uint64_t selector) {
+    // Client connections survive suspend/rebuild. Never cache a discovery
+    // borrower in the connection: bind each invocation to the current root.
     switch (selector) {
     case kMethodGetAVCUnits:
-        return runtimeState.AVC().GetAVCUnits(arguments);
     case kMethodGetSubunitCapabilities:
-        return runtimeState.AVC().GetSubunitCapabilities(arguments);
     case kMethodGetSubunitDescriptor:
-        return runtimeState.AVC().GetSubunitDescriptor(arguments);
     case kMethodReScanAVCUnits:
-        return runtimeState.AVC().ReScanAVCUnits(arguments);
     case kMethodSendRawFCPCommand:
-        return runtimeState.AVC().SendRawFCPCommand(arguments);
     case kMethodGetRawFCPCommandResult:
-        return runtimeState.AVC().GetRawFCPCommandResult(arguments);
 #ifdef REWINDDV_FOUNDATION
     case kMethodSubmitDeckControl:
-        return runtimeState.AVC().SubmitDeckControl(arguments);
     case kMethodGetDeckControlResult:
-        return runtimeState.AVC().GetDeckControlResult(arguments);
     case kMethodGetFoundationRoute:
-        return runtimeState.AVC().GetFoundationRoute(arguments);
     case kMethodSubmitInspectorProbe:
-        return runtimeState.AVC().SubmitInspectorProbe(arguments);
     case kMethodGetInspectorResult:
-        return runtimeState.AVC().GetInspectorResult(arguments);
     case kMethodSubmitTransportCapabilityProbe:
-        return runtimeState.AVC().SubmitTransportCapabilityProbe(arguments);
     case kMethodGetTransportCapabilityResult:
-        return runtimeState.AVC().GetTransportCapabilityResult(arguments);
 #endif
+        break;
     default:
         return std::nullopt;
     }
+
+    IODispatchQueue* rawQueue = nullptr;
+    if (driver.CopyDispatchQueue("Default", &rawQueue) != kIOReturnSuccess || !rawQueue)
+        return kIOReturnNotReady;
+    auto queue = OSSharedPtr(rawQueue, OSNoRetain);
+    const auto invoke = [&]() -> kern_return_t {
+        auto* context = static_cast<ServiceContext*>(driver.GetServiceContext());
+        std::shared_ptr<ASFW::Protocols::AVC::AVCDiscovery> discovery;
+        if (context && !context->receiveQuarantined.load(std::memory_order_acquire) &&
+            context->lifecycle && context->lifecycle->AdmitsNormalWork())
+            discovery = context->deps.avcDiscovery;
+        const auto epoch = discovery ? discovery->DeferredWorkEpoch() : nullptr;
+        return ASFW::UserClient::WithAVCHandlerForRuntime(discovery, epoch,
+            [&](ASFW::UserClient::AVCHandler& handler) -> kern_return_t {
+                switch (selector) {
+                case kMethodGetAVCUnits:
+                    return handler.GetAVCUnits(arguments);
+                case kMethodGetSubunitCapabilities:
+                    return handler.GetSubunitCapabilities(arguments);
+                case kMethodGetSubunitDescriptor:
+                    return handler.GetSubunitDescriptor(arguments);
+                case kMethodReScanAVCUnits:
+                    return handler.ReScanAVCUnits(arguments);
+                case kMethodSendRawFCPCommand:
+                    return handler.SendRawFCPCommand(arguments);
+                case kMethodGetRawFCPCommandResult:
+                    return handler.GetRawFCPCommandResult(arguments);
+#ifdef REWINDDV_FOUNDATION
+                case kMethodSubmitDeckControl:
+                    return handler.SubmitDeckControl(arguments);
+                case kMethodGetDeckControlResult:
+                    return handler.GetDeckControlResult(arguments);
+                case kMethodGetFoundationRoute:
+                    return handler.GetFoundationRoute(arguments);
+                case kMethodSubmitInspectorProbe:
+                    return handler.SubmitInspectorProbe(arguments);
+                case kMethodGetInspectorResult:
+                    return handler.GetInspectorResult(arguments);
+                case kMethodSubmitTransportCapabilityProbe:
+                    return handler.SubmitTransportCapabilityProbe(arguments);
+                case kMethodGetTransportCapabilityResult:
+                    return handler.GetTransportCapabilityResult(arguments);
+#endif
+                default:
+                    return kIOReturnUnsupported;
+                }
+            });
+    };
+    // No user-client/store lock is held while crossing queues. Keep the entire
+    // borrowed-owner use on Default, where root teardown also runs.
+    if (queue->OnQueue()) return invoke();
+    return queue->RunAction(^{ return invoke(); });
 }
 
 #ifdef REWINDDV_FOUNDATION
@@ -724,7 +768,7 @@ kern_return_t ASFWDriverUserClient::ExternalMethod(uint64_t selector,
     if (auto result = DispatchConfigRomMethods(*runtimeState, arguments, selector)) {
         return *result;
     }
-    if (auto result = DispatchAVCMethods(*runtimeState, arguments, selector)) {
+    if (auto result = DispatchAVCMethods(*ivars->driver, arguments, selector)) {
         return *result;
     }
     if (auto result = DispatchDriverControlMethods(*ivars->driver, arguments, selector)) {

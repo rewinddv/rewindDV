@@ -40,37 +40,65 @@
 #include "../SCSIController/SBP2NubPublisher.hpp"
 #include "../SCSIController/SBP2TargetBridge.hpp"
 #include "../Scheduling/Scheduler.hpp"
+#include "../Shared/Completion/NativeSourceRetirement.hpp"
 
 void ServiceContext::DisarmProviderNotifications() {
 #ifndef ASFW_HOST_TEST
     if (providerNotifications) {
-        // Cancellation is terminal, so retain the source and its OSAction until
-        // DriverKit reports that all queued notification handlers completed.
-        auto* source = providerNotifications.detach();
-        auto* action = providerNotificationAction.detach();
-        const kern_return_t kr = source->Cancel(^{
-            if (action) {
-                action->release();
-            }
-            source->release();
-        });
-        if (kr != kIOReturnSuccess) {
-            if (action) {
-                action->release();
-            }
-            source->release();
+        if (!providerNotificationDrain || !providerNotificationDrain->AllTerminal() ||
+            providerNotificationDrain->Quarantined()) {
+            ASFW_LOG_ERROR(Controller, "Provider source reset before native retirement; retaining source/action");
+            (void)providerNotifications.detach();
+            (void)providerNotificationAction.detach();
+            return;
         }
-        return;
+        providerNotifications.reset();
     }
     providerNotificationAction.reset();
+    providerNotificationDrain.reset();
+#endif
+}
+
+void ServiceContext::BeginProviderNativeRetirement(
+    const std::shared_ptr<ASFW::Shared::NativeCallbackDrain>& drain) {
+#ifndef ASFW_HOST_TEST
+    if (!providerNotifications || providerNotificationDrain) return;
+    providerNotificationDrain = drain;
+    // A pending provider callback must retain access to its notification queue
+    // until native Cancel reports it has finished. Releasing these copies is
+    // terminal; the delivery aliases above survive until root Reset.
+    auto source = providerNotifications;
+    auto action = providerNotificationAction;
+    ASFW::Shared::RetireNativeSource(source, action, drain);
+#else
+    (void)drain;
 #endif
 }
 
 void ServiceContext::Reset(ResetMode mode) {
+#ifndef ASFW_HOST_TEST
+    if (providerNotifications && (!providerNotificationDrain ||
+        !providerNotificationDrain->AllTerminal() || providerNotificationDrain->Quarantined())) {
+        receiveQuarantined.store(true, std::memory_order_release);
+        ASFW_LOG_ERROR(Controller, "[Lifecycle] provider callback retirement unproved; preserving runtime graph");
+        return;
+    }
+#endif
+    if (nativeDrain && (!nativeDrain->AllTerminal() || nativeDrain->Quarantined())) {
+        receiveQuarantined.store(true, std::memory_order_release);
+        ASFW_LOG_ERROR(Controller, "[Lifecycle] native callback retirement unproved; preserving runtime graph");
+        return;
+    }
+    if (deps.asyncSubsystem && !deps.asyncSubsystem->DMAContextsRetired()) {
+        receiveQuarantined.store(true, std::memory_order_release);
+        ASFW_LOG_ERROR(Controller, "[Lifecycle] async DMA retirement unproved; preserving runtime graph");
+        return;
+    }
     const bool resetWorkQuiesced = !deps.busReset || deps.busReset->RetireDeferredWork();
     const bool controllerWorkQuiesced = !controller || controller->RetireDeferredWork();
     const bool romWorkQuiesced = !deps.romScanner || deps.romScanner->RetireDeferredWork();
-    if (!resetWorkQuiesced || !controllerWorkQuiesced || !romWorkQuiesced) {
+    const bool avcWorkQuiesced = !deps.avcDiscovery || deps.avcDiscovery->RetireDeferredWork();
+    if (!resetWorkQuiesced || !controllerWorkQuiesced || !romWorkQuiesced || !avcWorkQuiesced) {
         receiveQuarantined.store(true, std::memory_order_release);
         ASFW_LOG_ERROR(Controller, "[Lifecycle] deferred controller work remains; preserving runtime graph");
         return;
@@ -86,6 +114,12 @@ void ServiceContext::Reset(ResetMode mode) {
         receiveQuarantined.store(true, std::memory_order_release);
         ASFW_LOG_ERROR(Controller,
                        "[Lifecycle] receive containment unproved; preserving runtime graph");
+        return;
+    }
+    if (deps.avcDiscovery) deps.avcDiscovery->Shutdown();
+    if (deps.asyncSubsystem && deps.asyncSubsystem->HasUncertainWire()) {
+        receiveQuarantined.store(true, std::memory_order_release);
+        ASFW_LOG_ERROR(Controller, "[Lifecycle] remote response retirement unproved; preserving runtime graph");
         return;
     }
     // Runtime stopping is owned by RuntimeLifecycleCoordinator. Reset only
@@ -109,9 +143,6 @@ void ServiceContext::Reset(ResetMode mode) {
     // explicitly: ~ControllerCore destroys busImpl_ before deps_, so letting the registry
     // die with the controller would call through a dangling bus.
     audioCoordinator.reset();
-    if (deps.avcDiscovery) {
-        deps.avcDiscovery->Shutdown();
-    }
     if (controller) {
         controller->ReleaseAudioRuntimeRegistry();
         // ROMScanner borrows the controller-owned IFireWireBus. Drop the
@@ -178,9 +209,11 @@ void ServiceContext::Reset(ResetMode mode) {
     interruptProbeTimeNs = 0;
     interruptRearmAwaitingProgress = false;
     DisarmProviderNotifications();
+    // A disabled interrupt source survives suspend, but the next runtime gets
+    // a fresh action identity after the old action's disable barrier completed.
+    interruptAction.reset();
     if (mode == ResetMode::Full) {
         workQueue.reset();
-        interruptAction.reset();
         lifecycle.reset();
     }
 }
@@ -304,6 +337,20 @@ void DriverWiring::EnsureDeps(ASFWDriver* driver, ::ServiceContext& ctx) {
         }
     };
 
+    d.deviceReplacementReady = [&ctx] {
+        if (ctx.receiveQuarantined.load(std::memory_order_acquire)) return false;
+#ifdef REWINDDV_FOUNDATION
+        // The caller admits replacement only after a true reset. This
+        // idempotent reset stop invalidates pending receive admission and skips
+        // stale PCR/IRM writes, including sessions that have not armed DMA yet.
+        if (ctx.foundationReceive.StopAll(true) != kIOReturnSuccess) return false;
+#endif
+        return !ctx.dvCapture.IsActive() && ctx.isoch.ReceiveContextsQuiesced();
+    };
+    d.deviceReplacementFailed = [driver] {
+        driver->RequestRuntimeQuiesce(static_cast<uint32_t>(QuiesceReason::kPlannedStop));
+    };
+
     // AV/C discovery wiring is done after ControllerCore is created so it can
     // depend only on IFireWireBus ports (ControllerCore::Bus()).
 }
@@ -317,7 +364,7 @@ kern_return_t DriverWiring::PrepareControlTimer(ASFWDriver& service, ::ServiceCo
             std::make_shared<ASFW::Protocols::SBP2::DriverKitSessionScheduler>();
         const auto kr = d.sbp2SessionScheduler->Prepare(service, ctx.workQueue);
         if (kr != kIOReturnSuccess) {
-            d.sbp2SessionScheduler.reset();
+            // Keep partially prepared native objects for failed-start drain.
             return kr;
         }
         ASFW_LOG(Controller, "[Controller] Control timer initialized");

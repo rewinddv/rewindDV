@@ -193,7 +193,30 @@ AVCDiscovery::~AVCDiscovery() {
     os_log_info(log_, "AVCDiscovery: Destroyed");
 }
 
+bool AVCDiscovery::RetireDeferredWork() noexcept {
+    deferredWorkEpoch_->Retire();
+    return deferredWorkEpoch_->Quiesced();
+}
+
+bool AVCDiscovery::RetireDeviceWork(uint64_t guid) noexcept {
+    IOLockLock(lock_);
+    const auto it = units_.find(guid);
+    const bool retired = it == units_.end() || !it->second || it->second->RetireDeferredWork();
+    IOLockUnlock(lock_);
+    return retired;
+}
+
+bool AVCDiscovery::IsCurrentUnit(uint64_t guid, const std::shared_ptr<AVCUnit>& unit) const {
+    if (!unit || shuttingDown_.load(std::memory_order_acquire)) return false;
+    IOLockLock(lock_);
+    const auto it = units_.find(guid);
+    const bool current = it != units_.end() && it->second == unit;
+    IOLockUnlock(lock_);
+    return current;
+}
+
 void AVCDiscovery::Shutdown() {
+    deferredWorkEpoch_->Retire();
     bool expected = false;
     if (!shuttingDown_.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
         return;
@@ -251,6 +274,8 @@ void AVCDiscovery::Shutdown() {
 //==============================================================================
 
 void AVCDiscovery::OnUnitPublished(std::shared_ptr<Discovery::FWUnit> unit) {
+    Shared::PostedWorkEpoch::Lease lease(*deferredWorkEpoch_);
+    if (!lease) return;
     if (shuttingDown_.load(std::memory_order_acquire)) {
         return;
     }
@@ -308,11 +333,12 @@ void AVCDiscovery::OnUnitPublished(std::shared_ptr<Discovery::FWUnit> unit) {
         const std::string deviceName{device->GetModelName()};
         ::ASFW::Audio::BeBoB::StartBeBoBPlug0Discovery(
             *avcUnit, guid,
-            [weakSelf, guid, vendorId, modelId, deviceName](const ::ASFW::Audio::BeBoB::DeviceModel& inventory) {
+            [weakSelf, avcUnit, guid, vendorId, modelId, deviceName](const ::ASFW::Audio::BeBoB::DeviceModel& inventory) {
                 const auto self = weakSelf.lock();
-                if (!self || self->shuttingDown_.load(std::memory_order_acquire)) {
-                    return;
-                }
+                if (!self) return;
+                Shared::PostedWorkEpoch::Lease lease(*self->deferredWorkEpoch_);
+                Shared::PostedWorkEpoch::Lease unitLease(*avcUnit->DeferredWorkEpoch());
+                if (!lease || !unitLease || !self->IsCurrentUnit(guid, avcUnit)) return;
                 self->PublishBeBoBAudioConfig(guid, vendorId, modelId, deviceName, inventory);
             });
         RebuildNodeIDMap();
@@ -324,9 +350,10 @@ void AVCDiscovery::OnUnitPublished(std::shared_ptr<Discovery::FWUnit> unit) {
     // Initialize (probe subunits, plugs)
     avcUnit->Initialize([weakSelf, avcUnit, guid](bool success) {
         const auto self = weakSelf.lock();
-        if (!self || self->shuttingDown_.load(std::memory_order_acquire)) {
-            return;
-        }
+        if (!self) return;
+        Shared::PostedWorkEpoch::Lease lease(*self->deferredWorkEpoch_);
+        Shared::PostedWorkEpoch::Lease unitLease(*avcUnit->DeferredWorkEpoch());
+        if (!lease || !unitLease || !self->IsCurrentUnit(guid, avcUnit)) return;
         if (!success) {
             os_log_error(self->log_,
                          "AVCDiscovery: AVCUnit initialization failed: GUID=%llx",
@@ -342,9 +369,10 @@ void AVCDiscovery::OnUnitPublished(std::shared_ptr<Discovery::FWUnit> unit) {
 }
 
 void AVCDiscovery::HandleInitializedUnit(uint64_t guid, const std::shared_ptr<AVCUnit>& avcUnit) {
-    if (!avcUnit) {
-        return;
-    }
+    Shared::PostedWorkEpoch::Lease lease(*deferredWorkEpoch_);
+    if (!lease || !IsCurrentUnit(guid, avcUnit)) return;
+    Shared::PostedWorkEpoch::Lease unitLease(*avcUnit->DeferredWorkEpoch());
+    if (!unitLease) return;
 
     auto device = avcUnit->GetDevice();
     if (!device) {
@@ -627,7 +655,10 @@ void AVCDiscovery::FinishDuetPrefetch(
     const std::shared_ptr<DuetPrefetchOperation>& operation,
     const ::ASFW::Audio::Model::ASFWAudioDevice& config,
     const char* reason) {
-    if (!operation || operation->completed.exchange(true, std::memory_order_acq_rel)) {
+    Shared::PostedWorkEpoch::Lease lease(*deferredWorkEpoch_);
+    if (!lease || !operation || !operation->unit) return;
+    Shared::PostedWorkEpoch::Lease unitLease(*operation->unit->DeferredWorkEpoch());
+    if (!unitLease || operation->completed.exchange(true, std::memory_order_acq_rel)) {
         return;
     }
 
@@ -701,6 +732,10 @@ void AVCDiscovery::PrefetchDuetStateAndCreateNub(
     uint64_t guid,
     const std::shared_ptr<AVCUnit>& avcUnit,
     const ::ASFW::Audio::Model::ASFWAudioDevice& config) {
+    Shared::PostedWorkEpoch::Lease lease(*deferredWorkEpoch_);
+    if (!lease || !IsCurrentUnit(guid, avcUnit)) return;
+    Shared::PostedWorkEpoch::Lease unitLease(*avcUnit->DeferredWorkEpoch());
+    if (!unitLease) return;
     if (!avcUnit) {
         ASFW_LOG_ERROR(Audio,
                        "AVCDiscovery: Deferring Duet audio nub GUID=%llx; no AV/C unit for fixed %u Hz prepublish",
@@ -720,6 +755,7 @@ void AVCDiscovery::PrefetchDuetStateAndCreateNub(
 
     std::shared_ptr<DuetPrefetchOperation> oldOp;
     auto operation = std::make_shared<DuetPrefetchOperation>();
+    operation->unit = avcUnit;
     const auto route = deviceRegistry_.CurrentRoute(guid);
     if (!route.has_value()) {
         ASFW_LOG(Audio, "AVCDiscovery: Duet prefetch refused without live route GUID=%llx", guid);
@@ -763,9 +799,10 @@ void AVCDiscovery::PrefetchDuetStateAndCreateNub(
         timeoutNs,
         [weakSelf, operation, config]() {
             const auto self = weakSelf.lock();
-            if (!self) {
-                return;
-            }
+            if (!self || !operation->unit) return;
+            Shared::PostedWorkEpoch::Lease lease(*self->deferredWorkEpoch_);
+            Shared::PostedWorkEpoch::Lease unitLease(*operation->unit->DeferredWorkEpoch());
+            if (!lease || !unitLease || !self->IsDuetPrefetchCurrent(operation)) return;
             if (self->lock_) {
                 IOLockLock(self->lock_);
                 operation->state.timedOut = true;
@@ -781,10 +818,14 @@ void AVCDiscovery::PrefetchDuetStateAndCreateNub(
         IOLockUnlock(lock_);
     }
 
-    protocol->GetInputParams([this, guid, protocol, operation, config](
+    protocol->GetInputParams([this, weakSelf = weak_from_this(), guid, protocol, operation, config](
                                  IOReturn status,
                                  ::ASFW::Audio::Oxford::Apogee::InputParams params) {
-        if (!IsDuetPrefetchCurrent(operation)) {
+        const auto self = weakSelf.lock();
+        if (!self || !operation->unit) return;
+        Shared::PostedWorkEpoch::Lease lease(*self->deferredWorkEpoch_);
+        Shared::PostedWorkEpoch::Lease unitLease(*operation->unit->DeferredWorkEpoch());
+        if (!lease || !unitLease || !IsDuetPrefetchCurrent(operation)) {
             return;
         }
         if (lock_) {
@@ -807,10 +848,14 @@ void AVCDiscovery::ContinueDuetPrefetchMixer(
     const std::shared_ptr<::ASFW::Audio::Oxford::Apogee::ApogeeDuetProtocol>& protocol,
     const std::shared_ptr<DuetPrefetchOperation>& operation,
     const ::ASFW::Audio::Model::ASFWAudioDevice& config) {
-    protocol->GetMixerParams([this, guid, protocol, operation, config](
+    protocol->GetMixerParams([this, weakSelf = weak_from_this(), guid, protocol, operation, config](
                                  IOReturn mixerStatus,
                                  ::ASFW::Audio::Oxford::Apogee::MixerParams mixerParams) {
-        if (!IsDuetPrefetchCurrent(operation)) {
+        const auto self = weakSelf.lock();
+        if (!self || !operation->unit) return;
+        Shared::PostedWorkEpoch::Lease lease(*self->deferredWorkEpoch_);
+        Shared::PostedWorkEpoch::Lease unitLease(*operation->unit->DeferredWorkEpoch());
+        if (!lease || !unitLease || !IsDuetPrefetchCurrent(operation)) {
             return;
         }
         if (lock_) {
@@ -833,10 +878,14 @@ void AVCDiscovery::ContinueDuetPrefetchOutput(
     const std::shared_ptr<::ASFW::Audio::Oxford::Apogee::ApogeeDuetProtocol>& protocol,
     const std::shared_ptr<DuetPrefetchOperation>& operation,
     const ::ASFW::Audio::Model::ASFWAudioDevice& config) {
-    protocol->GetOutputParams([this, guid, protocol, operation, config](
+    protocol->GetOutputParams([this, weakSelf = weak_from_this(), guid, protocol, operation, config](
                                   IOReturn outputStatus,
                                   ::ASFW::Audio::Oxford::Apogee::OutputParams outputParams) {
-        if (!IsDuetPrefetchCurrent(operation)) {
+        const auto self = weakSelf.lock();
+        if (!self || !operation->unit) return;
+        Shared::PostedWorkEpoch::Lease lease(*self->deferredWorkEpoch_);
+        Shared::PostedWorkEpoch::Lease unitLease(*operation->unit->DeferredWorkEpoch());
+        if (!lease || !unitLease || !IsDuetPrefetchCurrent(operation)) {
             return;
         }
         if (lock_) {
@@ -859,10 +908,14 @@ void AVCDiscovery::ContinueDuetPrefetchDisplay(
     const std::shared_ptr<::ASFW::Audio::Oxford::Apogee::ApogeeDuetProtocol>& protocol,
     const std::shared_ptr<DuetPrefetchOperation>& operation,
     const ::ASFW::Audio::Model::ASFWAudioDevice& config) {
-    protocol->GetDisplayParams([this, guid, protocol, operation, config](
+    protocol->GetDisplayParams([this, weakSelf = weak_from_this(), guid, protocol, operation, config](
                                    IOReturn displayStatus,
                                    ::ASFW::Audio::Oxford::Apogee::DisplayParams displayParams) {
-        if (!IsDuetPrefetchCurrent(operation)) {
+        const auto self = weakSelf.lock();
+        if (!self || !operation->unit) return;
+        Shared::PostedWorkEpoch::Lease lease(*self->deferredWorkEpoch_);
+        Shared::PostedWorkEpoch::Lease unitLease(*operation->unit->DeferredWorkEpoch());
+        if (!lease || !unitLease || !IsDuetPrefetchCurrent(operation)) {
             return;
         }
         if (lock_) {
@@ -885,10 +938,14 @@ void AVCDiscovery::ContinueDuetPrefetchFirmware(
     const std::shared_ptr<::ASFW::Audio::Oxford::Apogee::ApogeeDuetProtocol>& protocol,
     const std::shared_ptr<DuetPrefetchOperation>& operation,
     const ::ASFW::Audio::Model::ASFWAudioDevice& config) {
-    protocol->GetFirmwareId([this, guid, protocol, operation, config](
+    protocol->GetFirmwareId([this, weakSelf = weak_from_this(), guid, protocol, operation, config](
                                 IOReturn fwStatus,
                                 uint32_t firmwareId) {
-        if (!IsDuetPrefetchCurrent(operation)) {
+        const auto self = weakSelf.lock();
+        if (!self || !operation->unit) return;
+        Shared::PostedWorkEpoch::Lease lease(*self->deferredWorkEpoch_);
+        Shared::PostedWorkEpoch::Lease unitLease(*operation->unit->DeferredWorkEpoch());
+        if (!lease || !unitLease || !IsDuetPrefetchCurrent(operation)) {
             return;
         }
         if (lock_) {
@@ -911,10 +968,14 @@ void AVCDiscovery::ContinueDuetPrefetchHardware(
     const std::shared_ptr<::ASFW::Audio::Oxford::Apogee::ApogeeDuetProtocol>& protocol,
     const std::shared_ptr<DuetPrefetchOperation>& operation,
     const ::ASFW::Audio::Model::ASFWAudioDevice& config) {
-    protocol->GetHardwareId([this, guid, protocol, operation, config](
+    protocol->GetHardwareId([this, weakSelf = weak_from_this(), guid, protocol, operation, config](
                                 IOReturn hwStatus,
                                 uint32_t hardwareId) {
-        if (!IsDuetPrefetchCurrent(operation)) {
+        const auto self = weakSelf.lock();
+        if (!self || !operation->unit) return;
+        Shared::PostedWorkEpoch::Lease lease(*self->deferredWorkEpoch_);
+        Shared::PostedWorkEpoch::Lease unitLease(*operation->unit->DeferredWorkEpoch());
+        if (!lease || !unitLease || !IsDuetPrefetchCurrent(operation)) {
             return;
         }
         if (lock_) {
@@ -954,9 +1015,13 @@ void AVCDiscovery::ContinueDuetPrefetchStreamFormats(
 
     ::ASFW::Audio::Oxford::DetectStreamFormats(
         *transport, /*isOutput=*/false,
-        [this, guid, protocol, operation, config](
+        [this, weakSelf = weak_from_this(), guid, protocol, operation, config](
             IOReturn status, const ::ASFW::Audio::Oxford::StreamFormatSet& formats) {
-            if (!IsDuetPrefetchCurrent(operation)) {
+            const auto self = weakSelf.lock();
+            if (!self || !operation->unit) return;
+            Shared::PostedWorkEpoch::Lease lease(*self->deferredWorkEpoch_);
+            Shared::PostedWorkEpoch::Lease unitLease(*operation->unit->DeferredWorkEpoch());
+            if (!lease || !unitLease || !IsDuetPrefetchCurrent(operation)) {
                 return;
             }
             if (status == kIOReturnSuccess) {
@@ -987,10 +1052,14 @@ void AVCDiscovery::ContinueDuetPrefetchClock(
     // CMP/IRM resources, so this remains strictly pre-stream.
     protocol->ApplyClockConfig(
         ::ASFW::Audio::AudioClockConfig{.sampleRateHz = kDuetFixedSampleRateHz},
-        [this, guid, protocol, operation, config](IOReturn clockStatus,
+        [this, weakSelf = weak_from_this(), guid, protocol, operation, config](IOReturn clockStatus,
                                                    const ::ASFW::Audio::ClockApplyResult& result) {
             (void)guid;
-            if (!IsDuetPrefetchCurrent(operation)) {
+            const auto self = weakSelf.lock();
+            if (!self || !operation->unit) return;
+            Shared::PostedWorkEpoch::Lease lease(*self->deferredWorkEpoch_);
+            Shared::PostedWorkEpoch::Lease unitLease(*operation->unit->DeferredWorkEpoch());
+            if (!lease || !unitLease || !IsDuetPrefetchCurrent(operation)) {
                 return;
             }
             if (lock_) {
@@ -1006,12 +1075,10 @@ void AVCDiscovery::ContinueDuetPrefetchClock(
 }
 
 void AVCDiscovery::ScheduleRescan(uint64_t guid, const std::shared_ptr<AVCUnit>& avcUnit) {
-    if (shuttingDown_.load(std::memory_order_acquire)) {
-        return;
-    }
-    if (!avcUnit) {
-        return;
-    }
+    Shared::PostedWorkEpoch::Lease lease(*deferredWorkEpoch_);
+    if (!lease || !IsCurrentUnit(guid, avcUnit)) return;
+    Shared::PostedWorkEpoch::Lease unitLease(*avcUnit->DeferredWorkEpoch());
+    if (!unitLease) return;
     const auto route = deviceRegistry_.CurrentRoute(guid);
     if (!route.has_value()) {
         return;
@@ -1056,9 +1123,11 @@ void AVCDiscovery::ScheduleRescan(uint64_t guid, const std::shared_ptr<AVCUnit>&
         static_cast<uint64_t>(kRescanDelayMs) * 1000000ULL,
         [weakSelf, route = *route, operationSerial, attempt, unit]() {
             const auto self = weakSelf.lock();
-            if (!self || !self->IsRescanCurrent(route, operationSerial)) {
-                return;
-            }
+            if (!self) return;
+            Shared::PostedWorkEpoch::Lease lease(*self->deferredWorkEpoch_);
+            Shared::PostedWorkEpoch::Lease unitLease(*unit->DeferredWorkEpoch());
+            if (!lease || !unitLease || !self->IsCurrentUnit(route.guid, unit) ||
+                !self->IsRescanCurrent(route, operationSerial)) return;
 
             if (self->lock_) {
                 IOLockLock(self->lock_);
@@ -1068,16 +1137,20 @@ void AVCDiscovery::ScheduleRescan(uint64_t guid, const std::shared_ptr<AVCUnit>&
 
             auto work = [weakSelf, route, operationSerial, attempt, unit]() {
                 const auto self = weakSelf.lock();
-                if (!self || !self->IsRescanCurrent(route, operationSerial)) {
-                    return;
-                }
+                if (!self) return;
+                Shared::PostedWorkEpoch::Lease lease(*self->deferredWorkEpoch_);
+                Shared::PostedWorkEpoch::Lease unitLease(*unit->DeferredWorkEpoch());
+                if (!lease || !unitLease || !self->IsCurrentUnit(route.guid, unit) ||
+                    !self->IsRescanCurrent(route, operationSerial)) return;
 
                 ASFW_LOG(Audio, "AVCDiscovery: Auto re-scan attempt %u for GUID=%llx", attempt, route.guid);
                 unit->ReScan([weakSelf, route, operationSerial, unit](bool success) {
                     const auto self = weakSelf.lock();
-                    if (!self || !self->IsRescanCurrent(route, operationSerial)) {
-                        return;
-                    }
+                    if (!self) return;
+                    Shared::PostedWorkEpoch::Lease lease(*self->deferredWorkEpoch_);
+                    Shared::PostedWorkEpoch::Lease unitLease(*unit->DeferredWorkEpoch());
+                    if (!lease || !unitLease || !self->IsCurrentUnit(route.guid, unit) ||
+                        !self->IsRescanCurrent(route, operationSerial)) return;
 
                     if (!success) {
                         ASFW_LOG_ERROR(Audio,
@@ -1134,7 +1207,7 @@ void AVCDiscovery::OnUnitResumed(std::shared_ptr<Discovery::FWUnit> unit) {
     std::shared_ptr<AVCUnit> avcUnit;
     IOLockLock(lock_);
     auto it = units_.find(guid);
-    if (it != units_.end()) {
+    if (it != units_.end() && it->second->GetFWUnit() == unit) {
         avcUnit = it->second;
         os_log_info(log_,
                     "AVCDiscovery: AV/C unit resumed: GUID=%llx",
@@ -1151,36 +1224,44 @@ void AVCDiscovery::OnUnitResumed(std::shared_ptr<Discovery::FWUnit> unit) {
     RebuildNodeIDMap();
 }
 
-void AVCDiscovery::OnUnitTerminated(std::shared_ptr<Discovery::FWUnit> unit) {
-    if (shuttingDown_.load(std::memory_order_acquire)) {
+void AVCDiscovery::RemoveUnit(uint64_t guid, const std::shared_ptr<Discovery::FWUnit>& expected) {
+    if (shuttingDown_.load(std::memory_order_acquire)) return;
+    std::shared_ptr<AVCUnit> avcUnit;
+    Scheduling::TimerToken rescan = Scheduling::kInvalidTimerToken;
+    Scheduling::TimerToken duet = Scheduling::kInvalidTimerToken;
+    IOLockLock(lock_);
+    const auto it = units_.find(guid);
+    if (expected && (it == units_.end() || it->second->GetFWUnit() != expected)) {
+        IOLockUnlock(lock_);
         return;
     }
-    uint64_t guid = GetUnitGUID(unit);
-
-    std::shared_ptr<AVCUnit> avcUnit;
-    IOLockLock(lock_);
-
-    auto it = units_.find(guid);
     if (it != units_.end()) {
         avcUnit = it->second;
-        os_log_info(log_,
-                    "AVCDiscovery: AV/C unit terminated: GUID=%llx",
-                    guid);
-        units_.erase(it);
+        units_.erase(it); // Inadmissible before Shutdown invokes callbacks.
     }
+    if (const auto timer = rescanTimersByGuid_.find(guid); timer != rescanTimersByGuid_.end()) {
+        rescan = timer->second;
+        rescanTimersByGuid_.erase(timer);
+    }
+    if (const auto op = activeDuetPrefetchByGuid_.find(guid); op != activeDuetPrefetchByGuid_.end()) {
+        if (op->second) {
+            duet = op->second->timeoutToken;
+            op->second->timeoutToken = Scheduling::kInvalidTimerToken;
+        }
+        activeDuetPrefetchByGuid_.erase(op);
+    }
+    activeRescanSerialByGuid_.erase(guid);
     rescanAttempts_.erase(guid);
     duetPrefetchByGuid_.erase(guid);
     IOLockUnlock(lock_);
-
-    // A response-router lease may keep the transport alive after its unit has
-    // left discovery. Stop it explicitly so no pending callback survives the
-    // unit-removal lifecycle boundary.
-    if (avcUnit) {
-        avcUnit->Shutdown();
-    }
-
-    // Rebuild node ID map (terminated unit removed)
+    if (rescan != Scheduling::kInvalidTimerToken) timerScheduler_.Cancel(rescan);
+    if (duet != Scheduling::kInvalidTimerToken) timerScheduler_.Cancel(duet);
+    if (avcUnit) avcUnit->Shutdown();
     RebuildNodeIDMap();
+}
+
+void AVCDiscovery::OnUnitTerminated(std::shared_ptr<Discovery::FWUnit> unit) {
+    if (unit) RemoveUnit(GetUnitGUID(unit), unit);
 }
 
 void AVCDiscovery::OnDeviceAdded(std::shared_ptr<Discovery::FWDevice> device) {
@@ -1205,26 +1286,7 @@ void AVCDiscovery::OnDeviceSuspended(std::shared_ptr<Discovery::FWDevice> device
 }
 
 void AVCDiscovery::OnDeviceRemoved(Discovery::Guid64 guid) {
-    if (shuttingDown_.load(std::memory_order_acquire)) {
-        return;
-    }
-    std::shared_ptr<AVCUnit> avcUnit;
-    IOLockLock(lock_);
-
-    const auto it = units_.find(guid);
-    if (it != units_.end()) {
-        avcUnit = it->second;
-        units_.erase(it);
-    }
-    rescanAttempts_.erase(guid);
-    duetPrefetchByGuid_.erase(guid);
-    IOLockUnlock(lock_);
-
-    if (avcUnit) {
-        avcUnit->Shutdown();
-    }
-
-    RebuildNodeIDMap();
+    RemoveUnit(guid);
 }
 
 //==============================================================================
@@ -1243,12 +1305,13 @@ AVCUnit* AVCDiscovery::GetAVCUnit(uint64_t guid) {
 }
 
 AVCUnit* AVCDiscovery::GetAVCUnit(std::shared_ptr<Discovery::FWUnit> unit) {
-    if (!unit) {
-        return nullptr;
-    }
-
-    uint64_t guid = GetUnitGUID(unit);
-    return GetAVCUnit(guid);
+    if (!unit || unit->IsTerminated()) return nullptr;
+    const uint64_t guid = GetUnitGUID(unit);
+    IOLockLock(lock_);
+    const auto it = units_.find(guid);
+    auto* result = it != units_.end() && it->second->GetFWUnit() == unit ? it->second.get() : nullptr;
+    IOLockUnlock(lock_);
+    return result;
 }
 
 std::vector<AVCUnit*> AVCDiscovery::GetAllAVCUnits() {

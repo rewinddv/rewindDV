@@ -305,26 +305,22 @@ void SeedInitialInterruptMask(ASFW::Driver::HardwareInterface& hw,
 //
 // Every other software reset goes through BusResetCoordinator, which owns the §8.2.1
 // holdoff and the PHY-config pairing. This one cannot: it runs during bring-up, before
-// any Self-ID has completed and before the coordinator is wired to hardware. There is
+// any Self-ID has completed. The coordinator is wired, but there is
 // nothing to hold off from (the holdoff is armed at Self-ID completion, so it reads 0)
 // and no accepted topology whose gap count could be preserved, so routing it would add
 // a dependency without changing a single bus-visible byte.
 //
 // If you are adding a new software reset, it does NOT belong here — see
 // BusResetCoordinator::RequestConfigRomRestageReset for the pattern to copy.
-void MaybeForceInitialBusReset(ASFW::Driver::HardwareInterface& hw,
-                               bool phyProgramSupported,
-                               bool phyConfigOk) {
-    if (phyProgramSupported && phyConfigOk) {
-        ASFW_LOG(Hardware, "Forcing bus reset via PHY to guarantee Config ROM shadow activation");
-        const bool forced = hw.InitiateBusReset(false);
-        if (!forced) {
-            ASFW_LOG(Hardware, "WARNING: Forced bus reset failed; will rely on auto reset");
-        }
-        return;
+// OHCI 1.1 §5.7 requires an initial reset after enabling the link; §5.7.2's
+// programPhyEnable is only a software flag for PHY enhancement configuration.
+// Adapted from ASFireWire PR #175, ea76ae9cc7351ca8ba98c44eb1db2f34fca8b957.
+void ForceInitialBusReset(ASFW::Driver::HardwareInterface& hw) {
+    ASFW_LOG(Hardware, "Forcing bus reset via PHY to guarantee Config ROM shadow activation");
+    const bool forced = hw.InitiateBusReset(false);
+    if (!forced) {
+        ASFW_LOG(Hardware, "WARNING: Initial PHY reset failed; awaiting validated Self-ID before topology admission");
     }
-
-    ASFW_LOG(Hardware, "Skipping forced reset; relying on auto reset from linkEnable");
 }
 
 kern_return_t ArmAsyncReceiveContexts(ASFW::Async::IAsyncControllerPort* asyncController) {
@@ -623,8 +619,7 @@ kern_return_t ControllerCore::InitialiseHardware(IOService* provider) {
         return kIOReturnNotReady;
     }
 
-    // Reset PHY derived state each time we attempt bring-up so the final enable
-    // phase can decide whether an explicit PHY initiated bus reset is required.
+    // Reset PHY derived state for enhancement configuration and advertised capabilities.
     phyProgramSupported_ = false;
     phyConfigOk_ = false;
 
@@ -783,9 +778,9 @@ kern_return_t ControllerCore::EnableInterruptsAndStartBus() {
     SeedInitialInterruptMask(hw, deps_.interrupts.get());
 
     ASFW_LOG(Hardware,
-             "Setting linkEnable + BIBimageValid atomically - will trigger auto bus reset");
+             "Setting linkEnable + BIBimageValid atomically before the initial PHY reset");
     hw.SetHCControlBits(HCControlBits::kLinkEnable | HCControlBits::kBibImageValid);
-    MaybeForceInitialBusReset(hw, phyProgramSupported_, phyConfigOk_);
+    ForceInitialBusReset(hw);
 
     const kern_return_t armStatus = ArmAsyncReceiveContexts(deps_.asyncController.get());
     if (armStatus != kIOReturnSuccess) {

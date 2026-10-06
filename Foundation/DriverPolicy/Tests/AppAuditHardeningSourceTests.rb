@@ -4,6 +4,7 @@
 app = File.read('Foundation/App/RewindDVApp.swift')
 workspace = File.read('Foundation/App/UnifiedMonitorWorkspace.swift')
 bridge = File.read('Foundation/App/DriverBridge.swift')
+playback = File.read('Foundation/App/OfflineDVPlayback.swift')
 whole = File.read('Foundation/App/WholeTapeCaptureModel.swift')
 live = File.read('Foundation/App/LiveMonitorModel.swift')
 observers = File.read('Foundation/App/WindStopObserver.swift')
@@ -15,15 +16,29 @@ submit = send_body.index('try await bridge.perform(') or abort 'missing typed co
 abort 'handoff occurs after command submission' unless join < submit
 abort 'manual STOP is not wired to the PLAY observer handoff' unless workspace.include?(
   'model.send(.stop, beforeSubmission: { await live.prepareForOperatorStop() }, onAccepted:')
-abort 'compact evidence should have only one opt-in caller' unless app.scan('passiveTransport: true').length == 1
+# Compact evidence has three deliberately typed, route-bound observation owners.
+# Do not allow a new caller merely by increasing a whole-file occurrence count.
+compact_calls = app.scan(/bridge\.inspectDevice\(.*?\)/m).select { |call| call.include?('passiveTransport: true') }
+expected_calls = [
+  'bridge.inspectDevice(deck, expectedRoute: route, passiveTransport: true, timecodeOnly: true, rapidIdleObservation: rapidWinding)',
+  'bridge.inspectDevice(deck, transportOnly: true, expectedRoute: route, passiveTransport: true)',
+  'bridge.inspectDevice(deck, transportOnly: true, expectedRoute: route, passiveTransport: true, rapidIdleObservation: true)'
+]
+abort 'compact evidence has an unexpected or unbound caller' unless compact_calls.map { |call| call.gsub(/\s+/, ' ') }.sort == expected_calls.sort
+abort 'compact observation lacks its existing owner' unless app.include?('func sampleDeckTimecode(') &&
+  app.include?('externalTransportObserver.start(route: route, sample:') && app.include?('windObserver.start(route: route,')
 abort 'failed passive observation would spin/retry on the same route' unless app.include?('self.passiveObservationFailureRoute = route') &&
   app.include?('model.passiveTransportObservationAvailable,')
 abort 'whole-tape receipts must remain immutable per-flight' if whole.include?('passiveTransport: true')
 abort 'whole-tape alerts bypass unified loss review' unless whole.include?('let defects = result.needsLossReview')
-abort 'bridge compact mode must require a route-bound transport-only query' unless bridge.include?(
-  '!passiveTransport || (transportOnly && !tapeStateOnly && expectedRoute != nil)')
-abort 'specification search failures are hidden' unless workspace.include?(
-  'technicalSpecificationsStatus.localizedCaseInsensitiveContains("unavailable")')
+abort 'bridge compact mode must require typed route-bound observation' unless bridge.include?(
+  '!passiveTransport || ((transportOnly || timecodeOnly) && !tapeStateOnly && expectedRoute != nil)') &&
+  bridge.include?('!timecodeOnly || (!transportOnly && !tapeStateOnly && expectedRoute != nil)')
+# Playback now samples one frame; the separate file audit owns whole-file work.
+abort 'specification failures are hidden' unless workspace.include?(
+  'else { Text(playback.technicalSpecificationsStatus)') && playback.include?(
+  'DVTechnicalSpecifications.read(url: url, searchRecordedClock: false)') && playback.include?(
+  'technicalSpecificationsStatus = "Technical specifications unavailable:')
 abort 'capture headline bypasses loss review' unless workspace.include?('Label(result.completionHeadline,') &&
   workspace.include?('result.needsLossReview ? "exclamationmark.triangle.fill"')
 %w[model.monitorSource model.selectedDeckID model.selectedRoute].each do |key|

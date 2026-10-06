@@ -35,6 +35,12 @@ constexpr uint32_t kDescriptorIOVABase = 0x10000000u;
 
 class FakeATContext {
 public:
+    bool BindProgramIdentity(size_t index, uint32_t operation) {
+        if(index >= identities_.size() || identities_[index]) return false;
+        identities_[index] = operation; return true;
+    }
+    void ForgetUnpostedIdentity(size_t index) { identities_[index] = 0; }
+    std::array<uint32_t,8> identities_{};
     void LockSubmissionQueue() noexcept {
         ++submissionLockDepth_;
         ++submissionLockCount_;
@@ -384,6 +390,7 @@ TEST_F(ATManagerHotAppendTest, RealBuilderRebasesEmptyRingBeforeWrappedAllocatio
     rig.ring.SetTail(7);
 
     auto chain = rig.BuildBlockWrite(21);
+    chain.operationIdentity = 12345;
     ASSERT_FALSE(chain.Empty());
     EXPECT_EQ(chain.firstRingIndex, 0u);
     EXPECT_EQ(chain.lastRingIndex, 2u);
@@ -401,8 +408,35 @@ TEST_F(ATManagerHotAppendTest, RealBuilderRebasesEmptyRingBeforeWrappedAllocatio
     const auto completion = context.ScanCompletion();
     ASSERT_TRUE(completion.has_value());
     EXPECT_EQ(completion->tLabel, 21u);
+    EXPECT_EQ(completion->operationIdentity,12345u);
     EXPECT_EQ(rig.ring.Head(), 3u);
     EXPECT_TRUE(rig.ring.IsEmpty());
+}
+
+TEST_F(ATManagerHotAppendTest, HostIdentitySurvivesDescriptorAddressAndLabelReuse) {
+    RealBuilderRig rig; ASSERT_TRUE(rig.Initialize());
+    ATRequestContext context;
+    ASSERT_EQ(context.Initialize(rig.hardware, rig.ring, rig.dma), kIOReturnSuccess);
+    ATManager<ATRequestContext, DescriptorRing, ATRequestTag> manager(context, rig.ring, *rig.builder);
+    std::optional<TxCompletion> first;
+    bool addressReused = false;
+    for(uint32_t n=1;n<=128;++n) {
+        auto chain=rig.BuildBlockWrite(21);
+        ASSERT_FALSE(chain.Empty());
+        chain.operationIdentity=(n<<6)+22;
+        auto* terminal=chain.last;
+        ASSERT_EQ(manager.Submit(std::move(chain), {}), kIOReturnSuccess);
+        terminal->xferStatus=static_cast<uint16_t>(OHCIEventCode::kAckComplete);
+        auto completion=context.ScanCompletion(); ASSERT_TRUE(completion);
+        EXPECT_EQ(completion->operationIdentity,(n<<6)+22);
+        EXPECT_EQ(completion->tLabel,21);
+        if(!first) first=completion;
+        else if(first->descriptor==completion->descriptor) {
+            addressReused=true; EXPECT_NE(first->operationIdentity,completion->operationIdentity);
+            EXPECT_EQ(first->operationIdentity,86u);
+        }
+    }
+    EXPECT_TRUE(addressReused);
 }
 
 TEST_F(ATManagerHotAppendTest, RealBuilderRejectsNonEmptyGapWrapWithoutMutation) {

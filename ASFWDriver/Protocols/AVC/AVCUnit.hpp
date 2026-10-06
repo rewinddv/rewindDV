@@ -7,6 +7,7 @@
 //
 
 #pragma once
+#include "../../Shared/Completion/PostedWorkEpoch.hpp"
 
 #ifdef ASFW_HOST_TEST
 #include "../../Testing/HostDriverKitStubs.hpp"
@@ -108,6 +109,11 @@ public:
 
     /// Stop the unit's FCP transport before the async bus is torn down.
     void Shutdown();
+    [[nodiscard]] bool RetireDeferredWork() noexcept {
+        deferredWorkEpoch_->Retire();
+        return deferredWorkEpoch_->Quiesced();
+    }
+    std::shared_ptr<Shared::PostedWorkEpoch> DeferredWorkEpoch() const { return deferredWorkEpoch_; }
 
     bool IsInitialized() const { return initialized_; }
 
@@ -135,6 +141,8 @@ private:
 
     void ParseSubunitCapabilities(size_t index, std::function<void(bool)> completion);
 
+    std::shared_ptr<Shared::PostedWorkEpoch> deferredWorkEpoch_{
+        std::make_shared<Shared::PostedWorkEpoch>()};
     std::weak_ptr<Discovery::FWDevice> device_;
     std::weak_ptr<Discovery::FWUnit> unit_;
     Discovery::DeviceRegistry& routeRegistry_;

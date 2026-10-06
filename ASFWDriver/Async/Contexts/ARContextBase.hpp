@@ -312,11 +312,8 @@ kern_return_t ARContextBase<Derived, Tag>::Stop(uint32_t timeoutMs) noexcept {
     }
 
     if (this->hw_->HardwareGone()) {
-        // No PCI provider means no possible late DMA write. Skip the bounded
-        // ACTIVE polling that is required only while hardware remains live.
-        ASFW_LOG(Async, "[Lifecycle] AR stop context=%{public}s hardware-gone action=release",
-                 this->ContextNameCString());
-        return kIOReturnSuccess;
+        // Software access revocation is not proof that DMA has retired.
+        return kIOReturnNotReady;
     }
 
     const uint32_t before = this->ReadControl();

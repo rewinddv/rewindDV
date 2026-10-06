@@ -141,6 +141,7 @@ public enum DVIngestExporter {
     at directory: URL, allowLegacyStoppedSnapshot: Bool = false, allowBusResetSegment: Bool = false,
     progress: (@Sendable (DVIngestProgress) -> Void)? = nil
   ) throws -> DVIngestVerification {
+    try Task.checkCancellation()
     let names = ["capture.dv", "frames.ndjson", "verification.json"]
     for name in names.flatMap({ [$0, $0 + ".partial"] }) {
       var info = stat()
@@ -187,6 +188,7 @@ public enum DVIngestExporter {
     }
     // Drain read, assembly and metadata temporaries per record; retain only streaming state.
     while true {
+      try Task.checkCancellation()
       let processed = try autoreleasepool { () throws -> Bool in
         guard let header = try reader.readExactly(64) else { return false }
         let sequence = integer(header, 0, UInt64.self)
@@ -355,10 +357,10 @@ public enum DVIngestExporter {
       promote: { name in
         switch name {
         case "capture.dv":
-          try promote(name, in: directory, expectedBytes: dvBytes, expectedSHA256: nativeSHA!)
+          try promote(name, in: directory, expectedBytes: dvBytes, expectedSHA256: nativeSHA!, cancellable: true)
         case "frames.ndjson":
           try promote(name, in: directory, expectedBytes: frameManifestBytes,
-            expectedSHA256: frameManifestSHA)
+            expectedSHA256: frameManifestSHA, cancellable: true)
         case "verification.json":
           try promote(name, in: directory, expectedBytes: UInt64(verificationBytes.count),
             expectedSHA256: hex(SHA256.hash(data: verificationBytes)))
@@ -379,6 +381,7 @@ public enum DVIngestExporter {
   /// and hash-bound before a final name is exposed. Existing final files are
   /// accepted only when they exactly match the verification report.
   public static func resumeVerifiedPublication(at directory: URL) throws -> DVIngestVerification {
+    try Task.checkCancellation()
     let partialVerification = directory.appendingPathComponent("verification.json.partial")
     let finalVerification = directory.appendingPathComponent("verification.json")
     let partialExists = pathExists(partialVerification)
@@ -448,7 +451,8 @@ public enum DVIngestExporter {
       guard retained.bytes == bytes, retained.sha == sha else {
         throw DVIngestError.invalidEvidence("partial \(name) does not match verified evidence")
       }
-      try promote(name, in: directory, expectedBytes: bytes, expectedSHA256: sha)
+      try promote(name, in: directory, expectedBytes: bytes, expectedSHA256: sha,
+        cancellable: name != "verification.json")
     }
 
     try publishVerifiedOutputs(hasNativeDV: result.captureFile != nil,
@@ -477,9 +481,14 @@ public enum DVIngestExporter {
     hasNativeDV: Bool, promote: (String) throws -> Void, syncDirectory: () throws -> Void,
     withdrawMarker: () -> Void
   ) throws {
+    try Task.checkCancellation()
     if hasNativeDV { try promote("capture.dv") }
+    try Task.checkCancellation()
     try promote("frames.ndjson")
     try syncDirectory()
+    // Once the completion marker is promoted, finish its durability barrier
+    // even if cancellation arrives. A committed success is never half undone.
+    try Task.checkCancellation()
     try promote("verification.json")
     do { try syncDirectory() }
     catch { withdrawMarker(); throw error }
@@ -573,6 +582,7 @@ public enum DVIngestExporter {
     var finalWire: Data?
     // The read and all line/JSON work belong to the same bounded cleanup scope.
     while true {
+      try Task.checkCancellation()
       let processed = try autoreleasepool { () throws -> Bool in
         guard let chunk = try handle.read(upToCount: 65_536), !chunk.isEmpty else { return false }
         hash.update(data: chunk)
@@ -722,6 +732,7 @@ public enum DVIngestExporter {
     var hash = SHA256(), count: UInt64 = 0
     // Include the read itself, hashing and progress in each synchronous chunk scope.
     while true {
+      try Task.checkCancellation()
       let processed = try autoreleasepool { () throws -> Bool in
         guard let data = try handle.read(upToCount: 1_048_576), !data.isEmpty else { return false }
         hash.update(data: data)
@@ -736,7 +747,7 @@ public enum DVIngestExporter {
 
   static func promote(
     _ name: String, in directory: URL, expectedBytes: UInt64,
-    expectedSHA256: String, forcePortableCopy: Bool = false
+    expectedSHA256: String, forcePortableCopy: Bool = false, cancellable: Bool = false
   ) throws {
     let directoryFD = Darwin.open(directory.path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
     guard directoryFD >= 0 else { throw DVIngestError.fileOperation("open publication directory", errno) }
@@ -744,7 +755,7 @@ public enum DVIngestExporter {
     try DVPortablePublication.promoteExclusive(
       directoryFD: directoryFD, from: name + ".partial", to: name,
       expectedBytes: expectedBytes, expectedSHA256: expectedSHA256,
-      forcePortableCopy: forcePortableCopy)
+      forcePortableCopy: forcePortableCopy, cancellable: cancellable)
   }
 
   private static func pathExists(_ url: URL) -> Bool {

@@ -34,7 +34,7 @@ TEST_F(CyclePolicyCoordinatorTests, ClientOnlySuppressesCyclePolicy) {
     in.localIsIRM = true;
     in.irmFallbackGateOpen = true;
     in.irmFallbackNoBMDetected = true;
-
+    
     EXPECT_EQ(planner_.Plan(in), CyclePolicyDecision::SuppressedByRoleMode);
 }
 
@@ -47,7 +47,7 @@ TEST_F(CyclePolicyCoordinatorTests, ElectionOnlyDoesNotSuppressLocalRootDuty) {
     in.localIsRoot = true;
     in.localCmcKnown = true;
     in.localCmcCapable = true;
-
+    
     MarkLocalSelfIdRoot(in);
     EXPECT_EQ(planner_.Plan(in), CyclePolicyDecision::LocalRootEnableCycleMaster);
 }
@@ -60,7 +60,7 @@ TEST_F(CyclePolicyCoordinatorTests, LocalBMAndLocalRootPlansLocalCycleMaster) {
     in.localIsBM = true;
     in.localIsRoot = true;
     MarkLocalSelfIdRoot(in);
-
+    
     EXPECT_EQ(planner_.Plan(in), CyclePolicyDecision::LocalRootEnableCycleMaster);
 }
 
@@ -96,7 +96,7 @@ TEST_F(CyclePolicyCoordinatorTests, LocalRootSelfIDUnknownDefers) {
     in.activityLevel = FullBMActivityLevel::CyclePolicyAllowed;
     in.localIsBM = true;
     in.localIsRoot = true;
-
+    
     EXPECT_EQ(planner_.Plan(in), CyclePolicyDecision::DeferLocalSelfIDUnknown);
 }
 
@@ -109,7 +109,7 @@ TEST_F(CyclePolicyCoordinatorTests, LocalRootLinkInactiveRequiresRootSelection) 
     in.localIsRoot = true;
     in.localSelfIdKnown = true;
     in.localSelfIdLinkActive = false;
-
+    
     EXPECT_EQ(planner_.Plan(in), CyclePolicyDecision::RootSelectionRequired);
 }
 
@@ -162,7 +162,7 @@ TEST_F(CyclePolicyCoordinatorTests, RemoteRootSelfIDUnknownDefers) {
     in.localIsRoot = false;
     in.rootNodeId = 2;
     in.irmNodeId = 1;
-
+    
     EXPECT_EQ(planner_.Plan(in), CyclePolicyDecision::DeferRootSelfIDUnknown);
 }
 
@@ -192,7 +192,7 @@ TEST_F(CyclePolicyCoordinatorTests, RemoteRootBibCmcFalseAndCycleSeenSuppressesC
     in.rootCmcCapable = false;
     MarkRemoteRootSelfIdContender(in);
     in.cycleStartObserved = true;
-
+    
     EXPECT_EQ(planner_.Plan(in), CyclePolicyDecision::AlreadySatisfiedCycleStartObserved);
 }
 
@@ -220,7 +220,7 @@ TEST_F(CyclePolicyCoordinatorTests, RemoteRootSelfIDContenderAtCyclePolicyAllowe
     MarkRemoteRootSelfIdContender(in);
     in.rootCmcKnown = true;
     in.rootCmcCapable = true;
-
+    
     EXPECT_EQ(planner_.Plan(in), CyclePolicyDecision::RemoteRootSetCmstr);
 }
 
@@ -235,7 +235,7 @@ TEST_F(CyclePolicyCoordinatorTests, RemoteRootSelfIDContenderStillPlansWriteWhen
     in.rootCmcKnown = true;
     in.rootCmcCapable = true;
     in.cycleStartObserved = true;
-
+    
     EXPECT_EQ(planner_.Plan(in), CyclePolicyDecision::RemoteRootSetCmstr);
 }
 
@@ -250,7 +250,7 @@ TEST_F(CyclePolicyCoordinatorTests, IRMFallbackLocalRootPlansLocalCycleMaster) {
     in.irmFallbackNoBMDetected = true;
     in.localIsRoot = true;
     MarkLocalSelfIdRoot(in);
-
+    
     EXPECT_EQ(planner_.Plan(in), CyclePolicyDecision::LocalRootEnableCycleMaster);
 }
 
@@ -266,6 +266,6 @@ TEST_F(CyclePolicyCoordinatorTests, IRMFallbackRemoteRootDoesNotSendRemoteCmstrI
     MarkRemoteRootSelfIdContender(in);
     in.rootCmcKnown = true;
     in.rootCmcCapable = true;
-
+    
     EXPECT_EQ(planner_.Plan(in), CyclePolicyDecision::RootSelectionRequired);
 }

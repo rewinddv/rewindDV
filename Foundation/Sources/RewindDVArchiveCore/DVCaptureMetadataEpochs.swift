@@ -220,8 +220,19 @@ public enum DVCaptureMetadataEpochError: Error, Equatable, LocalizedError, Senda
   }
 }
 
-/// Bounded-frame scanner for native DV. Only the returned manifest grows with
-/// capture length; the scanner itself retains at most one frame's observations.
+/// Derived complete-file facts for display. Raw per-frame observations remain
+/// available through the full manifest API and the unchanged source bytes.
+/// Storage scales with actual epoch/invalid-extent transitions, not every pack.
+public struct DVCaptureMetadataEpochSummary: Equatable, Sendable {
+  public let sourceByteCount: UInt64
+  public let sourceSHA256: String
+  public let completeFrameCount: UInt64
+  public let audioSampleRateEpochs: [DVAudioSampleRateEpoch]
+  public let unclassifiedExtents: [DVUnclassifiedCaptureExtent]
+}
+
+/// Bounded-frame scanner for native DV. The full manifest retains every frame;
+/// the display summary retains only epochs and unclassified extents.
 public enum DVCaptureMetadataEpochAnalyzer {
   private static let difBlockBytes = 80
   private static let ntscFrameBlocks = 1_500
@@ -242,6 +253,7 @@ public enum DVCaptureMetadataEpochAnalyzer {
       output.reserveCapacity(count)
       while output.count < count {
         if cursor == buffer.count {
+          try Task.checkCancellation()
           buffer = try handle.read(upToCount: refillByteCount) ?? Data()
           cursor = 0
           if buffer.isEmpty {
@@ -257,6 +269,18 @@ public enum DVCaptureMetadataEpochAnalyzer {
   }
 
   public static func analyze(url: URL) throws -> DVCaptureMetadataEpochManifest {
+    var scan = try read(url: url, retainFrames: true)
+    return scan.builder.finish(sourceByteCount: scan.byteCount, sourceSHA256: scan.sha)
+  }
+
+  public static func analyzeSummary(url: URL) throws -> DVCaptureMetadataEpochSummary {
+    var scan = try read(url: url, retainFrames: false)
+    return scan.builder.finishSummary(sourceByteCount: scan.byteCount, sourceSHA256: scan.sha)
+  }
+
+  private static func read(url: URL, retainFrames: Bool) throws
+    -> (builder: Builder, byteCount: UInt64, sha: String) {
+    try Task.checkCancellation()
     let values = try url.resourceValues(forKeys: [.isRegularFileKey])
     guard values.isRegularFile == true else {
       throw DVCaptureMetadataEpochError.sourceNotRegularFile(url.path)
@@ -265,22 +289,25 @@ public enum DVCaptureMetadataEpochAnalyzer {
     defer { try? handle.close() }
     let reader = BufferedReader(handle: handle)
 
-    var builder = Builder()
+    var builder = Builder(retainFrames: retainFrames)
     var digest = SHA256()
     var sourceByteCount: UInt64 = 0
-    while let chunk = try reader.read(upTo: difBlockBytes) {
-      digest.update(data: chunk)
-      builder.consume(chunk, at: sourceByteCount)
-      sourceByteCount += UInt64(chunk.count)
-    }
-    return builder.finish(
-      sourceByteCount: sourceByteCount,
-      sourceSHA256: digest.finalize().map {
-        String(format: "%02x", $0)
-      }.joined())
+    // Drain Foundation read/slice temporaries in bounded batches. A long-lived
+    // detached task otherwise retains autoreleased objects for the whole tape.
+    while try autoreleasepool(invoking: { () throws -> Bool in
+      for _ in 0..<16_384 {
+        guard let chunk = try reader.read(upTo: difBlockBytes) else { return false }
+        digest.update(data: chunk)
+        builder.consume(chunk, at: sourceByteCount)
+        sourceByteCount += UInt64(chunk.count)
+      }
+      return true
+    }) {}
+    return (builder, sourceByteCount, digest.finalize().map { String(format: "%02x", $0) }.joined())
   }
 
   public static func analyze(data: Data) -> DVCaptureMetadataEpochManifest {
+    let data = data.startIndex == 0 ? data : Data(data)
     var builder = Builder()
     var offset = 0
     while offset < data.count {
@@ -465,8 +492,11 @@ public enum DVCaptureMetadataEpochAnalyzer {
   }
 
   private struct Builder {
+    var retainFrames = true
     var currentFrame: FrameAccumulator?
     var frames: [DVFrameCaptureMetadata] = []
+    var completeFrameCount: UInt64 = 0
+    var epochs: [DVAudioSampleRateEpoch] = []
     var unclassifiedExtents: [DVUnclassifiedCaptureExtent] = []
     var bytesBeforeFirstFrame: UInt64 = 0
 
@@ -497,6 +527,18 @@ public enum DVCaptureMetadataEpochAnalyzer {
       sourceByteCount: UInt64,
       sourceSHA256: String
     ) -> DVCaptureMetadataEpochManifest {
+      let summary = finishSummary(sourceByteCount: sourceByteCount, sourceSHA256: sourceSHA256)
+      return DVCaptureMetadataEpochManifest(
+        sourceByteCount: sourceByteCount,
+        sourceSHA256: sourceSHA256,
+        frames: frames,
+        audioSampleRateEpochs: summary.audioSampleRateEpochs,
+        unclassifiedExtents: summary.unclassifiedExtents)
+    }
+
+    mutating func finishSummary(
+      sourceByteCount: UInt64, sourceSHA256: String
+    ) -> DVCaptureMetadataEpochSummary {
       flushCurrentFrame(endOffset: sourceByteCount)
       if bytesBeforeFirstFrame > 0 {
         unclassifiedExtents.insert(
@@ -505,20 +547,22 @@ public enum DVCaptureMetadataEpochAnalyzer {
             byteCount: bytesBeforeFirstFrame,
             reason: .beforeFirstFrame), at: 0)
       }
-      return DVCaptureMetadataEpochManifest(
+      return DVCaptureMetadataEpochSummary(
         sourceByteCount: sourceByteCount,
         sourceSHA256: sourceSHA256,
-        frames: frames,
-        audioSampleRateEpochs: makeEpochs(frames),
+        completeFrameCount: completeFrameCount,
+        audioSampleRateEpochs: epochs,
         unclassifiedExtents: unclassifiedExtents)
     }
 
     private mutating func flushCurrentFrame(endOffset: UInt64) {
       guard let accumulator = currentFrame else { return }
       if let frame = accumulator.materialize(
-        sourceFrameOrdinal: UInt64(frames.count))
+        sourceFrameOrdinal: completeFrameCount)
       {
-        frames.append(frame)
+        completeFrameCount += 1
+        if retainFrames { frames.append(frame) }
+        appendEpoch(frame)
       } else if endOffset > accumulator.fileByteOffset {
         unclassifiedExtents.append(
           DVUnclassifiedCaptureExtent(
@@ -533,34 +577,28 @@ public enum DVCaptureMetadataEpochAnalyzer {
       block[0] >> 5 == 0 && block[1] >> 4 == 0 && block[2] == 0
     }
 
-    private func makeEpochs(
-      _ frames: [DVFrameCaptureMetadata]
-    ) -> [DVAudioSampleRateEpoch] {
-      var epochs: [DVAudioSampleRateEpoch] = []
-      for frame in frames {
-        if let previous = epochs.last,
-          previous.classification == frame.audioSampleRate,
-          previous.fileByteOffset + previous.byteCount == frame.fileByteOffset
-        {
-          epochs[epochs.count - 1] = DVAudioSampleRateEpoch(
-            epochOrdinal: previous.epochOrdinal,
-            firstSourceFrameOrdinal: previous.firstSourceFrameOrdinal,
+    private mutating func appendEpoch(_ frame: DVFrameCaptureMetadata) {
+      if let previous = epochs.last,
+        previous.classification == frame.audioSampleRate,
+        previous.fileByteOffset + previous.byteCount == frame.fileByteOffset
+      {
+        epochs[epochs.count - 1] = DVAudioSampleRateEpoch(
+          epochOrdinal: previous.epochOrdinal,
+          firstSourceFrameOrdinal: previous.firstSourceFrameOrdinal,
+          lastSourceFrameOrdinal: frame.sourceFrameOrdinal,
+          fileByteOffset: previous.fileByteOffset,
+          byteCount: previous.byteCount + frame.byteCount,
+          classification: previous.classification)
+      } else {
+        epochs.append(
+          DVAudioSampleRateEpoch(
+            epochOrdinal: UInt64(epochs.count),
+            firstSourceFrameOrdinal: frame.sourceFrameOrdinal,
             lastSourceFrameOrdinal: frame.sourceFrameOrdinal,
-            fileByteOffset: previous.fileByteOffset,
-            byteCount: previous.byteCount + frame.byteCount,
-            classification: previous.classification)
-        } else {
-          epochs.append(
-            DVAudioSampleRateEpoch(
-              epochOrdinal: UInt64(epochs.count),
-              firstSourceFrameOrdinal: frame.sourceFrameOrdinal,
-              lastSourceFrameOrdinal: frame.sourceFrameOrdinal,
-              fileByteOffset: frame.fileByteOffset,
-              byteCount: frame.byteCount,
-              classification: frame.audioSampleRate))
-        }
+            fileByteOffset: frame.fileByteOffset,
+            byteCount: frame.byteCount,
+            classification: frame.audioSampleRate))
       }
-      return epochs
     }
   }
 }

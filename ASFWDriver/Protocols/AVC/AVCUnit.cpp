@@ -91,6 +91,7 @@ AVCUnit::~AVCUnit() {
 }
 
 void AVCUnit::Shutdown() {
+    deferredWorkEpoch_->Retire();
     initialized_ = false;
     if (fcpTransport_) {
         fcpTransport_->Shutdown();

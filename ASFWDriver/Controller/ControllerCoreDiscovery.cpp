@@ -516,6 +516,10 @@ void ControllerCore::OnDiscoveryScanComplete(Discovery::Generation gen,
     // store still locks its own data, but route/device publication below relies
     // on that existing controller-queue confinement and must not gain an
     // alternate concurrent caller.
+    if (!deps_.stateMachine ||
+        deps_.stateMachine->CurrentState() != ControllerState::kRunning) {
+        return; // A valid scan token cannot reopen a quiescing/quarantined runtime.
+    }
     if (!deps_.romStore || !deps_.deviceRegistry || !deps_.speedPolicy) {
         ASFW_LOG(Discovery, "OnDiscoveryScanComplete: missing Discovery dependencies");
         return;
@@ -613,10 +617,35 @@ void ControllerCore::OnDiscoveryScanComplete(Discovery::Generation gen,
             continue;
         }
 
+        if (deps_.deviceManager) {
+            const auto old = deps_.deviceManager->GetDeviceByGUID(rom.bib.guid);
+            if (old && !old->MatchesROM(rom)) {
+                // Only a positively retired reset path may replace a persona.
+                // A same-generation reread is conservatively refused, without
+                // inventing a bus reset or abandoning live CMP/IRM ownership.
+                if (!old->IsSuspended() || deps_.deviceRegistry->CurrentRoute(rom.bib.guid) ||
+                    !deps_.deviceReplacementReady || !deps_.deviceReplacementReady() ||
+                    (deps_.avcDiscovery && !deps_.avcDiscovery->RetireDeviceWork(rom.bib.guid))) {
+                    ASFW_LOG_ERROR(Discovery, "Persona replacement blocked: retirement unproved GUID=0x%016llx",
+                                   rom.bib.guid);
+                    // The sole root coordinator closes admission. A later scan
+                    // must not turn a failed old-owner drain into resume permission.
+                    if (deps_.deviceReplacementFailed) deps_.deviceReplacementFailed();
+                    return;
+                }
+                // Route admission closes before callbacks run synchronously in
+                // TerminateDevice/FCP shutdown. New ownership is published last.
+                deps_.deviceRegistry->RetireDevice(rom.bib.guid);
+                deps_.deviceManager->TerminateDevice(rom.bib.guid);
+                if (deps_.audioRuntimeRegistry) deps_.audioRuntimeRegistry->Remove(rom.bib.guid);
+            }
+        }
         auto policy = deps_.speedPolicy->ForNode(rom.gen, *nodeId);
 
         auto& bus = this->Bus();
         const auto deviceRecord = deps_.deviceRegistry->UpsertFromROM(rom, policy);
+        if (deviceRecord.guid == 0 || deviceRecord.deviceIncarnation == 0 ||
+            deviceRecord.routeEpoch == 0) continue;
         discoveredGuids.insert(deviceRecord.guid);
 
         // Create the device-specific runtime protocol here, at the orchestrator layer,

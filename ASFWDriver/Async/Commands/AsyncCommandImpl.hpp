@@ -20,6 +20,11 @@ namespace ASFW::Async {
 
 template<typename Derived>
 AsyncHandle AsyncCommand<Derived>::Submit(AsyncSubsystem& subsys) {
+    if (!subsys.BeginSubmission()) return AsyncHandle{0};
+    struct SubmissionScope {
+        AsyncSubsystem& owner;
+        ~SubmissionScope() { owner.EndSubmission(); }
+    } submissionScope{subsys};
     // Step 1: Prepare transaction context (bus state validation)
     auto txCtxOpt = subsys.PrepareTransactionContext();
     if (!txCtxOpt.has_value()) {
@@ -57,7 +62,7 @@ AsyncHandle AsyncCommand<Derived>::Submit(AsyncSubsystem& subsys) {
     struct UnpostedRegistration {
         decltype(tracking) owner;
         AsyncHandle handle;
-        ~UnpostedRegistration() { if (handle.value != 0) owner->AbandonUnposted(handle); }
+        ~UnpostedRegistration() { if (handle.value != 0) owner->RollbackUnpublished(handle); }
     } registration{tracking, handle};
 
     // Step 4: Extract transaction label from handle
@@ -155,9 +160,8 @@ AsyncHandle AsyncCommand<Derived>::Submit(AsyncSubsystem& subsys) {
         return AsyncHandle{0};
     }
     
-    // Step 8: Tag descriptor with handle for completion matching
-    // Use DescriptorBuilder::TagSoftware() to properly tag and sync the descriptor
-    subsys.GetDescriptorBuilder()->TagSoftware(chain.last, handle.value);
+    // Host-only sidecar identity. OHCI descriptor fields remain protocol data.
+    chain.operationIdentity = handle.value;
     
     // Step 9: Submit descriptor chain to AT context
     auto* atReqCtx = subsys.ResolveAtRequestContext();
@@ -166,6 +170,16 @@ AsyncHandle AsyncCommand<Derived>::Submit(AsyncSubsystem& subsys) {
         return AsyncHandle{0};
     }
     
+    if (payload) {
+        auto payloadShared = PayloadContext::IntoShared(std::move(payload));
+        if (!tracking->Payloads()->Attach(handle.value, std::move(payloadShared), txCtx.generation))
+            return AsyncHandle{0};
+    }
+    if (!tracking->PreparePosted(handle)) return AsyncHandle{0};
+    // Establish callback/deadline state before the program can complete.
+    const uint64_t now = subsys.GetCurrentTimeUsec();
+    constexpr uint64_t kDefaultTimeoutUsec = 500'000;
+    tracking->OnTxPosted(handle, now, kDefaultTimeoutUsec);
     auto submitRes = subsys.GetSubmitter()->submit_tx_chain(atReqCtx, std::move(chain));
     if (submitRes.kr != kIOReturnSuccess) {
         ASFW_LOG_ERROR(Async, "Command submit failed: submit_tx_chain returned kr=0x%x for handle=0x%x",
@@ -175,21 +189,6 @@ AsyncHandle AsyncCommand<Derived>::Submit(AsyncSubsystem& subsys) {
     
     registration.handle = {}; // Hardware now owns the submitted program.
 
-    // Step 10: Schedule timeout
-    // Increased from 250ms to 500ms: with retries, this aligns better with
-    // FCP timeout windows and avoids expiring just before valid AR responses.
-    const uint64_t now = subsys.GetCurrentTimeUsec();
-    constexpr uint64_t kDefaultTimeoutUsec = 500'000;  // 500ms per attempt
-    subsys.GetTracking()->OnTxPosted(handle, now, kDefaultTimeoutUsec);
-    
-    // Step 11: Attach payload to PayloadRegistry (if non-null)
-    // Convert unique_ptr to shared_ptr before attaching to registry (consumes unique_ptr)
-    if (payload) {
-        auto payloadShared = PayloadContext::IntoShared(std::move(payload));
-        subsys.GetTracking()->Payloads()->Attach(
-            handle.value, payloadShared, txCtx.generation);
-    }
-    
     return handle;
 }
 

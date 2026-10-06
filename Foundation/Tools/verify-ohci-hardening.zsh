@@ -62,7 +62,7 @@ run_suite BusResetCoordinatorTests tests/core/BusResetCoordinatorTests.cpp \
   ASFWDriver/Hardware/InterruptManager.cpp \
   tests/support/BusResetCoordinatorDepsStubs.cpp \
   tests/support/HardwareInterfaceStub.cpp
-run_suite TrackingRejectionTests tests/async/TrackingRejectionTests.cpp \
+run_suite TrackingRejectionTests tests/async/TrackingRejectionTests.cpp tests/async/OperationLifetimeTests.cpp \
   ASFWDriver/Async/Core/Transaction.cpp ASFWDriver/Async/Core/TransactionManager.cpp \
   ASFWDriver/Async/Track/LabelAllocator.cpp ASFWDriver/Async/Track/PayloadRegistry.cpp \
   ASFWDriver/Shared/Memory/PayloadHandle.cpp

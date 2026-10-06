@@ -1,18 +1,14 @@
-rewindDV Alpha 0.0.87 / Build188 development source projection
-Application and driver source revision: 6d2ee1a585ac0bc0d16b51275ef2ac790e77bf17
-
-Runtime sources and exported regression tests match the publishable candidate
-projection. The Xcode project retains reviewed portable signing settings,
-generic icon selection and removal of an obsolete header reference. Existing
-synthetic-fixture provenance and public documentation remain public transformations.
-Whitespace-only indentation is removed from selected host-test blank lines;
-source tokens and line counts are unchanged.
-
-Only reviewed file content enters this repository; private Git ancestry,
-qualification reports, logs, profiles, research documents and media are excluded.
-This is a source checkpoint, not a binary release or hardware qualification.
-Current download identity is recorded in PROJECT-STATUS.json; historical
-source/binary identities remain in release/alpha081-source.json and RELEASING.md. Consult KNOWN-LIMITATIONS.md for unresolved behavior.
-
-SOURCE-MANIFEST.json pins the reviewed publishable source/build/test/notice surface.
-PROJECT-STATUS.json separately records current development and the latest download.
+rewindDV current public source snapshot
+Application Alpha 0.0.89; app build188; independent Driver build190.
+The published build surface is selected from accepted development using a
+reviewed allowlist, active project references and literal local-include closure.
+Selected root ASFWDriver dependencies and focused regression tooling are included.
+Private ancestry, qualification logs, research, personal signing resources,
+private footage and development environment identifiers are excluded.
+Public-only transformations: portable signing and generic icon settings;
+reviewed synthetic fixture provenance; public diagnostic provenance metadata;
+public documentation navigation and retained license/modification notices.
+SOURCE-MANIFEST.json pins exact publishable input paths and hashes to a public
+source revision. PROJECT-STATUS.json independently records development, download
+and bounded qualification. Artifact provenance binds each engineering package
+back to its exact public source commit and tree.

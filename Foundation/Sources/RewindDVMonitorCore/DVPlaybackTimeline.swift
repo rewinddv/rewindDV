@@ -50,7 +50,7 @@ public struct DVPlaybackTimeline: Sendable {
     }
   }
 
-  public static func read(url: URL) throws -> Self {
+  public static func read(url: URL, inspect: ((Data, Int, UInt64) throws -> Void)? = nil) throws -> Self {
     let identity = try Identity(url)
     let handle = try FileHandle(forReadingFrom: url)
     defer { try? handle.close() }
@@ -66,6 +66,7 @@ public struct DVPlaybackTimeline: Sendable {
         let pal = header[3] & 0x80 != 0, count = pal ? 144_000 : 120_000
         let bytes = header + (try handle.read(upToCount: count - 80) ?? Data())
         try validate(bytes, at: offset)
+        try inspect?(bytes, ordinal, offset)
         if runs.last?.isPAL == pal { runs[runs.count - 1].frameCount += 1 }
         else { runs.append(Run(firstFrame: ordinal, byteOffset: offset,
           startTick: tick, isPAL: pal, frameCount: 1)) }

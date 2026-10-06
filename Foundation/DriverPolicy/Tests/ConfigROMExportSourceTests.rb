@@ -28,7 +28,19 @@ scanner = read_source.call('ASFWDriver/ConfigROM/Remote/ROMScanner.cpp')
 start = scanner.split('bool ROMScanner::Start', 2).last
                .split('void ROMScanner::Abort', 2).first
 
+replacement = completion.split('if (old && !old->MatchesROM(rom))', 2).last
 checks = {
+  'live discovery cannot publish into stopped or quarantined runtime' =>
+    completion.index('CurrentState() != ControllerState::kRunning') < completion.index('PublishExportScan('),
+  'changed persona requires positive receive and callback retirement' =>
+    replacement.include?('!old->IsSuspended()') && replacement.include?('deviceRegistry->CurrentRoute(rom.bib.guid)') &&
+    replacement.include?('!deps_.deviceReplacementReady()') &&
+    replacement.include?('!deps_.avcDiscovery->RetireDeviceWork(rom.bib.guid)') &&
+    replacement.include?('deps_.deviceReplacementFailed();') &&
+    replacement.index('deviceReplacementFailed();') < replacement.index('deviceRegistry->RetireDevice('),
+  'old route retires before observers and new identity publication' =>
+    replacement.index('deviceRegistry->RetireDevice(') < replacement.index('deviceManager->TerminateDevice(') &&
+    replacement.index('deviceManager->TerminateDevice(') < replacement.index('deviceRegistry->UpsertFromROM('),
   'selector 14 uses an owned eligibility-filtered snapshot' =>
     export.include?('CopyExportableByNode(requestedGen, nodeId)') &&
     !export.include?('->FindByNode('),

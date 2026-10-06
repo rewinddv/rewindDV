@@ -21,7 +21,7 @@ public:
 
     // Attach a payload for a given outstanding handle. The registry takes
     // ownership via shared_ptr so callers can pass ownership-friendly types.
-    void Attach(uint32_t handle, std::shared_ptr<PayloadContext> payload, uint32_t epoch = 0);
+    [[nodiscard]] bool Attach(uint32_t handle, std::shared_ptr<PayloadContext> payload, uint32_t epoch = 0);
 
     // Detach and return the payload for the given handle (or nullptr if none).
     std::shared_ptr<PayloadContext> Detach(uint32_t handle);

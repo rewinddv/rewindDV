@@ -15,7 +15,7 @@ TEST(TrackingRejectionTests, RejectedRegistrationsReleaseLabelsWithoutPhantomCal
     }
     EXPECT_EQ(called,0);
     auto posted=tracking.RegisterTx(meta); ASSERT_NE(posted.value,0u);
-    auto* txn=manager.Find(TLabel{static_cast<uint8_t>(posted.value-1)});
+    auto* txn=manager.Find(TLabel{*tracking.GetLabelFromHandle(posted)});
     txn->TransitionTo(TransactionState::ATPosted,"test");
     tracking.AbandonUnposted(posted);
     EXPECT_EQ(manager.Count(),1u);
@@ -34,7 +34,7 @@ TEST(TrackingRejectionTests, QuarantineRetainsPayloadOwnerAfterTrackingIsDestroy
     {
         Track_Tracking<UnusedQueue> tracking(&labels,&manager,queue);
         retained = tracking.Payloads();
-        retained->Attach(1,std::move(payload),4);
+        ASSERT_TRUE(retained->Attach(1,std::move(payload),4));
         tracking.QuarantinePayloads();
         EXPECT_EQ(tracking.Payloads(),nullptr);
     }

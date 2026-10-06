@@ -46,7 +46,14 @@ public struct DVDIFPacketAssembler: Sendable {
     _ packet: Data, transferStatus: UInt16,
     expectedSourceNode: UInt8
   ) -> [Data] {
-    guard packet.count >= 16, packet.count <= 4096, transferStatus & 0x1f == 0x11,
+    guard packet.count >= 16, packet.count <= 4096 else {
+      reject()
+      return []
+    }
+    // Data subsequences may retain their original indices. The ordinary
+    // zero-based receive path keeps its existing storage and allocation cost.
+    let packet = packet.startIndex == 0 ? packet : Data(packet)
+    guard transferStatus & 0x1f == 0x11,
       expectedSourceNode < 64,
       packet[8] & 0xc0 == 0, packet[12] & 0xc0 == 0x80,
       packet[8] & 0x3f == expectedSourceNode, packet[12] & 0x3f == 0,

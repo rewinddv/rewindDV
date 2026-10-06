@@ -56,6 +56,8 @@ class FireWireBusImpl final : public IFireWireBus {
                      std::span<const uint8_t> operand, uint32_t responseLength, FW::FwSpeed speed,
                      InterfaceCompletionCallback callback) override;
     bool Cancel(AsyncHandle handle) override;
+    void FenceUncertainResponse() noexcept override;
+
 
     // IFireWireBusInfo implementation
     FW::FwSpeed GetSpeed(FW::NodeId nodeId) const override;

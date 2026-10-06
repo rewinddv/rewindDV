@@ -6,6 +6,7 @@ import Foundation
 public enum MonitorSource: String, CaseIterable, Identifiable, Sendable {
   case deck = "Capture"
   case file = "Playback"
+  case surgery = "Surgery"
   public var id: Self { self }
 }
 
@@ -53,6 +54,7 @@ public struct WorkspaceCapabilities: Equatable, Sendable {
     // Capture stays unrepresentable until raw-preserving receive is integrated.
     guard action != .capture, !busy else { return false }
     switch source {
+    case .surgery: return false
     case .deck:
       // A direct transport-button click is the one-command intent. There is
       // no persistent arm toggle; route freshness remains a bridge/driver gate.

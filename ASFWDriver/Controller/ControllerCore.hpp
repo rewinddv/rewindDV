@@ -166,6 +166,10 @@ class ControllerCore final : private Role::IPhyConfigReset,
         std::shared_ptr<ASFW::CMP::CMPClient> cmpClient;
         std::shared_ptr<ASFW::Bus::BusManagerElectionDriver> busManagerElectionDriver;
         std::function<void()> busResetStartedCallback;
+        // Positive local receive retirement; called only after a reset has
+        // suspended the old persona and invalidated its route.
+        std::function<bool()> deviceReplacementReady;
+        std::function<void()> deviceReplacementFailed;
         std::function<void()> cycleInconsistentCallback;
     };
 

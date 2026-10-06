@@ -606,7 +606,7 @@ TEST(BusResetCoordinatorTests, InvalidTopologyDoesNotReusePreviouslyPublishedSna
     EXPECT_FALSE(rig.hardware.TestBusResetIssued());
     rig.AdvanceMs(1999U);
     EXPECT_FALSE(rig.hardware.TestBusResetIssued());
-
+    
     // Recovery reason should still be recorded for diagnostics.
     ASSERT_TRUE(rig.coordinator.Metrics().lastFailureReason.has_value());
     EXPECT_NE(rig.coordinator.Metrics().lastFailureReason->find("NonContiguousPhysicalIds"),

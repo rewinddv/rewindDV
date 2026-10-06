@@ -11,6 +11,7 @@
 #include "../Isoch/IsochReceiveContext.hpp"
 #include "../Isoch/Transmit/IsochTransmitContext.hpp"
 #include "../Logging/LogConfig.hpp"
+#include "../Shared/Completion/NativeSourceRetirement.hpp"
 
 namespace ASFW::Driver {
 namespace {
@@ -46,6 +47,7 @@ kern_return_t WatchdogCoordinator::Prepare(::ASFWDriver& service,
     if (!workQueue) {
         return kIOReturnNotReady;
     }
+    if (timer_) return kIOReturnBusy;
 
     IOTimerDispatchSource* timer = nullptr;
     auto kr = IOTimerDispatchSource::Create(workQueue.get(), &timer);
@@ -64,15 +66,11 @@ kern_return_t WatchdogCoordinator::Prepare(::ASFWDriver& service,
 
     kr = timer_->SetHandler(action_.get());
     if (kr != kIOReturnSuccess) {
-        action_.reset();
-        timer_.reset();
         return kr;
     }
 
     kr = timer_->SetEnableWithCompletion(true, nullptr);
     if (kr != kIOReturnSuccess) {
-        action_.reset();
-        timer_.reset();
         return kr;
     }
 
@@ -82,43 +80,30 @@ kern_return_t WatchdogCoordinator::Prepare(::ASFWDriver& service,
 void WatchdogCoordinator::Stop() {
     if (timer_) {
         timer_->SetEnableWithCompletion(false, nullptr);
-        // NOTE: Do NOT call Cancel(nullptr) here.
-        // Cancel() dispatches an async block on the work queue. If the timer
-        // is released (via Reset() → timer_.reset()) before that block executes,
-        // the block dereferences a freed object → SIGSEGV at 0x10 in Cancel_Impl.
-        // Disabling the timer is sufficient; the dispatch source is cleaned up
-        // when the shared pointer is released.
+        // This closes timer production only. The root's subsequent terminal
+        // cancellation joins every pending handler before Reset can release.
     }
 }
 
 void WatchdogCoordinator::Reset() {
-    // Cancel is terminal. Keep both the source and its OSAction alive until
-    // DriverKit confirms that every queued timer callback has returned; the
-    // timer retains its handler until cancellation (IOTimerDispatchSource.h).
+    // The root must observe terminal cancellation before destruction/reset.
     if (timer_) {
-        IOTimerDispatchSource* timer = timer_.detach();
-        OSAction* action = action_.detach();
-        const kern_return_t kr = timer->Cancel(^{
-            if (action) {
-                action->release();
-            }
-            timer->release();
-        });
-        if (kr != kIOReturnSuccess) {
-            if (action) {
-                action->release();
-            }
-            timer->release();
-        }
-    } else {
-        action_.reset();
+        ASFW_LOG_ERROR(Controller, "Watchdog reset before native retirement; retaining timer/action");
+        (void)timer_.detach();
+        (void)action_.detach();
     }
+    action_.reset();
     isochLogDivider_ = 0;
     itLogDivider_ = 0;
     ztsLogDivider_ = 0;
     payloadWriterLogDivider_ = 0;
     txSytTraceDivider_ = 0;
     lastDrainEligible_ = true;
+}
+
+void WatchdogCoordinator::BeginNativeRetirement(
+    const std::shared_ptr<ASFW::Shared::NativeCallbackDrain>& drain) {
+    ASFW::Shared::RetireNativeSource(timer_, action_, drain);
 }
 
 void WatchdogCoordinator::Schedule(uint64_t delayUsec) {

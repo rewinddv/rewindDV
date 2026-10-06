@@ -26,6 +26,11 @@ public:
         const ConfigROM& rom
     );
 
+    // Immutable persona evidence excludes topology/scan lifecycle coordinates.
+    [[nodiscard]] bool MatchesROM(const ConfigROM& rom) const;
+    [[nodiscard]] bool MatchesPersona(const DeviceRecord& record, const ConfigROM& rom) const;
+    uint64_t GetIncarnation() const { return deviceIncarnation_; }
+
     Guid64 GetGUID() const { return guid_; }
     uint32_t GetVendorID() const { return vendorId_; }
     uint32_t GetModelID() const { return modelId_; }
@@ -59,7 +64,7 @@ public:
     void Terminate();
 
 private:
-    FWDevice(const DeviceRecord& record);
+    FWDevice(const DeviceRecord& record, const ConfigROM& rom);
 
     void ParseUnits(const ConfigROM& rom);
 
@@ -68,6 +73,8 @@ private:
         uint32_t offsetQuadlets
     ) const;
 
+    const ConfigROM personaROM_;
+    const uint64_t deviceIncarnation_;
     const Guid64 guid_;
     const uint32_t vendorId_;
     const uint32_t modelId_;

@@ -11,6 +11,7 @@
 #include "../Logging/Logging.hpp"
 #include "RegisterMap.hpp"
 #include "HardwareInterface.hpp"
+#include "../Shared/Completion/NativeSourceRetirement.hpp"
 
 namespace ASFW::Driver {
 
@@ -26,7 +27,7 @@ kern_return_t InterruptManager::Initialise(IOService* owner,
     if (source_) {
         ASFW_LOG(Controller, "InterruptManager: source already exists, updating handler");
         if (handler_ && source_) {
-            source_->SetHandler(handler_.get());
+            return source_->SetHandler(handler_.get());
         }
         return kIOReturnSuccess;
     }
@@ -41,7 +42,7 @@ kern_return_t InterruptManager::Initialise(IOService* owner,
     if (handler_) {
         kr = source_->SetHandler(handler_.get());
         if (kr != kIOReturnSuccess) {
-            source_.reset();
+            // Failed setup still belongs to the root's native drain.
             return kr;
         }
     }
@@ -68,37 +69,37 @@ void InterruptManager::Disable() {
 }
 
 void InterruptManager::Teardown() {
+#ifdef ASFW_HOST_TEST
+    source_.reset();
+    handler_.reset();
+    queue_.reset();
+#else
     if (!source_) {
         queue_.reset();
         handler_.reset();
         return;
     }
 
-    source_->SetEnableWithCompletion(false, nullptr);
+    // Destruction is not a cancellation barrier. Normal root teardown transfers
+    // these references to its drain first. An unexpected destructor keeps the
+    // action's service retention and source backing instead of guessing.
+    ASFW_LOG_ERROR(Controller, "InterruptManager destroyed before native retirement; retaining source/action");
+    (void)source_.detach();
+    (void)handler_.detach();
+    (void)queue_.detach();
+#endif
+}
 
-    // The kernel-side source performs IOService::unregisterInterrupt in its
-    // free(), i.e. whenever the last reference drops. Hand the final references
-    // to the cancel completion so that free is ordered after cancellation
-    // instead of landing whenever the async release RPC is processed. (Releasing
-    // before the completion ran is the Cancel_Impl crash noted in
-    // WatchdogCoordinator::Stop; releasing without Cancel at all is the
-    // 2026-07-11 IOSharedInterruptController panic.)
-    IOInterruptDispatchSource* source = source_.detach();
-    OSAction* handler = handler_.detach();
-    const kern_return_t kr = source->Cancel(^{
-        if (handler) {
-            handler->release();
-        }
-        source->release();
-    });
-    if (kr != kIOReturnSuccess) {
-        // Completion will never run; fall back to direct release.
-        if (handler) {
-            handler->release();
-        }
-        source->release();
-    }
-    queue_.reset();
+void InterruptManager::BeginNativeRetirement(
+    const std::shared_ptr<ASFW::Shared::NativeCallbackDrain>& drain, bool suspend) {
+    shadowMask_.store(0, std::memory_order_release);
+#ifndef ASFW_HOST_TEST
+    if (suspend) ASFW::Shared::DisableNativeSource(source_.get(), drain);
+    else ASFW::Shared::RetireNativeSource(source_, handler_, drain);
+#else
+    (void)drain;
+    if (!suspend) Teardown();
+#endif
 }
 
 void InterruptManager::EnableInterrupts(uint32_t bits) {

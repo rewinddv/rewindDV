@@ -73,7 +73,7 @@ actor DriverBridge {
     inspectionOwner = inspectionInFlight ? .init(category: "passive_transport") : nil
     receiveOwner = liveConnection != nil ? .init(category: "receive") : nil
   }
-  func openExactBuild188Connection() throws -> OpenDriverConnection {
+  func openExactRequiredBuildConnection() throws -> OpenDriverConnection {
     connectionOpens += 1
     if mode == "open" { throw ControlWireError.invalid("fixture connection failure") }
     return .init(connect: .init(failSubmission: mode == "submit", malformed: mode == "malformed"))

@@ -188,6 +188,8 @@ private final class Meter: @unchecked Sendable {
 struct LiveReceiveStatus: Sendable {
   var state: UInt32 = 1
   let lastStatus: Int32 = 0
+  // This bridge receives no new packets; it finalizes separately generated evidence.
+  let writeSequence: UInt64 = 0, acknowledged: UInt64 = 0
   let packetsSeen: UInt64 = 0, dropped: UInt64 = 0, oversized: UInt64 = 0
 }
 struct LivePersistenceHealth: Sendable {

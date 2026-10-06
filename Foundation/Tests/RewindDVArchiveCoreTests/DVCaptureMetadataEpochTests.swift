@@ -337,3 +337,45 @@ func metadataFrameCapacityMatchesHeaderAndRetainsOverlongExtent(pal: Bool) {
   #expect(result.unclassifiedExtents == [DVUnclassifiedCaptureExtent(
     fileByteOffset: 0, byteCount: UInt64(oversized.count), reason: .incompleteFrame)])
 }
+
+
+@Test func displayMetadataSummaryMatchesFullEvidenceAcrossTransitions() throws {
+  var raw = Data(repeating: 0x55, count: 160)
+  raw.append(joined([
+    ntscFrame(rate: .hz32000), ntscFrame(rate: .hz32000),
+    ntscFrame(rate: .hz44100), ntscFrame(rate: .hz48000),
+    ntscFrame(rate: nil), ntscFrame(rate: .hz48000, malformedRateCode: true),
+    ntscFrame(rate: .hz32000, lastSequenceRate: .hz48000),
+    Data(ntscFrame(rate: .hz48000).prefix(800)),
+    ingestFrame(pal: true), ingestFrame(pal: false),
+  ]))
+  raw.append(contentsOf: [0xde, 0xad, 0xbe, 0xef])
+  let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".dv")
+  defer { try? FileManager.default.removeItem(at: url) }
+  try raw.write(to: url, options: .withoutOverwriting)
+  let manifest = DVCaptureMetadataEpochAnalyzer.analyze(data: raw)
+  let summary = try DVCaptureMetadataEpochAnalyzer.analyzeSummary(url: url)
+  #expect(summary.sourceByteCount == manifest.sourceByteCount)
+  #expect(summary.sourceSHA256 == manifest.sourceSHA256)
+  #expect(summary.completeFrameCount == manifest.completeFrameCount)
+  #expect(summary.audioSampleRateEpochs == manifest.audioSampleRateEpochs)
+  #expect(summary.unclassifiedExtents == manifest.unclassifiedExtents)
+  #expect(try DVCaptureMetadataEpochAnalyzer.analyze(url: url) == manifest)
+  #expect(try Data(contentsOf: url) == raw)
+}
+
+@Test(arguments: [false, true]) func cancelledMetadataScanDoesNotReturnCompleteFileFacts(summaryOnly: Bool) async throws {
+  let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".dv")
+  defer { try? FileManager.default.removeItem(at: url) }
+  try ntscFrame(rate: .hz48000).write(to: url, options: .withoutOverwriting)
+  let cancelled = await Task.detached {
+    withUnsafeCurrentTask { $0?.cancel() }
+    do {
+      if summaryOnly { _ = try DVCaptureMetadataEpochAnalyzer.analyzeSummary(url: url) }
+      else { _ = try DVCaptureMetadataEpochAnalyzer.analyze(url: url) }
+      return false
+    } catch is CancellationError { return true }
+    catch { Issue.record(error); return false }
+  }.value
+  #expect(cancelled)
+}

@@ -11,3 +11,8 @@ mkdir -p "${output:h}"
 /usr/bin/plutil -insert RewindDVAlphaVersion -string "$alpha" "$output"
 /usr/bin/plutil -insert RewindDVCandidateRevision \
   -string "Native ${CONFIGURATION:-development} source candidate; hardware qualification pending" "$output"
+
+# Required-driver metadata follows its independent canonical build, not the app counter.
+driver_build=$(/usr/bin/sed -n 's/^REWINDDV_DRIVER_BUILD = \([0-9][0-9]*\)$/\1/p' "${0:A:h}/../Config/DriverBuild.xcconfig")
+[[ "$driver_build" =~ '^[1-9][0-9]*$' && "$driver_build" -le 4294967295 ]] || { print -u2 'Invalid canonical driver build'; exit 2; }
+/usr/bin/plutil -insert RewindDVRequiredDriverBuild -string "$driver_build" "$output"

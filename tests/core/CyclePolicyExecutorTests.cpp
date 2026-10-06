@@ -80,7 +80,7 @@ TEST_F(CyclePolicyExecutorTests, ExecutorSubmitsRemoteCmstrWhenNotRoot) {
     EXPECT_CALL(executor_, EnableLocalCycleMasterMutation(_)).Times(0);
     EXPECT_CALL(executor_, WriteRemoteStateSetCmstr(5, 0xFFC0, 2)).WillOnce(Return(handle));
     coordinator_.Evaluate(in, executor_);
-
+    
     EXPECT_EQ(coordinator_.Snapshot().lastDecision, CyclePolicyDecision::RemoteRootSetCmstr);
     EXPECT_EQ(coordinator_.Snapshot().lastAction, CyclePolicyAction::WriteRemoteStateSetCmstr);
 }
@@ -123,7 +123,7 @@ TEST_F(CyclePolicyExecutorTests, ExecutorSubmitsRemoteCmstrWriteWithCorrectAddre
 
     ASFW::Async::AsyncHandle handle{123};
     EXPECT_CALL(executor_, WriteRemoteStateSetCmstr(5, 0xFFC0, 2)).WillOnce(Return(handle));
-
+    
     coordinator_.Evaluate(in, executor_);
     EXPECT_EQ(coordinator_.Snapshot().lastAction, CyclePolicyAction::WriteRemoteStateSetCmstr);
     EXPECT_EQ(coordinator_.Snapshot().targetNode, 2);
@@ -159,17 +159,17 @@ TEST_F(CyclePolicyExecutorTests, RemoteCmstrCallbackStaleGenerationIgnored) {
     MarkRemoteRootSelfIdContender(in, 2);
     in.rootCmcKnown = true;
     in.rootCmcCapable = true;
-
+    
     ASFW::Async::AsyncHandle handle{123};
     EXPECT_CALL(executor_, WriteRemoteStateSetCmstr(5, _, 2)).WillOnce(Return(handle));
     coordinator_.Evaluate(in, executor_);
-
+    
     // Generation advances
     coordinator_.OnBusResetStarted(6);
-
+    
     // Callback for generation 5 arrives
     coordinator_.OnRemoteCmstrComplete(5, 2, ASFW::Async::AsyncStatus::kSuccess);
-
+    
     EXPECT_EQ(coordinator_.Snapshot().staleGenerationDrops, 1);
     EXPECT_EQ(coordinator_.Snapshot().remoteCmstrInFlight, false);
 }

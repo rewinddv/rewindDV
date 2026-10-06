@@ -80,6 +80,23 @@ struct RxResponse {
     uint16_t hardwareTimeStamp{0};
 };
 
+// Bounded diagnostic evidence for replies that cannot be attributed. Counts
+// are cumulative; latest bytes are explicitly a prefix, never a claimed full
+// history or a successful response to a replacement operation.
+struct UnattributedResponseEvidence {
+    uint64_t count{0};
+    bool uncertainWire{false};
+    uint16_t generation{0};
+    uint16_t sourceNodeID{0};
+    uint16_t destinationNodeID{0};
+    uint8_t label{0};
+    uint8_t tCode{0};
+    uint8_t rCode{0};
+    size_t wirePayloadLength{0};
+    size_t preservedPrefixLength{0};
+    std::array<uint8_t, 512> latestPrefix{};
+};
+
 // Tracking actor - templated on completion queue type
 template <typename TCompletionQueue>
 class Track_Tracking {
@@ -126,11 +143,11 @@ public:
 
         ::IOLockLock(lock_);
 
-        // If no transactions are in flight but the bitmap isn't empty, clear just the
-        // allocation bits. Preserving generation avoids desynchronizing the AR matcher.
-        if (txnMgr_->Count() == 0 && labelAllocator_->HasAnyLabelsInUse()) {
-            ASFW_LOG(Async, "Label bitmap non-empty with zero transactions; clearing stale label bitmap");
-            labelAllocator_->ClearBitmap();
+        // A completed client may still own an AT program or uncertain wire
+        // response. Never infer a stale allocation bitmap from Count()==0.
+        if (labelAllocator_->HasUncertainWire()) {
+            ::IOLockUnlock(lock_);
+            return AsyncHandle{0}; // No proved wire-fence reopening; no automatic reconstruction or replay.
         }
 
         // Allocate a free label from the bitmap allocator to avoid collisions
@@ -141,25 +158,25 @@ public:
             return AsyncHandle{0};
         }
 
-        // Phase 2.0: tLabel is the identifier (matches Apple's pattern)
-        // No need for synthetic txid
-
-        // Allocate Transaction (sole source of truth)
-        auto result = txnMgr_->Allocate(
-            TLabel{label},
-            BusGeneration{meta.generation},
-            NodeID{meta.destinationNodeID}
-        );
-
-        if (!result) {
+        // Initialize privately, then publish under the manager lock. Readers
+        // can never observe a partially initialized transaction or callback.
+        auto owned = std::make_unique<Transaction>(TLabel{label},
+            BusGeneration{meta.generation}, NodeID{meta.destinationNodeID});
+        auto* txn = owned.get();
+        // Process-wide serial is not reset by bus reset or runtime reconstruction.
+        // Six low bits select the bounded label record; exhaustion fails closed.
+        static std::atomic<uint32_t> nextOperation{0};
+        uint32_t serial = nextOperation.load(std::memory_order_relaxed);
+        while (serial < 0x01ffffffu && !nextOperation.compare_exchange_weak(
+                   serial, serial + 1, std::memory_order_relaxed)) {}
+        if (serial >= 0x01ffffffu) {
             labelAllocator_->Free(label);
             ::IOLockUnlock(lock_);
-            // Phase 2.1: Log error with rich context (file, line, function, message)
-            result.error().Log();
             return AsyncHandle{0};
         }
-
-        Transaction* txn = *result;
+        const uint32_t operation = (serial << 6) + label + 1;
+        txn->SetOperationIdentity(operation);
+        labelAllocator_->BindOperation(label, operation);
 
         ASFW_LOG_V3(Async, "🔍 [RegisterTx] Allocated Transaction: txn=%p tLabel=%u",
                     txn, label);
@@ -183,7 +200,7 @@ public:
                     meta.callback ? 1 : 0, label);
 
         // Set response handler (wraps meta.callback)
-        txn->SetResponseHandler([callback = meta.callback, label]
+        txn->SetResponseHandler([callback = meta.callback, label, operation]
                                 (kern_return_t kr, uint8_t responseCode, std::span<const uint8_t> data) // NOLINT(bugprone-easily-swappable-parameters)
                                 {
             ASFW_LOG_V3(Async, "🔍 [Wrapper Lambda] ENTRY: tLabel=%u callback=%p valid=%d kr=0x%x",
@@ -199,10 +216,10 @@ public:
                     status = AsyncStatus::kAborted;
                 }
                 // Phase 2.3: CompletionCallback now takes (handle, status, span)
-                // Encode handle as (label + 1) to ensure handle is never 0
+                // The full host operation token is opaque to callers.
                 ASFW_LOG_V3(Async, "🔍 [Wrapper Lambda] About to invoke callback: handle=%u status=%{public}s rCode=0x%02X",
-                            static_cast<uint32_t>(label) + 1, ASFW::Async::ToString(status), responseCode);
-                callback(AsyncHandle{static_cast<uint32_t>(label) + 1}, status, responseCode, data);
+                            operation, ASFW::Async::ToString(status), responseCode);
+                callback(AsyncHandle{operation}, status, responseCode, data);
                 ASFW_LOG_V3(Async, "🔍 [Wrapper Lambda] Callback returned");
             } else {
                 ASFW_LOG(Async, "⚠️ [Wrapper Lambda] callback is NULL!");
@@ -211,6 +228,11 @@ public:
 
         // Transition to Submitted state (Created → Submitted)
         txn->TransitionTo(TransactionState::Submitted, "RegisterTx");
+        if (!txnMgr_->Adopt(std::move(owned))) {
+            labelAllocator_->AbandonUnposted(operation);
+            ::IOLockUnlock(lock_);
+            return AsyncHandle{0};
+        }
 
         ASFW_LOG_V2(Async,
                     "✅ RegisterTx: Created txn (tLabel=%u gen=%u nodeID=0x%04X tCode=0x%02X)",
@@ -218,21 +240,26 @@ public:
 
         ::IOLockUnlock(lock_);
 
-        // Return AsyncHandle encoded as (label + 1) to ensure handle is never 0
-        // This allows tLabel 0-63 to map to handles 1-64, avoiding handle=0 sentinel
-        return AsyncHandle{static_cast<uint32_t>(label) + 1};
+        // Return the nonrecycled host operation identity.
+        return AsyncHandle{operation};
     }
 
     // Roll back a registration that never reached DMA. The Submit caller sees
     // an invalid handle; do not also deliver an asynchronous completion.
     void AbandonUnposted(AsyncHandle handle) {
-        if (!txnMgr_ || !labelAllocator_ || !lock_ || handle.value == 0 || handle.value > 64) return;
-        const TLabel label{static_cast<uint8_t>(handle.value - 1)};
+        if (!txnMgr_ || !labelAllocator_ || !lock_ || !labelAllocator_->Matches(handle.value)) return;
+        const TLabel label{static_cast<uint8_t>((handle.value - 1) & 63)};
         ::IOLockLock(lock_);
-        auto* txn = txnMgr_->Find(label);
-        if (txn && txn->state() == TransactionState::Submitted) {
-            auto discarded = txnMgr_->Extract(label);
-            labelAllocator_->Free(label.value);
+        bool unposted = false;
+        txnMgr_->WithTransaction(label, [&](Transaction* txn) {
+            unposted = txn->OperationIdentity() == handle.value && txn->state() == TransactionState::Submitted;
+        });
+        if (unposted) {
+            auto discarded = txnMgr_->Extract(label, handle.value);
+            if (discarded) {
+                labelAllocator_->AbandonUnposted(handle.value);
+                (void)payloads_->Detach(handle.value);
+            }
         }
         ::IOLockUnlock(lock_);
     }
@@ -242,22 +269,30 @@ public:
             return std::nullopt;
         }
 
-        // Decode handle back to label: handle = label + 1, so label = handle - 1
-        // Handles are 1-64, labels are 0-63
-        if (handle.value == 0 || handle.value > 64) {
+        // The low six bits select the label; the full token proves this assignment.
+        if (!labelAllocator_->Matches(handle.value)) {
             return std::nullopt;  // Invalid handle
         }
-        uint8_t label = static_cast<uint8_t>(handle.value - 1);
+        uint8_t label = static_cast<uint8_t>((handle.value - 1) & 63);
         if (label >= 64) {
             return std::nullopt;
         }
         
-        Transaction* txn = txnMgr_->Find(TLabel{label});
-        if (!txn) {
-            return std::nullopt;
-        }
+        bool current = false;
+        txnMgr_->WithTransaction(TLabel{label}, [&](Transaction* txn) {
+            current = txn->OperationIdentity() == handle.value;
+        });
+        return current ? std::optional<uint8_t>{label} : std::nullopt;
+    }
 
-        return txn->label().value;
+    [[nodiscard]] bool PreparePosted(AsyncHandle handle) { return labelAllocator_->MarkPosted(handle.value); }
+
+    // Only the submit guard, which has not transferred its chain to hardware,
+    // may use this proof. Cancellation can already have removed the client.
+    void RollbackUnpublished(AsyncHandle handle) {
+        auto discarded = txnMgr_->Extract(TLabel{static_cast<uint8_t>((handle.value - 1) & 63)}, handle.value);
+        labelAllocator_->AbandonUnposted(handle.value);
+        (void)payloads_->Detach(handle.value);
     }
 
     void OnTxPosted(AsyncHandle handle, uint64_t nowUsec, uint64_t timeoutUsec) {
@@ -265,13 +300,15 @@ public:
             return;
         }
 
-        // Decode handle back to label: handle = label + 1
-        if (handle.value == 0 || handle.value > 64) {
+        // Validate full operation identity before touching the selected label.
+        if (!labelAllocator_->Matches(handle.value)) {
             return;  // Invalid handle
         }
-        uint8_t label = static_cast<uint8_t>(handle.value - 1);
+        uint8_t label = static_cast<uint8_t>((handle.value - 1) & 63);
 
+        if (!labelAllocator_->MarkPosted(handle.value)) return;
         bool found = txnMgr_->WithTransaction(TLabel{label}, [&](Transaction* txn) {
+            if (txn->OperationIdentity() != handle.value) return;
             // Transition to ATPosted state
             txn->TransitionTo(TransactionState::ATPosted, "OnTxPosted");
 
@@ -322,9 +359,32 @@ public:
             .label = TLabel{response.tLabel}
         };
 
-        txnHandler_->OnARResponse(key, response.rCode, response.payload);
+        if (!txnHandler_->OnARResponse(key, response.rCode, response.payload)) {
+            ::IOLockLock(lock_);
+            if (unattributed_.count != UINT64_MAX) ++unattributed_.count;
+            unattributed_.uncertainWire = labelAllocator_->HasUncertainWire();
+            unattributed_.generation = response.generation;
+            unattributed_.sourceNodeID = response.sourceNodeID;
+            unattributed_.destinationNodeID = response.destinationNodeID;
+            unattributed_.label = response.tLabel;
+            unattributed_.tCode = response.tCode;
+            unattributed_.rCode = response.rCode;
+            unattributed_.wirePayloadLength = response.payload.size();
+            unattributed_.preservedPrefixLength = std::min(response.payload.size(), unattributed_.latestPrefix.size());
+            unattributed_.latestPrefix.fill(0);
+            std::copy_n(response.payload.begin(), unattributed_.preservedPrefixLength, unattributed_.latestPrefix.begin());
+            ::IOLockUnlock(lock_);
+        }
     }
 
+
+    [[nodiscard]] UnattributedResponseEvidence CopyUnattributedResponseEvidence() const {
+        if (!lock_) return {};
+        ::IOLockLock(lock_);
+        const auto result = unattributed_;
+        ::IOLockUnlock(lock_);
+        return result;
+    }
 
     void OnTimeoutTick(uint64_t nowUsec) {
         if (!txnMgr_ || !txnHandler_) {
@@ -333,7 +393,7 @@ public:
 
         // Phase 2.0: Check all transactions for timeout
         // TODO: Optimize with priority queue/timer wheel if performance becomes issue
-        std::vector<TLabel> timedOutLabels;
+        std::vector<std::pair<TLabel,uint32_t>> timedOutLabels;
 
         // Collect timed-out transactions
         txnMgr_->ForEachTransaction([&](Transaction* txn) {
@@ -351,7 +411,7 @@ public:
             uint64_t deadline = txn->deadlineUs();
             if (deadline > 0 && nowUsec >= deadline) {
                 // Transaction has timed out
-                timedOutLabels.push_back(txn->label());
+                timedOutLabels.emplace_back(txn->label(), txn->OperationIdentity());
 
                 ASFW_LOG_V2(Async,
                             "⏱️ Timeout: tLabel=%u state=%{public}s deadline=%llu now=%llu",
@@ -362,8 +422,8 @@ public:
         });
 
         // Handle timeouts outside iteration (avoid modifying during iteration)
-        for (TLabel label : timedOutLabels) {
-            txnHandler_->OnTimeout(label);
+        for (const auto& [label, operation] : timedOutLabels) {
+            txnHandler_->OnTimeout(label, operation);
         }
     }
 
@@ -411,30 +471,27 @@ public:
         ASFW_LOG(Async, "🔄 CancelByGeneration: gen=%u (will extract and free labels)", oldGeneration);
 
         // Collect labels to cancel (avoid modifying during iteration)
-        std::vector<TLabel> victims;
+        std::vector<std::pair<TLabel,uint32_t>> victims;
         txnMgr_->ForEachTransaction([&](Transaction* txn) {
             if (!txn) return;
             if (txn->generation().value == oldGeneration) {
-                victims.push_back(txn->label());
+                victims.emplace_back(txn->label(), txn->OperationIdentity());
             }
         });
 
         // Cancel collected transactions
-        for (TLabel label : victims) {
-            auto txnPtr = txnMgr_->Extract(label);
+        for (const auto& [label, operation] : victims) {
+            auto txnPtr = txnMgr_->Extract(label, operation);
             if (!txnPtr) {
                 continue;
             }
 
+            if (labelAllocator_) labelAllocator_->CompleteLogical(label.value, true);
             if (!IsTerminalState(txnPtr->state())) {
                 txnPtr->TransitionTo(TransactionState::Cancelled, "CancelByGeneration");
                 txnPtr->InvokeResponseHandler(kIOReturnAborted, 0xFF, {});
             }
 
-            // Free the label so subsequent transactions can rotate through all 0-63 slots.
-            if (labelAllocator_) {
-                labelAllocator_->Free(label.value);
-            }
         }
 
         ASFW_LOG(Async, "✅ CancelByGeneration: Cancelled %zu transactions", victims.size());
@@ -446,29 +503,33 @@ public:
             return;
         }
 
-        std::vector<TLabel> victims;
+        std::vector<std::pair<TLabel,uint32_t>> victims;
         txnMgr_->ForEachTransaction([&](Transaction* txn) {
             if (!txn) return;
-            victims.push_back(txn->label());
+            victims.emplace_back(txn->label(), txn->OperationIdentity());
         });
 
-        for (TLabel label : victims) {
-            auto txnPtr = txnMgr_->Extract(label);
+        for (const auto& [label, operation] : victims) {
+            auto txnPtr = txnMgr_->Extract(label, operation);
             if (!txnPtr) {
                 continue;
             }
 
+            if (labelAllocator_) labelAllocator_->CompleteLogical(label.value, true);
             if (!IsTerminalState(txnPtr->state())) {
                 txnPtr->TransitionTo(TransactionState::Cancelled, "CancelAll");
                 txnPtr->InvokeResponseHandler(kIOReturnAborted, 0xFF, {});
             }
 
-            if (labelAllocator_) {
-                labelAllocator_->Free(label.value);
-            }
         }
 
         ASFW_LOG(Async, "✅ CancelAllAndFreeLabels: cancelled %zu transactions", victims.size());
+    }
+
+    void RetireStoppedAT() {
+        // Caller proves both contexts idle AND all queued programs discarded.
+        labelAllocator_->RetireStoppedAT();
+        payloads_->CancelAll(PayloadRegistry::CancelMode::Deferred);
     }
 
     LabelAllocator* GetLabelAllocator() const { return labelAllocator_; }
@@ -478,7 +539,13 @@ public:
             return;
         }
 
-        // Phase 2.0: Transaction-only path
+        // Only the copied host identity may retire ownership. A descriptor
+        // address or wire label can already belong to a later program.
+        if (completion.isResponseContext) { txnHandler_->OnATCompletion(completion); return; }
+        if (!labelAllocator_ || completion.tLabel >= 64 ||
+            ((completion.operationIdentity - 1) & 63) != completion.tLabel ||
+            !labelAllocator_->RetireAT(completion.operationIdentity)) return;
+        (void)payloads_->Detach(completion.operationIdentity);
         txnHandler_->OnATCompletion(completion);
     }
 
@@ -501,6 +568,7 @@ private:
     // Transaction-only architecture uses TransactionCompletionHandler instead
 
     // Components
+    UnattributedResponseEvidence unattributed_{};
     LabelAllocator* labelAllocator_;
     TransactionManager* txnMgr_;  // Phase 2.0: Required (sole source of truth)
     TCompletionQueue& completionQueue_;

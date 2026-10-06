@@ -96,6 +96,16 @@ TransactionManager::Allocate(TLabel label, BusGeneration generation, NodeID node
     return result;
 }
 
+bool TransactionManager::Adopt(std::unique_ptr<Transaction> transaction) noexcept {
+    if (!lock_ || !initialized_ || !transaction || transaction->label().value >= 64) return false;
+    const auto label=transaction->label().value;
+    IOLockLock(lock_);
+    const bool vacant=!transactions_[label];
+    if (vacant) transactions_[label]=std::move(transaction);
+    IOLockUnlock(lock_);
+    return vacant;
+}
+
 Transaction* TransactionManager::Find(TLabel label) noexcept {
     if (!lock_ || !initialized_) {
         return nullptr;
@@ -182,7 +192,7 @@ void TransactionManager::Remove(TLabel label) noexcept {
     IOLockUnlock(lock_);
 }
 
-std::unique_ptr<Transaction> TransactionManager::Extract(TLabel label) noexcept {
+std::unique_ptr<Transaction> TransactionManager::Extract(TLabel label, std::optional<uint32_t> operation) noexcept {
     if (!lock_ || !initialized_) {
         return nullptr;
     }
@@ -193,6 +203,11 @@ std::unique_ptr<Transaction> TransactionManager::Extract(TLabel label) noexcept 
 
     IOLockLock(lock_);
 
+    if (operation && (!transactions_[label.value] ||
+        transactions_[label.value]->OperationIdentity() != *operation)) {
+        IOLockUnlock(lock_);
+        return nullptr;
+    }
     // Move ownership out of array
     auto txn = std::move(transactions_[label.value]);
     
@@ -201,6 +216,21 @@ std::unique_ptr<Transaction> TransactionManager::Extract(TLabel label) noexcept 
     IOLockUnlock(lock_);
 
     return txn;
+}
+
+std::unique_ptr<Transaction> TransactionManager::ExtractForAR(const MatchKey& key) noexcept {
+    if (!lock_ || !initialized_ || key.label.value >= 64) return nullptr;
+    IOLockLock(lock_);
+    auto& current = transactions_[key.label.value];
+    std::unique_ptr<Transaction> result;
+    if (current && current->generation() == key.generation &&
+        NodeIDsEquivalent(current->nodeID(), key.node) &&
+        (current->state() == TransactionState::ATPosted ||
+         current->state() == TransactionState::ATCompleted ||
+         current->state() == TransactionState::AwaitingAR) && current->TryMarkCompleted())
+        result = std::move(current);
+    IOLockUnlock(lock_);
+    return result;
 }
 
 void TransactionManager::CancelAll() noexcept {

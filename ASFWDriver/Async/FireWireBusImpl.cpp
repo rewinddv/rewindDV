@@ -109,6 +109,8 @@ AsyncHandle FireWireBusImpl::Lock(FW::Generation gen, FW::NodeId node, FWAddress
 }
 
 bool FireWireBusImpl::Cancel(AsyncHandle handle) { return async_.Cancel(handle); }
+void FireWireBusImpl::FenceUncertainResponse() noexcept { async_.FenceUncertainResponse(); }
+
 
 FW::FwSpeed FireWireBusImpl::GetSpeed(FW::NodeId nodeId) const {
     return GetSpeedDecision(nodeId).selected;

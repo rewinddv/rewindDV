@@ -133,8 +133,8 @@ using FCPResponseObserver = std::function<void(FCPResponseEvidence evidence)>;
 enum class FCPRetryClass : uint8_t {
     // Control/state-changing commands are never replayed automatically.
     kNever,
-    // Safe read-only/status requests may retry after timeout/write failure and
-    // (when enabled by transport config) a bus reset.
+    // Retained policy preference for safe read-only/status requests. It never
+    // overrides an uncertain-response fence or authorizes replay after failure.
     kIdempotent,
 };
 
@@ -233,12 +233,21 @@ public:
 
     void OnBusReset(uint32_t newGeneration);
 
-    /// Resume an explicitly idempotent command only after discovery has
-    /// rebound this transport's device to the reset generation. Calling this
-    /// before the device is ready is deliberately a no-op.
+    /// Compatibility route notification. An uncertain issued command is never
+    /// replayed merely because discovery has rebound its route.
     void OnRouteRevalidated(const Discovery::DeviceRouteToken& route);
 
     const FCPTransportConfig& GetConfig() const { return config_; }
+
+    struct UncertainResponseEvidence {
+        bool admissionFenced{false};
+        uint64_t responsesObserved{0};
+        size_t latestWireLength{0}; // distinguishes a bounded prefix from the whole frame
+        std::optional<FCPResponseEvidence> latestResponse;
+    };
+    // Bounded forensic evidence; never invokes a retired command's observer.
+    [[nodiscard]] UncertainResponseEvidence CopyUncertainResponseEvidence() const;
+
 
 private:
     /// Immutable route token for one FCP block-write attempt. A response may
@@ -256,6 +265,10 @@ private:
         // Access is protected by lock_. Completion relinquishes cancellation
         // authority over the underlying recyclable async handle.
         std::shared_ptr<bool> completed{std::make_shared<bool>(false)};
+        // Set before the bus call (which can complete inline); cleared only on
+        // synchronous rejection. Cancellation during admission is uncertain.
+        std::shared_ptr<bool> issued{std::make_shared<bool>(false)};
+
     };
 
     struct OutstandingCommand {
@@ -296,22 +309,24 @@ private:
     [[nodiscard]] bool StartPendingWrite();
     void StartNextQueuedCommand();
 
-    void OnCommandTimeout();
-
-    void RetryCommand();
+    void OnCommandTimeout(uint32_t transactionID, uint64_t timeoutEpoch);
 
     bool ValidateResponse(std::span<const uint8_t> response) const;
 
     void CompleteCommand(FCPStatus status, const FCPFrame& response,
-                         std::optional<uint32_t> expectedTransaction = std::nullopt);
+                         std::optional<uint32_t> expectedTransaction = std::nullopt,
+                         std::optional<uint64_t> expectedTimeoutEpoch = std::nullopt);
 
     void ScheduleTimeout(uint32_t timeoutMs);
 
     void CancelTimeout();
+    bool FencePendingResponseLocked(); // lock_ held, no external callback
+
 
     Protocols::Ports::FireWireBusOps* busOps_{nullptr};
     Protocols::Ports::FireWireBusInfo* busInfo_{nullptr};
     uint64_t targetGuid_{0};
+    uint64_t targetIncarnation_{0};
     Discovery::DeviceRegistry* routeRegistry_{nullptr};
     Scheduling::ITimerScheduler* timerScheduler_{nullptr};
     FCPTransportConfig config_;
@@ -324,6 +339,11 @@ private:
     // Protected by lock_. Timeout and async-completion blocks capture shared
     // ownership, so destruction cannot race their callback target.
     bool shuttingDown_{false};
+    bool wireResponseUncertain_{false};
+    std::optional<FCPWriteAttempt> uncertainAttempt_;
+    UncertainResponseEvidence uncertainEvidence_;
+    static constexpr size_t kMaximumQueuedCommands = 64;
+
 
     std::unique_ptr<OutstandingCommand> pending_;
     std::deque<std::unique_ptr<OutstandingCommand>> queued_;

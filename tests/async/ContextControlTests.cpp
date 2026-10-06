@@ -59,7 +59,7 @@ TEST(ContextControlTests, ManagerAttemptsBothStopsAndQuarantinesUnprovenDMA) {
     EXPECT_FALSE(manager.teardown(true));
     EXPECT_EQ(manager.provision(hw,spec),kIOReturnNotReady);
 }
-TEST(ContextControlTests, ManagerReleasesOnlyPositiveIdleOrRevokedProvider) {
+TEST(ContextControlTests, ManagerReleasesOnlyPositiveIdleAndRejectsRevokedProvider) {
     HardwareInterface hw; ASFW::Async::Engine::ContextManager manager;
     ASFW::Async::Engine::ProvisionSpec spec;
     ASSERT_EQ(manager.provision(hw,spec),kIOReturnSuccess);
@@ -67,7 +67,8 @@ TEST(ContextControlTests, ManagerReleasesOnlyPositiveIdleOrRevokedProvider) {
     ASSERT_EQ(manager.provision(hw,spec),kIOReturnSuccess);
     hw.SetTestRegister(ATRequestTag::kControlSetReg,kContextControlActiveBit);
     hw.LatchProviderRevokedAndDrain();
-    EXPECT_TRUE(manager.teardown(false));
+    EXPECT_FALSE(manager.teardown(false));
+    EXPECT_EQ(manager.provision(hw,spec),kIOReturnNotReady);
 }
 
 TEST(ContextControlTests, PayloadReleaseRequiresBothATContextsPositivelyIdle) {
@@ -86,7 +87,40 @@ TEST(ContextControlTests, PayloadReleaseRequiresBothATContextsPositivelyIdle) {
     EXPECT_TRUE(manager.ATContextsQuiescent());
     hw.LatchProviderRevokedAndDrain();
     EXPECT_FALSE(manager.ATContextsQuiescent());
-    EXPECT_TRUE(manager.teardown(false));
+    EXPECT_FALSE(manager.teardown(false));
+}
+
+TEST(ContextControlTests, RevocationNeverProvesATOrARRetirement) {
+    HardwareInterface hw; ATRequestContext at; ARRequestContext ar;
+    ASSERT_EQ((at.ContextBase<ATRequestContext,ATRequestTag>::Initialize(hw)),kIOReturnSuccess);
+    ASSERT_EQ((ar.ContextBase<ARRequestContext,ARRequestTag>::Initialize(hw)),kIOReturnSuccess);
+    hw.SetTestRegister(ATRequestTag::kControlSetReg,kContextControlActiveBit);
+    hw.SetTestRegister(ARRequestTag::kControlSetReg,kContextControlActiveBit);
+    hw.LatchProviderRevokedAndDrain();
+    EXPECT_EQ(at.Stop(),kIOReturnNotReady);
+    EXPECT_EQ(ar.Stop(1),kIOReturnNotReady);
+}
+
+TEST(ContextControlTests, ManagerRetiresEveryCommandPointerBeforeRelease) {
+    HardwareInterface hw; Engine::ContextManager manager;
+    ASSERT_EQ(manager.provision(hw,{}),kIOReturnSuccess);
+    const Register32 pointers[] = {ATRequestTag::kCommandPtrReg,ATResponseTag::kCommandPtrReg,
+        ARRequestTag::kCommandPtrReg,ARResponseTag::kCommandPtrReg};
+    for (auto reg : pointers) hw.SetTestRegister(reg,0x10000002);
+    EXPECT_TRUE(manager.teardown(true));
+    for (auto reg : pointers) EXPECT_EQ(hw.GetTestRegister(reg),0u);
+}
+
+TEST(ContextControlTests, NoWriteTeardownRefusesAnUnretiredCommandPointer) {
+    for (auto reg : {ATRequestTag::kCommandPtrReg,ATResponseTag::kCommandPtrReg,
+                    ARRequestTag::kCommandPtrReg,ARResponseTag::kCommandPtrReg}) {
+        HardwareInterface hw; Engine::ContextManager manager;
+        ASSERT_EQ(manager.provision(hw,{}),kIOReturnSuccess);
+        hw.SetTestRegister(reg,0x10000002);
+        EXPECT_FALSE(manager.teardown(false));
+        EXPECT_EQ(hw.GetTestRegister(reg),0x10000002u);
+        EXPECT_EQ(manager.provision(hw,{}),kIOReturnNotReady);
+    }
 }
 
 TEST(ContextAllocationFailure, EachMandatoryLockFailureRejectsProvisionAndUnwinds) {

@@ -31,8 +31,11 @@ public struct DVMetadataInventory: Codable, Equatable, Sendable {
 
   public static func inspect(frame: Data, ordinal: UInt64, byteOffset: UInt64) throws -> Self {
     guard frame.count == 120_000 || frame.count == 144_000,
-      byteOffset <= UInt64.max - UInt64(frame.count),
-      frame[0] >> 5 == 0, frame[1] >> 4 == 0, frame[2] == 0,
+      byteOffset <= UInt64.max - UInt64(frame.count) else {
+      throw DVIngestError.invalidEvidence("metadata inventory requires one complete ordered DV25 frame")
+    }
+    let frame = frame.startIndex == 0 ? frame : Data(frame)
+    guard frame[0] >> 5 == 0, frame[1] >> 4 == 0, frame[2] == 0,
       (frame[3] & 0x80 != 0) == (frame.count == 144_000) else {
       throw DVIngestError.invalidEvidence("metadata inventory requires one complete ordered DV25 frame")
     }

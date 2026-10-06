@@ -68,6 +68,7 @@ public struct DVFrameForensics: Sendable {
 
   // The caller must have built inventory from these exact bytes. Not public API.
   static func inspectValidated(frame: Data, inventory: DVMetadataInventory) -> Self {
+    let frame = frame.startIndex == 0 ? frame : Data(frame)
     let sequences = frame.count == 144_000 ? 12 : 10
     let half = sequences / 2
     let semantics = DVPackSemanticReport.inspect(inventory)
@@ -164,7 +165,8 @@ public struct DVFrameForensics: Sendable {
 
   /// Byte offsets are hexadecimal, absolute within the source file. Display-only.
   public static func hexDump(_ bytes: Data, sourceOffset: UInt64) -> String {
-    stride(from: 0, to: bytes.count, by: 16).map { index in
+    let bytes = bytes.startIndex == 0 ? bytes : Data(bytes)
+    return stride(from: 0, to: bytes.count, by: 16).map { index in
       String(format: "%012llX", sourceOffset + UInt64(index)) + "  "
         + bytes[index..<min(index + 16, bytes.count)].map { String(format: "%02X", $0) }.joined(separator: " ")
     }.joined(separator: "\n")

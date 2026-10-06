@@ -36,7 +36,7 @@ class HardwareInterfaceOrderTests : public ::testing::Test {
 protected:
     void SetUp() override {
         mockDevice_ = new MockPCIDevice();
-
+        
         // Default behaviors
         ON_CALL(*mockDevice_, Open(_)).WillByDefault(Return(kIOReturnSuccess));
         ON_CALL(*mockDevice_, GetBARInfo(0, _, _, _))
@@ -110,13 +110,13 @@ TEST_F(HardwareInterfaceOrderTests, CompareSwapLocalIRMResource_WritesDataCompar
     EXPECT_CALL(*mockDevice_, MemoryWrite32(0, static_cast<uint64_t>(Register32::kCSRData), newValue));
     EXPECT_CALL(*mockDevice_, MemoryWrite32(0, static_cast<uint64_t>(Register32::kCSRCompareData), compareValue));
     EXPECT_CALL(*mockDevice_, MemoryWrite32(0, static_cast<uint64_t>(Register32::kCSRControl), selectCode));
-
+    
     // Flush
     EXPECT_CALL(*mockDevice_, MemoryRead32(0, static_cast<uint64_t>(Register32::kHCControl), _));
-
+    
     // Poll loop
     EXPECT_CALL(*mockDevice_, MemoryRead32(0, static_cast<uint64_t>(Register32::kCSRControl), _));
-
+    
     // Read old value
     EXPECT_CALL(*mockDevice_, MemoryRead32(0, static_cast<uint64_t>(Register32::kCSRData), _))
         .WillOnce([compareValue](uint8_t, uint64_t, uint32_t* val) {
@@ -178,7 +178,7 @@ TEST_F(HardwareInterfaceOrderTests, SetLocalCycleMasterEnabled_InOrder) {
     // Set path
     EXPECT_CALL(*mockDevice_, MemoryWrite32(0, static_cast<uint64_t>(Register32::kLinkControlSet), LinkControlBits::kCycleMaster));
     EXPECT_CALL(*mockDevice_, MemoryRead32(0, static_cast<uint64_t>(Register32::kHCControl), _));
-
+    
     // Readback verification
     EXPECT_CALL(*mockDevice_, MemoryRead32(0, static_cast<uint64_t>(Register32::kLinkControl), _))
         .WillOnce([](uint8_t, uint64_t, uint32_t* val) {
@@ -190,7 +190,7 @@ TEST_F(HardwareInterfaceOrderTests, SetLocalCycleMasterEnabled_InOrder) {
     // Clear path
     EXPECT_CALL(*mockDevice_, MemoryWrite32(0, static_cast<uint64_t>(Register32::kLinkControlClear), LinkControlBits::kCycleMaster));
     EXPECT_CALL(*mockDevice_, MemoryRead32(0, static_cast<uint64_t>(Register32::kHCControl), _));
-
+    
     // Readback verification
     EXPECT_CALL(*mockDevice_, MemoryRead32(0, static_cast<uint64_t>(Register32::kLinkControl), _))
         .WillOnce([](uint8_t, uint64_t, uint32_t* val) {

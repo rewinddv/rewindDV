@@ -6,6 +6,12 @@
   };
   "objectVersion" = "77";
   "objects" = {
+    "B18900000000000000000001" = {
+      "isa" = "PBXFileReference";
+      "lastKnownFileType" = "text.xcconfig";
+      "path" = "Config/DriverBuild.xcconfig";
+      "sourceTree" = "SOURCE_ROOT";
+    };
     "000000000000000000000001" = {
       "isa" = "PBXFileReference";
       "lastKnownFileType" = "sourcecode.cpp.cpp";
@@ -5523,6 +5529,7 @@
         "000000000000000000000882",
         "000000000000000000000885",
         "000000000000000000000910",
+        "B18900000000000000000001",
       );
       "sourceTree" = "<group>";
     };
@@ -5597,6 +5604,7 @@
     };
     "000000000000000000000890" = {
       "isa" = "XCBuildConfiguration";
+      "baseConfigurationReference" = "B18900000000000000000001";
       "name" = "Debug";
       "buildSettings" = {
         "SDKROOT" = "driverkit";
@@ -5615,6 +5623,7 @@
         "GCC_PREPROCESSOR_DEFINITIONS" = (
           "$(inherited)",
           "REWINDDV_FOUNDATION=1",
+          "REWINDDV_DRIVER_BUILD=$(REWINDDV_DRIVER_BUILD)",
         );
         "HEADER_SEARCH_PATHS" = (
           "$(inherited)",
@@ -5644,6 +5653,7 @@
     };
     "000000000000000000000891" = {
       "isa" = "XCBuildConfiguration";
+      "baseConfigurationReference" = "B18900000000000000000001";
       "name" = "Release";
       "buildSettings" = {
         "SDKROOT" = "driverkit";
@@ -5662,6 +5672,7 @@
         "GCC_PREPROCESSOR_DEFINITIONS" = (
           "$(inherited)",
           "REWINDDV_FOUNDATION=1",
+          "REWINDDV_DRIVER_BUILD=$(REWINDDV_DRIVER_BUILD)",
         );
         "HEADER_SEARCH_PATHS" = (
           "$(inherited)",
@@ -6073,6 +6084,7 @@
       "files" = ();
       "inputPaths" = (
         "$(SRCROOT)/Config/AlphaVersion.txt",
+        "$(SRCROOT)/Config/DriverBuild.xcconfig",
         "$(SRCROOT)/Tools/generate-app-info.zsh",
       );
       "outputPaths" = (

@@ -67,6 +67,7 @@ public:
         bool needsFlush{false};    ///< Per-descriptor flush flag (Apple offset +40 pattern)
                                     ///< true=block ops with DMA (stop after submit)
                                     ///< false=simple quadlet ops (stop when queue empties)
+        uint32_t operationIdentity{0}; ///< Host operation, never encoded in DMA fields
         uint32_t txid{0};          ///< Monotonic submit identifier (diagnostics)
 
         [[nodiscard]] uint8_t TotalBlocks() const noexcept {

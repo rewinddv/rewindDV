@@ -3,6 +3,7 @@
 
 #include "../../../Common/TimingUtils.hpp"
 #include "../../../Logging/Logging.hpp"
+#include "../../../Shared/Completion/NativeSourceRetirement.hpp"
 
 #ifndef ASFW_HOST_TEST
 #include "ASFWDriver.h"
@@ -55,12 +56,17 @@ kern_return_t DriverKitSessionScheduler::Prepare(::ASFWDriver& service,
     if (!workQueue) {
         return kIOReturnNotReady;
     }
-
+    if (timer_) return kIOReturnBusy;
     Reset();
     if (!ASFW::Timing::initializeHostTimebase()) {
         return kIOReturnNotReady;
     }
     workQueue_ = std::move(workQueue);
+    {
+        IOLockGuard guard(lock_);
+        retiring_ = false;
+        nativeOperationEpoch_ = std::make_shared<ASFW::Shared::PostedWorkEpoch>();
+    }
 
 #ifdef ASFW_HOST_TEST
     (void)service;
@@ -85,13 +91,11 @@ kern_return_t DriverKitSessionScheduler::Prepare(::ASFWDriver& service,
 
     kr = timer_->SetHandler(action_.get());
     if (kr != kIOReturnSuccess) {
-        Reset();
         return kr;
     }
 
     kr = timer_->SetEnableWithCompletion(true, nullptr);
     if (kr != kIOReturnSuccess) {
-        Reset();
         return kr;
     }
 
@@ -102,15 +106,53 @@ kern_return_t DriverKitSessionScheduler::Prepare(::ASFWDriver& service,
 void DriverKitSessionScheduler::Reset() noexcept {
     {
         IOLockGuard guard(lock_);
+        retiring_ = true;
         pending_.clear();
+        nativeOperationEpoch_->Retire();
     }
 
     if (timer_) {
-        (void)timer_->SetEnableWithCompletion(false, nullptr);
+        ASFW_LOG_ERROR(Controller, "Control timer reset before native retirement; retaining timer/action");
+        (void)timer_.detach();
+        (void)action_.detach();
     }
     action_.reset();
     timer_.reset();
     workQueue_.reset();
+}
+
+void DriverKitSessionScheduler::BeginNativeRetirement(
+    const std::shared_ptr<ASFW::Shared::NativeCallbackDrain>& drain) {
+    OSSharedPtr<IOTimerDispatchSource> timer;
+    OSSharedPtr<OSAction> action;
+    {
+        IOLockGuard guard(lock_);
+        retiring_ = true;
+        pending_.clear();
+        nativeOperationEpoch_->Retire();
+        if (!nativeOperationEpoch_->Quiesced()) {
+            // A native arm RPC may be executing on another queue. Never issue
+            // terminal Cancel while that call can still touch the source, and
+            // never wait on Default for the RPC that needs Default to finish.
+            drain->Quarantine();
+            return;
+        }
+        timer = std::move(timer_);
+        action = std::move(action_);
+    }
+#ifndef ASFW_HOST_TEST
+    ASFW::Shared::RetireNativeSource(timer, action, drain);
+    // An exhausted ledger quarantines without taking ownership. Keep those
+    // references in the scheduler; never release on failed registration.
+    if (timer || action) {
+        IOLockGuard guard(lock_);
+        timer_ = std::move(timer);
+        action_ = std::move(action);
+    }
+#else
+    (void)drain;
+    Reset();
+#endif
 }
 
 SchedulerToken DriverKitSessionScheduler::ScheduleAfter(uint64_t delayNs,
@@ -128,15 +170,13 @@ SchedulerToken DriverKitSessionScheduler::ScheduleAfter(uint64_t delayNs,
     workQueue_->DispatchAsyncAfter(delayNs, std::move(fn));
     return token;
 #else
-    if (!timer_) {
-        return kInvalidSchedulerToken;
-    }
-
     SchedulerToken token;
     uint64_t earliest;
     OSSharedPtr<IOTimerDispatchSource> timer;
+    std::shared_ptr<ASFW::Shared::PostedWorkEpoch> nativeEpoch;
     {
         IOLockGuard guard(lock_);
+        if (retiring_ || !timer_) return kInvalidSchedulerToken;
         token = nextToken_++;
         if (token == kInvalidSchedulerToken) {
             token = nextToken_++;
@@ -147,8 +187,9 @@ SchedulerToken DriverKitSessionScheduler::ScheduleAfter(uint64_t delayNs,
                                 });
         earliest = EarliestDeadlineLocked();
         timer = timer_;
+        nativeEpoch = nativeOperationEpoch_;
     }
-    ArmTimerUnlocked(timer.get(), earliest);
+    ArmTimerUnlocked(timer.get(), earliest, nativeEpoch);
     return token;
 #endif
 }
@@ -160,6 +201,7 @@ void DriverKitSessionScheduler::Cancel(SchedulerToken token) {
 
     uint64_t earliest = 0;
     OSSharedPtr<IOTimerDispatchSource> timer;
+    std::shared_ptr<ASFW::Shared::PostedWorkEpoch> nativeEpoch;
     bool changed = false;
     {
         IOLockGuard guard(lock_);
@@ -167,10 +209,11 @@ void DriverKitSessionScheduler::Cancel(SchedulerToken token) {
             changed = true;
             earliest = EarliestDeadlineLocked();
             timer = timer_;
+            nativeEpoch = nativeOperationEpoch_;
         }
     }
     if (changed) {
-        ArmTimerUnlocked(timer.get(), earliest);
+        ArmTimerUnlocked(timer.get(), earliest, nativeEpoch);
     }
 }
 
@@ -178,9 +221,11 @@ void DriverKitSessionScheduler::HandleTimerFired() noexcept {
     std::vector<std::function<void()>> due;
     uint64_t earliest = 0;
     OSSharedPtr<IOTimerDispatchSource> timer;
+    std::shared_ptr<ASFW::Shared::PostedWorkEpoch> nativeEpoch;
 
     {
         IOLockGuard guard(lock_);
+        if (retiring_) return;
         const uint64_t now = mach_absolute_time();
         for (auto it = pending_.begin(); it != pending_.end();) {
             if (it->second.deadlineTicks <= now) {
@@ -192,8 +237,9 @@ void DriverKitSessionScheduler::HandleTimerFired() noexcept {
         }
         earliest = EarliestDeadlineLocked();
         timer = timer_;
+        nativeEpoch = nativeOperationEpoch_;
     }
-    ArmTimerUnlocked(timer.get(), earliest);
+    ArmTimerUnlocked(timer.get(), earliest, nativeEpoch);
 
     for (auto& fn : due) {
         if (fn) {
@@ -215,14 +261,18 @@ uint64_t DriverKitSessionScheduler::EarliestDeadlineLocked() const noexcept {
 }
 
 void DriverKitSessionScheduler::ArmTimerUnlocked(IOTimerDispatchSource* timer,
-                                                 uint64_t deadlineTicks) noexcept {
+                                                 uint64_t deadlineTicks,
+    const std::shared_ptr<ASFW::Shared::PostedWorkEpoch>& epoch) noexcept {
 #ifdef ASFW_HOST_TEST
     (void)timer;
     (void)deadlineTicks;
+    (void)epoch;
 #else
-    if (timer == nullptr || deadlineTicks == 0) {
+    if (timer == nullptr || deadlineTicks == 0 || !epoch) {
         return;
     }
+    ASFW::Shared::PostedWorkEpoch::Lease lease(*epoch);
+    if (!lease) return;
     // lock_ MUST NOT be held here. WakeAtTime is RPC-dispatched to the timer's
     // queue (ASFWDriver-Default); that queue's completion handlers re-enter the
     // scheduler and take lock_. Holding lock_ across this call deadlocked the

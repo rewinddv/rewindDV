@@ -39,6 +39,8 @@ public:
     // routed exclusively through RuntimeLifecycleCoordinator.
     kern_return_t StartRuntime(IOService* provider) LOCALONLY;
     void RequestRuntimeQuiesce(uint32_t reason) LOCALONLY;
+    void BeginNativeRuntimeDrain() LOCALONLY;
+    void CompleteNativeRuntimeDrain() LOCALONLY;
 
     // Post-wake health check. The SetPowerState(On) callback can arrive during
     // dark wake, before the PCIe/Thunderbolt path is fully restored: the rebuild
@@ -143,4 +145,9 @@ struct ASFWDriver_IVars {
     IOTimerDispatchSource* wakeVerifyTimer; // retained
     OSAction* wakeVerifyAction;             // retained
     uint64_t wakeVerifyAttempt;             // attempt carried to the armed timer
+    IOService* stopProvider;                // retained until terminal Stop
+    bool stopPending;
+    bool powerAcknowledgementPending;
+    uint32_t pendingPowerFlags;
+    bool wakeRebuildPending;
 };

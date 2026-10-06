@@ -41,11 +41,11 @@ final class RewindDVModel: ObservableObject {
   @Published var isBusy = false
   @Published private(set) var wholeTapeActive = false
   @Published var controlLockedOut = false
-  @Published var headline = "Build188 product preview"
+  @Published var headline = "rewindDV product preview"
   @Published var detail =
     "Checking driver readiness in the background. Live monitoring and ingest become available after a matching driver and device are found."
   @Published var controlReport: ControlAttemptReport?
-  @Published var metadata: DVCaptureMetadataEpochManifest?
+  @Published var metadata: DVCaptureMetadataEpochSummary?
   @Published var metadataSource: URL?
   @Published var archiveVerification: RawArchiveVerification?
   @Published var archiveSource: URL?
@@ -304,9 +304,9 @@ final class RewindDVModel: ObservableObject {
           inspectionError = nil; capabilityError = nil
         }
         handshakeGate.observe(selectedRoute)
-        headline = "Exact Build188 driver matched"
+        headline = "Exact \(DriverBuildRequirement.display) matched"
         detail = snapshot.discoveryNote
-        refreshFeedback = "Build188 is attached and responding. \(snapshot.discoveryNote)"
+        refreshFeedback = "\(DriverBuildRequirement.display) is attached and responding. \(snapshot.discoveryNote)"
         Self.readinessLog.notice("refresh_finished exact_driver=true discovered_decks=\(snapshot.decks.count)")
         // Only an actual route transition can enter the bounded handshake.
         // Normal idle checks never disable controls or repeat device inquiries.
@@ -506,7 +506,7 @@ final class RewindDVModel: ObservableObject {
         let result = try await Task.detached(priority: .userInitiated) {
           let accessed = url.startAccessingSecurityScopedResource()
           defer { if accessed { url.stopAccessingSecurityScopedResource() } }
-          return try DVCaptureMetadataEpochAnalyzer.analyze(url: url)
+          return try DVCaptureMetadataEpochAnalyzer.analyzeSummary(url: url)
         }.value
         metadata = result
       } catch {
@@ -569,9 +569,10 @@ final class SystemExtensionInstaller: NSObject, ObservableObject,
 
   func submitActivation() {
     guard !isInFlight else { return }
-    guard Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String == "188"
+    guard Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String == "188",
+      DriverBuildRequirement.bundled != nil
     else {
-      state = .failed("The host app is not the explicit Build188 candidate.")
+      state = .failed("The host app build or required-driver identity is not valid for this candidate.")
       return
     }
     state = .submitting
@@ -603,7 +604,7 @@ final class SystemExtensionInstaller: NSObject, ObservableObject,
   ) -> OSSystemExtensionRequest.ReplacementAction {
     guard existing.bundleIdentifier == Self.identifier,
       ext.bundleIdentifier == Self.identifier,
-      ext.bundleVersion == "188"
+      DriverBuildRequirement.bundled?.permitsReplacement(bundleVersion: ext.bundleVersion) == true
     else { return .cancel }
     return .replace
   }
@@ -649,6 +650,7 @@ struct RewindDVApp: App {
   @State private var sidebarSelection: WorkspacePage? = .capture
   @StateObject private var installer = SystemExtensionInstaller()
   @StateObject private var playback = OfflineDVPlaybackModel()
+  @StateObject private var surgery = SurgeryModel()
   @StateObject private var live = LiveMonitorModel()
   @StateObject private var wholeTape = WholeTapeCaptureModel()
   @StateObject private var tapeMap = TapeEvidenceMapModel()
@@ -689,7 +691,7 @@ struct RewindDVApp: App {
             UnifiedMonitorWorkspace(
               model: model,
               installer: installer,
-              playback: playback, live: live, wholeTape: wholeTape)
+              playback: playback, live: live, wholeTape: wholeTape, surgery: surgery)
           case .archives:
             ArchivesPage(model: model, tapeMap: tapeMap, recovery: recoveryPlanner, multiPass: multiPass,
               forensicPrefix: forensicPrefix, live: live, wholeTape: wholeTape, interactionLocked: interactionLocked)
@@ -706,7 +708,7 @@ struct RewindDVApp: App {
       }
       .onAppear { appDelegate.bind(model: model, live: live) }
       .confirmationDialog(
-        "Request Build188 driver activation?",
+        "Request \(DriverBuildRequirement.display) activation?",
         isPresented: $showActivationConfirmation,
         titleVisibility: .visible
       ) {
@@ -1100,7 +1102,7 @@ private struct DiagnosticsPage: View {
           VStack(alignment: .leading, spacing: 8) {
             LabeledContent("Driver class", value: "ASFWDriver")
             LabeledContent("Bundle / server", value: "net.rewinddigital.RewindDV.Driver")
-            LabeledContent("Required Foundation marker", value: "188")
+            LabeledContent("Required driver", value: DriverBuildRequirement.display)
             LabeledContent("PCI provider", value: "11c1:5901")
             LabeledContent("Activation", value: installer.state.title)
           }

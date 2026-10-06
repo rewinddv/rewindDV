@@ -33,7 +33,7 @@ TEST_F(CSRContractVerifierTests, InitialState_IsInvalid) {
     CSRResponder::Deps deps{};
     CSRResponder responder(deps);
     CSRContractVerifier verifier;
-
+    
     // Maps are generation 0/invalid initially
     auto result = verifier.Verify(responder, topologyMap_, speedMap_, irm_);
     EXPECT_FALSE(result.ok);
@@ -74,18 +74,18 @@ TEST_F(CSRContractVerifierTests, ValidMaps_Ok) {
     CSRResponder::Deps deps{};
     CSRResponder responder(deps);
     CSRContractVerifier verifier;
-
+    
     TopologySnapshot topo{};
     topo.generation = 1;
     topo.nodeCount = 1;
     topo.graphStatus = TopologyGraphStatus::Valid;
     topo.physical.nodes.resize(1);
     topo.physical.nodes[0].linkActive = true;
-
+    
     ASSERT_TRUE(topologyMap_.Start());
     topologyMap_.Rebuild(topo);
     speedMap_.PublishFromTopology(topo);
-
+    
     auto result = verifier.Verify(responder, topologyMap_, speedMap_, irm_);
     EXPECT_TRUE(result.ok);
     EXPECT_TRUE(result.topologyMapGenerationMatch);
@@ -134,10 +134,10 @@ TEST_F(CSRContractVerifierTests, DetectsUnexpectedSoftwareHits) {
     CSRResponder::Deps deps{};
     CSRResponder responder(deps);
     CSRContractVerifier verifier;
-
+    
     // Simulate remote read of BUS_MANAGER_ID (HW owned) hitting SW responder
     (void)responder.ReadQuadlet(FW::kCSR_BusManagerID);
-
+    
     auto result = verifier.Verify(responder, topologyMap_, speedMap_, irm_);
     EXPECT_FALSE(result.ok);
     EXPECT_EQ(result.hardwareOwnedSoftwareHits, 1);

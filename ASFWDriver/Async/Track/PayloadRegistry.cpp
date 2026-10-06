@@ -20,12 +20,14 @@ PayloadRegistry::~PayloadRegistry() {
     if (lock_) { ::IOLockFree(lock_); lock_ = nullptr; }
 }
 
-void PayloadRegistry::Attach(uint32_t handle, std::shared_ptr<PayloadContext> payload,
+bool PayloadRegistry::Attach(uint32_t handle, std::shared_ptr<PayloadContext> payload,
                              uint32_t epoch) {
-    if (!lock_) return;
+    if (!lock_ || !handle) return false;
     ::IOLockLock(lock_);
-    map_[handle] = Entry{ std::move(payload), epoch };
+    const bool attached = map_.size() < 64 &&
+        map_.try_emplace(handle, Entry{ std::move(payload), epoch }).second;
     ::IOLockUnlock(lock_);
+    return attached;
 }
 
 std::shared_ptr<PayloadContext> PayloadRegistry::Detach(uint32_t handle) {
@@ -44,12 +46,7 @@ void PayloadRegistry::CancelAll(CancelMode mode) {
     ::IOLockLock(lock_);
     map_.clear();
     ::IOLockUnlock(lock_);
-    // For synchronous mode, do a bounded wait loop to allow any async consumers
-    // to observe the cleared state. In DriverKit we avoid condition variables.
-    if (mode == CancelMode::Synchronous) {
-        // small sleep to allow background work to drain
-        sleep_ms(10);
-    }
+    (void)mode; // Ownership proof belongs to the caller, never a delay.
 }
 
 void PayloadRegistry::CancelByEpoch(uint32_t epoch, CancelMode mode) {
@@ -63,9 +60,7 @@ void PayloadRegistry::CancelByEpoch(uint32_t epoch, CancelMode mode) {
         }
     }
     ::IOLockUnlock(lock_);
-    if (mode == CancelMode::Synchronous) {
-        sleep_ms(10);
-    }
+    (void)mode;
 }
 
 bool PayloadRegistry::Drain(uint32_t timeoutMs) {

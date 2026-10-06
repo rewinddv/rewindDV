@@ -28,6 +28,7 @@ void AsyncSubsystem::OnBusResetBegin(uint8_t nextGen) {
     // Step 1: Gate new submissions
     // Any new RegisterTx() calls will be blocked until bus reset completes
     is_bus_reset_in_progress_.store(1, std::memory_order_release);
+    DrainSubmission();
 
     // NOTE: Generation will be updated by hardware via synthetic bus reset packet
     // in RxPath, NOT manually here. This prevents race between OnBusResetBegin
@@ -43,10 +44,9 @@ void AsyncSubsystem::OnBusResetBegin(uint8_t nextGen) {
         // Cancel transactions belonging to oldGen (precise, not ~0u!)
         tracking_->CancelByGeneration(oldGen);
 
-        // Hard-clear bitmap to evict any leaked bits that lack corresponding transactions
-        if (auto* alloc = tracking_->GetLabelAllocator()) {
-            alloc->ClearBitmap();
-        }
+        // Reservations survive cancellation. Ordinary bus reset does not prove
+        // old buffered AR responses retired; uncertain wire outcomes remain fenced.
+
     }
 
     // Step 3: Bump payload epoch for deferred cleanup (to nextGen)
@@ -184,6 +184,11 @@ void AsyncSubsystem::FlushATContexts() {
     }
     if (auto* responseContext = ResolveAtResponseContext()) {
         discarded += responseContext->DiscardStoppedPrograms();
+    }
+    if (tracking_ && contextManager_ && contextManager_->ATContextsQuiescent() &&
+        ResolveAtRequestContext() && ResolveAtResponseContext() &&
+        ResolveAtRequestContext()->Ring().IsEmpty() && ResolveAtResponseContext()->Ring().IsEmpty()) {
+        tracking_->RetireStoppedAT();
     }
     if (discarded != 0) {
         ASFW_LOG_V2(Async,

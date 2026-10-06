@@ -294,10 +294,15 @@ std::shared_ptr<FWDevice> DeviceManager::UpsertDevice(
     missingScanCounts_.erase(guid);
 
     if (auto it = devicesByGuid_.find(guid); it != devicesByGuid_.end()) {
-        if (auto device = ResumeExistingDevice(it->second, record)) {
+        if (it->second && !it->second->IsTerminated() &&
+            it->second->MatchesPersona(record, rom)) {
+            auto device = ResumeExistingDevice(it->second, record);
             IOLockUnlock(mutex_);
             return device;
         }
+        // The production orchestrator invalidates the old route before entering
+        // here. Never mutate an immutable persona or reuse its child units.
+        TerminateDeviceLocked(guid);
     }
 
     auto device = CreateAndRegisterDevice(record, rom);
@@ -389,16 +394,20 @@ void DeviceManager::SuspendAllForBusReset()
 void DeviceManager::TerminateDevice(Guid64 guid)
 {
     IOLockLock(mutex_);
+    TerminateDeviceLocked(guid);
+    IOLockUnlock(mutex_);
+}
+
+void DeviceManager::TerminateDeviceLocked(Guid64 guid)
+{
     auto it = devicesByGuid_.find(guid);
     if (it == devicesByGuid_.end()) {
-        IOLockUnlock(mutex_);
         return;
     }
 
     auto device = it->second;
     if (!device) {
         missingScanCounts_.erase(guid);
-        IOLockUnlock(mutex_);
         return;
     }
 
@@ -428,8 +437,6 @@ void DeviceManager::TerminateDevice(Guid64 guid)
     // Remove from primary map
     devicesByGuid_.erase(it);
     missingScanCounts_.erase(guid);
-
-    IOLockUnlock(mutex_);
 }
 
 // === Helper Methods ===

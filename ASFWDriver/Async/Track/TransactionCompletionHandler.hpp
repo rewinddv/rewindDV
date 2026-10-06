@@ -101,6 +101,7 @@ public:
         }
 
         ATPostResult postResult;
+        postResult.operationIdentity = comp.operationIdentity;
 
         ASFW_LOG_V2(Async,
                     "🔄 OnATCompletion: tLabel=%u ack=0x%X event=0x%02X ts=%u; AT attempts unavailable",
@@ -108,6 +109,7 @@ public:
 
         // Find transaction by tLabel
         bool found = txnMgr_->WithTransactionByLabel(TLabel{comp.tLabel}, [&](Transaction* txn) {
+            if (txn->OperationIdentity() != comp.operationIdentity) return;
             const auto state = txn->state();
             if (state == TransactionState::Completed ||
                 state == TransactionState::TimedOut ||
@@ -182,9 +184,9 @@ public:
      * definitive completion event. Even if AT completion reported errors,
      * successful AR response means transaction succeeded.
      */
-    void OnARResponse(const MatchKey& key, uint8_t rcode, std::span<const uint8_t> data) noexcept {
+    bool OnARResponse(const MatchKey& key, uint8_t rcode, std::span<const uint8_t> data) noexcept {
         if (!txnMgr_) {
-            return;
+            return false;
         }
 
         ASFW_LOG_V2(Async,
@@ -193,45 +195,12 @@ public:
 
 
 
-        Transaction* txn = txnMgr_->FindByMatchKey(key);
-        if (!txn) {
-            ASFW_LOG(Async, "⚠️  OnARResponse: No transaction for key");
-            return;
-        }
-
-        // Verify we're in correct state
-        const auto state = txn->state();
-
-        // 1. If it's already terminal, AR is too late → ignore.
-        if (state == TransactionState::Completed ||
-            state == TransactionState::Failed ||
-            state == TransactionState::Cancelled ||
-            state == TransactionState::TimedOut) {
-            ASFW_LOG_V3(Async, "OnARResponse: AR for terminal txn (state=%{public}s) – ignoring",
-                        ToString(state));
-            return;
-        }
-
-        // 2. Otherwise, accept AR in ATPosted / ATCompleted / AwaitingAR.
-        if (state != TransactionState::AwaitingAR) {
-            ASFW_LOG_V2(Async, "OnARResponse: AR in state=%{public}s (not AwaitingAR) – accepting as completion",
-                        ToString(state));
-        }
-
-        // 3. Try to mark as completed (guards against double-completion with AT path)
-        if (!txn->TryMarkCompleted()) {
-            ASFW_LOG_V3(Async, "OnARResponse: AR arrived but AT already completed, ignoring");
-            return;
-        }
-
-        // Transition: AwaitingAR → ARReceived
-        
-        // Extract transaction to complete it safely outside lock
-        // This avoids holding the lock while invoking the callback
-        auto txnPtr = txnMgr_->Extract(key.label);
+        // Match and extract under one manager lock. No borrowed Transaction*
+        // survives a concurrent cancellation or label reassignment.
+        auto txnPtr = txnMgr_->ExtractForAR(key);
         if (!txnPtr) {
             ASFW_LOG(Async, "⚠️  OnARResponse: Failed to extract transaction (concurrent removal?)");
-            return;
+            return false;
         }
 
         txnPtr->TransitionTo(TransactionState::ARReceived, "OnARResponse");
@@ -266,6 +235,7 @@ public:
 
         // Invoke callback
         txnPtr->InvokeResponseHandler(kr, rcode, data);
+        return true;
     }
 
     /**
@@ -280,15 +250,18 @@ public:
      * - If in AwaitingAR with ackPending (0x1): might be spurious timeout
      * - Otherwise: complete with timeout error
      */
-    void OnTimeout(TLabel label) noexcept {
+    void OnTimeout(TLabel label, std::optional<uint32_t> expected = std::nullopt) noexcept {
         if (!txnMgr_) {
             return;
         }
 
         // CRITICAL: Reset pending label free before lambda
         bool shouldFail = false;
+        uint32_t operation = 0;
 
         bool found = txnMgr_->WithTransaction(label, [&](Transaction* txn) {
+            if (expected && txn->OperationIdentity() != *expected) return;
+            operation = txn->OperationIdentity();
             uint8_t ackCode = txn->ackCode();
             TransactionState state = txn->state();
 
@@ -306,14 +279,14 @@ public:
         });
 
         if (shouldFail) {
-        auto txnPtr = txnMgr_->Extract(label);
+        auto txnPtr = txnMgr_->Extract(label, operation);
         if (txnPtr) {
             txnPtr->TransitionTo(TransactionState::TimedOut, "OnTimeout");
 
             // Free the label before invoking the callback so retries started from the
             // callback do not trip stale-bitmap recovery.
             if (labelAllocator_) {
-                labelAllocator_->Free(label.value);
+                labelAllocator_->CompleteLogical(label.value, true);
             }
 
             // Invoke callback
@@ -337,6 +310,7 @@ private:
     };
 
     struct ATPostResult {
+        uint32_t operationIdentity{0};
         ATPostAction action{ATPostAction::kNone};
         const char* transitionTag1{nullptr};
         const char* transitionTag2{nullptr};
@@ -470,7 +444,7 @@ private:
             return;
         }
 
-        auto txnPtr = txnMgr_->Extract(label);
+        auto txnPtr = txnMgr_->Extract(label, postResult.operationIdentity);
         if (!txnPtr) {
             return;
         }
@@ -499,7 +473,9 @@ private:
         }
 
         if (labelAllocator_) {
-            labelAllocator_->Free(label.value);
+            labelAllocator_->CompleteLogical(label.value,
+                postResult.action != ATPostAction::kCompleteSuccess &&
+                postResult.action != ATPostAction::kCompletePhySuccess);
         }
 
         switch (postResult.action) {

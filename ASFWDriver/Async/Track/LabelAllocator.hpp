@@ -2,6 +2,8 @@
 
 #include <atomic>
 #include <cstdint>
+#include <array>
+#include <DriverKit/IOLib.h>
 
 namespace ASFW::Async {
 
@@ -13,11 +15,23 @@ namespace Bus { class GenerationTracker; }
 class LabelAllocator {
 public:
     LabelAllocator();
-    ~LabelAllocator() = default;
+    ~LabelAllocator();
 
     void Reset();
     uint8_t Allocate();
     void Free(uint8_t label);
+    // Client completion does not retire the posted program or an uncertain
+    // split response. Exactly 64 ownership records; no retired-token history.
+    void BindOperation(uint8_t label, uint32_t operation);
+    [[nodiscard]] bool MarkPosted(uint32_t operation);
+    void AbandonUnposted(uint32_t operation);
+    void CompleteLogical(uint8_t label, bool uncertainWire);
+    bool RetireAT(uint32_t operation);
+    void RetireStoppedAT();
+    [[nodiscard]] uint32_t Operation(uint8_t label) const;
+    [[nodiscard]] bool Matches(uint32_t operation) const;
+    [[nodiscard]] bool HasUncertainWire() const;
+    void FenceWireResponses() { wireFault_.store(true, std::memory_order_release); }
     void ClearBitmap();  // Clear all allocation bits but keep generation as-is
     [[nodiscard]] bool HasAnyLabelsInUse() const noexcept;
 
@@ -58,6 +72,17 @@ private:
     static constexpr uint8_t kMaxLabels = 64;
     static constexpr uint16_t kGenerationMask = 0x03FF; // 10-bit generation window
 
+    struct Ownership {
+        uint32_t operation{0};
+        bool posted{false};
+        bool atPending{false};
+        bool logicalDone{false};
+        bool uncertainWire{false};
+    };
+    void ReleaseIfTerminal(uint8_t label); // ownershipLock_ held
+    mutable IOLock* ownershipLock_{nullptr};
+    std::array<Ownership, 64> ownership_{};
+    std::atomic<bool> wireFault_{false};
     std::atomic<uint64_t> bitmap_;
     std::atomic<uint16_t> generation_;
     std::atomic<uint8_t> next_label_{0};  ///< Simple counter for sequential label rotation

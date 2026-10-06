@@ -1,6 +1,8 @@
 #pragma once
 
 #include <cstdint>
+#include "../Shared/Completion/NativeCallbackDrain.hpp"
+#include <memory>
 
 #ifdef ASFW_HOST_TEST
 #include "../Testing/HostDriverKitStubs.hpp"
@@ -30,11 +32,15 @@ class StatusPublisher;
 class WatchdogCoordinator {
   public:
     WatchdogCoordinator() = default;
-    ~WatchdogCoordinator() = default;
+    ~WatchdogCoordinator() { Reset(); }
 
     kern_return_t Prepare(::ASFWDriver& service, OSSharedPtr<IODispatchQueue> workQueue);
     void Stop();
     void Reset();
+    void BeginNativeRetirement(const std::shared_ptr<ASFW::Shared::NativeCallbackDrain>& drain);
+    [[nodiscard]] bool OwnsAction(const OSAction* action) const noexcept {
+        return action != nullptr && action == action_.get();
+    }
 
     void Schedule(uint64_t delayUsec);
 

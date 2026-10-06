@@ -151,6 +151,11 @@ public:
      */
     virtual bool Cancel(AsyncHandle handle) = 0;
 
+    // A higher-level response can remain ambiguous after its async write
+    // completed. Production latches admission closed until full root rebuild.
+    virtual void FenceUncertainResponse() noexcept {}
+
+
     // -------------------------------------------------------------------------
     // Non-Virtual Helpers (Convenience Wrappers)
     // -------------------------------------------------------------------------

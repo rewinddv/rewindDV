@@ -296,6 +296,16 @@ public:
      * lives on the context. Both must use this same lock so a completion cannot
      * retire the previous branch anchor between append publication and WAKE.
      */
+    // Called with the shared submission/scan lock. At most one identity per
+    // configured ring block, allocated only during context initialization.
+    bool BindProgramIdentity(size_t index, uint32_t operation) noexcept {
+        if (!ring_ || index >= ring_->Capacity() || !programIdentity_ || programIdentity_[index]) return false;
+        programIdentity_[index] = operation;
+        return true;
+    }
+    void ForgetUnpostedIdentity(size_t index) noexcept {
+        if (ring_ && index < ring_->Capacity() && programIdentity_) programIdentity_[index] = 0;
+    }
     void LockSubmissionQueue() noexcept { LockSubmit(); }
     void UnlockSubmissionQueue() noexcept { UnlockSubmit(); }
 
@@ -339,6 +349,7 @@ private:
 
     /// Descriptor ring for tracking in-flight chains
     DescriptorRing* ring_{nullptr};
+    std::unique_ptr<uint32_t[]> programIdentity_;
 
     /// DMA memory manager for virtual↔physical translation
     DMAMemoryManager* dmaManager_{nullptr};
@@ -408,6 +419,8 @@ kern_return_t ATContextBase<Derived, Tag>::Initialize(Driver::HardwareInterface&
         return kIOReturnBadArgument;
     }
 
+    programIdentity_.reset(new (std::nothrow) uint32_t[ring.Capacity()]{});
+    if (!programIdentity_) return kIOReturnNoMemory;
     ring_ = &ring;
     dmaManager_ = &dmaManager;
 
@@ -547,13 +560,8 @@ kern_return_t ATContextBase<Derived, Tag>::Stop() noexcept {
     }
 
     if (hw_->HardwareGone()) {
-        // A revoked provider cannot fetch another descriptor. Do not turn the
-        // live-hardware ACTIVE-clear proof into a timeout when PCI has already
-        // removed the OHCI function.
-        contextRunning_ = false;
-        ASFW_LOG(Async, "[Lifecycle] AT stop context=%{public}s hardware-gone action=release",
-                 this->ContextNameCString());
-        return kIOReturnSuccess;
+        // Software access revocation is not proof that DMA has retired.
+        return kIOReturnNotReady;
     }
 
     // Step 1: Clear ContextControl.run bit (bit 15 = 0x8000)
@@ -592,10 +600,12 @@ kern_return_t ATContextBase<Derived, Tag>::SubmitChain(
         return prepareResult;
     }
 
+    if (!BindProgramIdentity(chain.firstRingIndex, chain.operationIdentity)) return kIOReturnBusy;
     const kern_return_t submitResult = state.needsReArm
         ? SubmitViaRearm(chain, state)
         : SubmitViaAppend(chain, state);
     if (submitResult != kIOReturnSuccess) {
+        ForgetUnpostedIdentity(chain.firstRingIndex);
         return submitResult;
     }
 
@@ -666,7 +676,9 @@ std::optional<TxCompletion> ATContextBase<Derived, Tag>::ScanCompletion() noexce
                 state.blocksConsumed);
     StopIfRingDrained("ScanCompletion", newHead, true);
 
-    const TxCompletion completion = MakeCompletion(state, tLabel);
+    TxCompletion completion = MakeCompletion(state, tLabel);
+    completion.operationIdentity = programIdentity_[state.headIndex];
+    programIdentity_[state.headIndex] = 0;
     unlock();
     return completion;
 }
@@ -709,6 +721,7 @@ size_t ATContextBase<Derived, Tag>::DiscardStoppedPrograms() noexcept {
         // operations. Clear only the terminal device-written status; retain
         // branch words and payload bytes until DescriptorBuilder reuses them.
         ClearTerminalStatus(state);
+        programIdentity_[state.headIndex] = 0;
         ring_->SetHead((state.headIndex + state.blocksConsumed) % capacity);
         ++discarded;
     }

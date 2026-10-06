@@ -3,6 +3,8 @@
 
 #include <memory>
 #include <atomic>
+#include <optional>
+#include "../Shared/Completion/NativeCallbackDrain.hpp"
 
 #ifdef ASFW_HOST_TEST
 #include "../Testing/HostDriverKitStubs.hpp"
@@ -67,10 +69,22 @@ struct ServiceContext {
         ASFW::Driver::RolePolicy::MakeLiveDefault()};
     std::shared_ptr<ASFW::Driver::ControllerCore> controller;
     OSSharedPtr<IODispatchQueue> workQueue;
+    // A single bounded native cancellation wave owns the unchanged runtime.
+    // The supervisor releases its own queue while waiting; Default stays free
+    // to execute cancellation handlers. Quarantine keeps this ledger forever.
+    std::shared_ptr<ASFW::Shared::NativeCallbackDrain> nativeDrain;
+    OSSharedPtr<IODispatchQueue> nativeDrainQueue;
+    OSSharedPtr<IOService> nativeDrainProvider;
+    std::optional<ASFW::Driver::QuiescePlan> nativeDrainPlan;
+    bool nativeDrainServiceRetained{false};
+    std::atomic<bool> quarantineServiceRetained{false}; // one ownership retain, including queue lookup failure
     OSSharedPtr<OSAction> interruptAction;
 #ifndef ASFW_HOST_TEST
     OSSharedPtr<IOServiceNotificationDispatchSource> providerNotifications;
     OSSharedPtr<OSAction> providerNotificationAction;
+    // Keep delivery aliases until the original aggregate is terminal so an
+    // already queued Terminated notification can still revoke hardware access.
+    std::shared_ptr<ASFW::Shared::NativeCallbackDrain> providerNotificationDrain;
 #endif
     std::unique_ptr<ASFW::Driver::RuntimeLifecycleCoordinator> lifecycle;
     ASFW::Driver::StatusPublisher statusPublisher;
@@ -92,6 +106,8 @@ struct ServiceContext {
     std::shared_ptr<ASFW::Protocols::SBP2::SBP2TargetBridge> sbp2Bridge;
 
     void DisarmProviderNotifications();
+    void BeginProviderNativeRetirement(
+        const std::shared_ptr<ASFW::Shared::NativeCallbackDrain>& drain);
 
     // Full tears everything down (driver free/Stop). ForSuspend (sleep and the
     // wake-verify self-heal) preserves the interrupt machinery — dispatch

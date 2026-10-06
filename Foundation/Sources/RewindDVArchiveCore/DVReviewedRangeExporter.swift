@@ -318,7 +318,7 @@ public enum DVReviewedRangeExporter {
     }
   }
 
-  private static func validateCanonicalOrder(_ frame: Data, sequenceCount: Int) throws {
+  static func validateCanonicalOrder(_ frame: Data, sequenceCount: Int) throws {
     var offset = 0
     func require(_ section: UInt8, _ block: UInt8, _ sequence: UInt8) throws {
       guard frame[offset] >> 5 == section,
@@ -344,7 +344,8 @@ public enum DVReviewedRangeExporter {
     }
   }
 
-  private final class RegularSource {
+  // Shared by offline byte-preserving exporters.
+  final class RegularSource {
     let fd: Int32
     let initialStatus: stat
     let byteCount: UInt64

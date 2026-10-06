@@ -40,8 +40,9 @@ struct ControlAttemptReport: Sendable {
 }
 
 enum DriverBridgeError: Error, LocalizedError, Equatable {
-  case noExactBuild188Service
-  case ambiguousBuild188Services(Int)
+  case requiredDriverIdentityUnavailable
+  case noExactRequiredBuildService
+  case ambiguousRequiredBuildServices(Int)
   case differentAttachedBuilds([UInt64?])
   case registryIdentityMismatch(String)
   case openFailed(Int32)
@@ -55,16 +56,18 @@ enum DriverBridgeError: Error, LocalizedError, Equatable {
 
   var errorDescription: String? {
     switch self {
-    case .noExactBuild188Service:
-      "No exact Build188 rewindDV Foundation driver service was found."
-    case .ambiguousBuild188Services(let count):
+    case .requiredDriverIdentityUnavailable:
+      "The app has no valid required-driver identity. No driver connection or activation is permitted."
+    case .noExactRequiredBuildService:
+      "No exact \(DriverBuildRequirement.display) rewindDV Foundation service was found."
+    case .ambiguousRequiredBuildServices(let count):
       "Refusing an ambiguous driver match (\(count) exact services)."
     case .differentAttachedBuilds(let builds):
-      DriverBuildAssessment.mismatchMessage(builds, required: 188)
+      DriverBuildAssessment.mismatchMessage(builds, required: DriverBuildRequirement.bundled?.build ?? 0)
     case .registryIdentityMismatch(let reason):
       "Driver identity did not pass the exact registry gate: \(reason)"
     case .openFailed(let status):
-      "Could not open the exact Build188 driver (\(Self.hex(status)))."
+      "Could not open the exact \(DriverBuildRequirement.display) (\(Self.hex(status)))."
     case .callFailed(let selector, let status):
       "Driver selector \(selector) failed (\(Self.hex(status)))."
     case .malformedReply(let reason):
@@ -228,7 +231,7 @@ actor DriverBridge {
   private static let readinessLog = Logger(subsystem: "net.rewinddigital.RewindDV", category: "DriverReadiness")
   private static let driverClass = "ASFWDriver"
   private static let driverIdentifier = "net.rewinddigital.RewindDV.Driver"
-  private static let requiredBuildNumber = 188
+  private static let requiredBuildNumber = DriverBuildRequirement.bundled?.build
   private static let controllerVendor: UInt32 = 0x11c1
   private static let controllerDevice: UInt32 = 0x5901
   private static let capabilitiesSelector: UInt32 = 64
@@ -293,7 +296,7 @@ actor DriverBridge {
         throw DriverBridgeError.commandAlreadyInFlight
       }
       finalLiveStatistics = nil
-      let connection = try openExactBuild188Connection()
+      let connection = try openExactRequiredBuildConnection()
       attempt.connectionCreated = true
       _ = try FoundationCapabilities(data: callStructureOutput(connection.connect,
         selector: Self.capabilitiesSelector, maximumBytes: 24))
@@ -625,7 +628,7 @@ actor DriverBridge {
     guard liveConnection == nil, !commandInFlight, !inspectionInFlight else {
       throw DriverBridgeError.commandAlreadyInFlight
     }
-    let connection = try openExactBuild188Connection()
+    let connection = try openExactRequiredBuildConnection()
     let capabilitiesData = try callStructureOutput(
       connection.connect, selector: Self.capabilitiesSelector, maximumBytes: 24)
     let capabilities: FoundationCapabilities
@@ -748,7 +751,7 @@ actor DriverBridge {
     defer { commandInFlight = false; commandOwner = nil }
     let diagnosticFlight = liveFlight
 
-    let connection = try openExactBuild188Connection()
+    let connection = try openExactRequiredBuildConnection()
     let capabilitiesData = try callStructureOutput(
       connection.connect, selector: Self.capabilitiesSelector, maximumBytes: 24)
     do {
@@ -1139,7 +1142,7 @@ actor DriverBridge {
       tapeStateOnly ? "tape_state" : "inventory")
     defer { inspectionInFlight = false; inspectionOwner = nil }
     let diagnosticFlight = liveFlight
-    let connection = try openExactBuild188Connection()
+    let connection = try openExactRequiredBuildConnection()
     _ = try FoundationCapabilities(data: callStructureOutput(connection.connect,
       selector: Self.capabilitiesSelector, maximumBytes: 24))
     _ = try InspectorCapabilities(data: callStructureOutput(connection.connect,
@@ -1320,7 +1323,7 @@ actor DriverBridge {
     inspectionInFlight = true
     inspectionOwner = AppOperationObservation(category: "capability_probe")
     defer { inspectionInFlight = false; inspectionOwner = nil }
-    let connection = try openExactBuild188Connection()
+    let connection = try openExactRequiredBuildConnection()
     let catalog = try callStructureOutput(connection.connect, selector: 75, maximumBytes: 176)
     try TransportCapabilityCatalog.validate(catalog)
     let rawRoute = try callScalarInputStructureOutput(connection.connect,
@@ -1408,9 +1411,12 @@ actor DriverBridge {
       entries: entries, completion: completion, lockedOut: permanentlyLockedOut)
   }
 
-  private func openExactBuild188Connection() throws -> OpenDriverConnection {
+  private func openExactRequiredBuildConnection() throws -> OpenDriverConnection {
+    guard let requiredBuildNumber = Self.requiredBuildNumber else {
+      throw DriverBridgeError.requiredDriverIdentityUnavailable
+    }
     guard let matching = IOServiceNameMatching(Self.driverClass) else {
-      throw DriverBridgeError.noExactBuild188Service
+      throw DriverBridgeError.noExactRequiredBuildService
     }
     var iterator: io_iterator_t = 0
     let matchStatus = IOServiceGetMatchingServices(
@@ -1428,20 +1434,20 @@ actor DriverBridge {
       let identityMatches = exactRegistryIdentity(service, requireBuild: false)
       let build = registryInteger(service, key: "FoundationBuildNumber")
       if identityMatches { attachedBuilds.append(build) }
-      if identityMatches && build == UInt64(Self.requiredBuildNumber) {
+      if identityMatches && build == requiredBuildNumber {
         exact.append(service)
       } else {
         IOObjectRelease(service)
       }
     }
-    let assessment = DriverBuildAssessment.assess(attachedBuilds, required: UInt64(Self.requiredBuildNumber))
-    Self.readinessLog.notice("registry_check required=\(Self.requiredBuildNumber) attached=\(String(describing: attachedBuilds), privacy: .public) exact_count=\(exact.count)")
+    let assessment = DriverBuildAssessment.assess(attachedBuilds, required: requiredBuildNumber)
+    Self.readinessLog.notice("registry_check required=\(requiredBuildNumber) attached=\(String(describing: attachedBuilds), privacy: .public) exact_count=\(exact.count)")
     guard assessment == .exact else {
       for service in exact { IOObjectRelease(service) }
       switch assessment {
       case .differentBuilds(let builds): throw DriverBridgeError.differentAttachedBuilds(builds)
-      case .ambiguous(let count): throw DriverBridgeError.ambiguousBuild188Services(count)
-      default: throw DriverBridgeError.noExactBuild188Service
+      case .ambiguous(let count): throw DriverBridgeError.ambiguousRequiredBuildServices(count)
+      default: throw DriverBridgeError.noExactRequiredBuildService
       }
     }
     let service = exact[0]
@@ -1455,10 +1461,11 @@ actor DriverBridge {
   }
 
   private func exactRegistryIdentity(_ service: io_service_t, requireBuild: Bool = true) -> Bool {
+    guard let requiredBuildNumber = Self.requiredBuildNumber else { return false }
     guard registryString(service, key: "IOUserServerName") == Self.driverIdentifier,
       registryString(service, key: "CFBundleIdentifier") == Self.driverIdentifier,
       (!requireBuild || registryInteger(service, key: "FoundationBuildNumber")
-        == UInt64(Self.requiredBuildNumber))
+        == requiredBuildNumber)
     else { return false }
 
     var provider: io_registry_entry_t = 0

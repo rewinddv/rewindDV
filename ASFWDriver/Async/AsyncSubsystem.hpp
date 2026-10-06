@@ -111,13 +111,42 @@ class AsyncSubsystem : public IAsyncControllerPort {
      * destroy DMA state. It prevents timeout/retry producers from issuing a
      * fresh transaction while the regular Stop() path drains the hardware.
      */
+    void FenceUncertainResponse() noexcept override {
+        if (labelAllocator_) labelAllocator_->FenceWireResponses();
+    }
+    // Serializes request construction through publication. Reset/quiesce first
+    // close admission, then cross this barrier before cancelling/discarding.
+    [[nodiscard]] bool BeginSubmission() noexcept {
+        if (!sharedLock_) return false;
+        IOLockLock(sharedLock_);
+        if (!acceptingSubmissions_.load(std::memory_order_acquire) ||
+            is_bus_reset_in_progress_.load(std::memory_order_acquire)) {
+            IOLockUnlock(sharedLock_); return false;
+        }
+        return true;
+    }
+    void EndSubmission() noexcept { IOLockUnlock(sharedLock_); }
+    void DrainSubmission() noexcept {
+        if (sharedLock_) { IOLockLock(sharedLock_); IOLockUnlock(sharedLock_); }
+    }
     void BeginQuiesce() noexcept;
+    void BeginNativeRetirement(const std::shared_ptr<Shared::NativeCallbackDrain>& drain) {
+        BeginQuiesce();
+        if (completionQueue_) completionQueue_->BeginNativeRetirement(drain);
+    }
 
     /// Retire the current callback epoch and positively prove that no callback
     /// is executing. Queued callbacks from the retired runtime become no-ops.
     [[nodiscard]] bool RetirePostedWorkAndWait() noexcept;
 
-    void Stop();
+    /// Failure requires retention of the entire service/runtime graph.
+    [[nodiscard]] bool Stop();
+    [[nodiscard]] bool DMAContextsRetired() const noexcept { return dmaContextsRetired_; }
+    // Local DMA retirement cannot establish that a remote response is absent.
+    // Root teardown must preserve this allocator when the wire is uncertain.
+    [[nodiscard]] bool HasUncertainWire() const {
+        return labelAllocator_ && labelAllocator_->HasUncertainWire();
+    }
 
     AsyncHandle Read(const ReadParams& params, CompletionCallback callback) override;
 
@@ -295,13 +324,15 @@ class AsyncSubsystem : public IAsyncControllerPort {
     std::unique_ptr<Debug::AsyncTraceCapture> asyncTraceCapture_{};
     ASFWDiagInboundCSRStats inboundCSRStats_{};
     bool isRunning_{false};
+    bool dmaContextsRetired_{true};
+    bool dmaQuarantined_{false};
 
     std::unique_ptr<ASFW::Async::Engine::ContextManager> contextManager_;
 
     std::unique_ptr<ASFW::Async::Tx::Submitter> submitter_;
 
     void HandleSyntheticBusResetPacket(const uint32_t* quadlets, uint8_t newGeneration);
-    void Teardown(bool disableHardware);
+    [[nodiscard]] bool Teardown(bool disableHardware);
     [[nodiscard]] kern_return_t InitializeCoreStartState(size_t completionQueueCapacityBytes,
                                                          const char*& failureStage);
     [[nodiscard]] kern_return_t ProvisionAsyncDataPath(const char*& failureStage);

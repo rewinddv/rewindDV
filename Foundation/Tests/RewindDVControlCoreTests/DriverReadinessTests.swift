@@ -215,7 +215,7 @@ private func handshakeRoute(_ changedOffset: Int? = nil) throws -> FoundationRou
   let open = try #require(bridge.range(of: "let openStatus = IOServiceOpen"))
   let exact = try #require(bridge.range(of: "guard assessment == .exact else"))
   #expect(exact.lowerBound < open.lowerBound)
-  #expect(bridge.contains("identityMatches && build == UInt64(Self.requiredBuildNumber)"))
+  #expect(bridge.contains("identityMatches && build == requiredBuildNumber"))
   #expect(bridge.contains("registryString(service, key: \"CFBundleIdentifier\") == Self.driverIdentifier"))
   #expect(bridge.contains("registryString(service, key: \"IOUserServerName\") == Self.driverIdentifier"))
   #expect(bridge.contains("IOObjectConformsTo(provider, \"IOPCIDevice\")"))
@@ -238,9 +238,9 @@ private func handshakeRoute(_ changedOffset: Int? = nil) throws -> FoundationRou
   let refresh = model[refreshStart.lowerBound..<refreshEnd.lowerBound]
   #expect(refresh.contains("refresh_started") && refresh.contains("refresh_finished") && refresh.contains("refresh_failed"))
   #expect(!refresh.contains("submitActivation") && !refresh.contains("perform("))
-  #expect(model.contains("LabeledContent(\"Required Foundation marker\", value: \"188\")"))
-  #expect(bridge.contains("private static let requiredBuildNumber = 188"))
-  #expect(bridge.contains("mismatchMessage(builds, required: 188)"))
+  #expect(model.contains("LabeledContent(\"Required driver\", value: DriverBuildRequirement.display)"))
+  #expect(bridge.contains("private static let requiredBuildNumber = DriverBuildRequirement.bundled?.build"))
+  #expect(bridge.contains("mismatchMessage(builds, required: DriverBuildRequirement.bundled?.build ?? 0)"))
   let project = try String(contentsOf: root.appendingPathComponent("RewindDV.xcodeproj/project.pbxproj"), encoding: .utf8)
   // Xcode 27 must not silently drop the existing macOS 26 runtime floor.
   #expect(project.components(separatedBy: "\"MACOSX_DEPLOYMENT_TARGET\" = \"26.0\"").count == 3)
@@ -254,7 +254,7 @@ private func handshakeRoute(_ changedOffset: Int? = nil) throws -> FoundationRou
   #expect(project.contains("\"DEPLOYMENT_POSTPROCESSING\" = \"YES\""))
   #expect(project.contains("\"STRIP_INSTALLED_PRODUCT\" = \"YES\""))
   #expect(project.contains("\"STRIP_STYLE\" = \"debugging\""))
-  #expect(model.contains("ext.bundleVersion == \"188\""))
+
   #expect(model.contains("DriverRefreshPolicy.mayCheck"))
   #expect(!view.contains("Button(\"Refresh Driver\""))
 }
@@ -275,8 +275,42 @@ private func handshakeRoute(_ changedOffset: Int? = nil) throws -> FoundationRou
   let protocolMethod = try #require(wiring.range(of: "kern_return_t DriverWiring::EnsureSbp2Deps"))
   let timer = wiring[method.lowerBound..<protocolMethod.lowerBound]
   #expect(timer.contains("d.sbp2SessionScheduler->Prepare(service, ctx.workQueue)"))
-  #expect(timer.contains("d.sbp2SessionScheduler.reset();"))
+  // Failed native initialization may already have installed a callback. The
+  // scheduler must survive until the failed-start aggregate observes Cancel.
+  #expect(!timer.contains("d.sbp2SessionScheduler.reset();"))
+  #expect(driver.contains("ctx.deps.sbp2SessionScheduler->BeginNativeRetirement(drain)"))
+  #expect(driver.contains("ctx.nativeDrainPlan = *plan;"))
+  #expect(driver.contains("!ctx.nativeDrain->AllTerminal()"))
   #expect(!timer.contains("#ifdef REWINDDV_FOUNDATION"))
   #expect(wiring.components(separatedBy: "std::make_shared<ASFW::Protocols::SBP2::DriverKitSessionScheduler>()").count == 2)
   #expect(wiring[protocolMethod.lowerBound...].contains("const auto timerStatus = PrepareControlTimer(service, ctx);"))
+}
+
+
+@Test func requiredDriverBuildIsIndependentAndFailsClosed() throws {
+  let required = try #require(DriverBuildRequirement(metadata: "189"))
+  #expect(required.build == 189)
+  #expect(DriverBuildAssessment.assess([189], required: required.build) == .exact)
+  #expect(DriverBuildAssessment.assess([188], required: required.build) != .exact)
+  #expect(DriverBuildAssessment.assess([190], required: required.build) != .exact)
+  #expect(required.permitsReplacement(bundleVersion: "189"))
+  #expect(!required.permitsReplacement(bundleVersion: "188"))
+  #expect(!required.permitsReplacement(bundleVersion: "190"))
+  for value: String? in [nil, "", "0", "0189", "189.0", " 189", "189 ", "+189", "-1", "4294967296", "９"] {
+    #expect(DriverBuildRequirement(metadata: value) == nil)
+    if let value { #expect(!required.permitsReplacement(bundleVersion: value)) }
+  }
+  #expect(DriverBuildRequirement(metadata: "4294967295")?.build == UInt64(UInt32.max))
+}
+
+@Test func activationAndDiscoveryUseSignedRequiredDriverMetadata() throws {
+  let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+    .deletingLastPathComponent().deletingLastPathComponent()
+  let model = try String(contentsOf: root.appendingPathComponent("App/RewindDVApp.swift"), encoding: .utf8)
+  let bridge = try String(contentsOf: root.appendingPathComponent("App/DriverBridge.swift"), encoding: .utf8)
+  #expect(model.contains("DriverBuildRequirement.bundled?.permitsReplacement(bundleVersion: ext.bundleVersion) == true"))
+  #expect(model.contains("DriverBuildRequirement.bundled != nil"))
+  #expect(!model.contains("ext.bundleVersion == \"188\""))
+  #expect(bridge.contains("guard let requiredBuildNumber = Self.requiredBuildNumber else"))
+  #expect(bridge.contains("identityMatches && build == requiredBuildNumber"))
 }

@@ -14,6 +14,8 @@
 #include "../Controller/ControllerTypes.hpp"
 
 #include <atomic>
+#include <memory>
+#include "../Shared/Completion/NativeCallbackDrain.hpp"
 
 namespace ASFW::Driver {
 
@@ -42,6 +44,8 @@ public:
     // completion, so the kernel-side free (which unregisters the interrupt)
     // cannot land at an uncontrolled time.
     void Teardown();
+    void BeginNativeRetirement(const std::shared_ptr<ASFW::Shared::NativeCallbackDrain>& drain,
+                               bool suspend);
     
     void EnableInterrupts(uint32_t bits);
     void DisableInterrupts(uint32_t bits);

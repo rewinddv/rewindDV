@@ -40,6 +40,9 @@ class IAsyncControllerPort : public IAsyncSubsystemPort {
     /// Notify the async engine that AT completion interrupts were observed.
     virtual void OnTxInterrupt() = 0;
 
+    virtual void FenceUncertainResponse() noexcept {}
+
+
     /// Notify the async engine that an AR request packet is ready.
     virtual void OnRxRequestInterrupt() = 0;
 

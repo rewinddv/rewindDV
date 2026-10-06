@@ -57,6 +57,14 @@ kern_return_t ATManager<ContextT, RingT, RoleTag>::Submit(DescriptorChain&& chai
         ContextT& context_;
     } submissionQueueGuard(ctx());
 
+    if (!ctx().BindProgramIdentity(chain.firstRingIndex, chain.operationIdentity)) return kIOReturnBusy;
+    struct IdentityRollback {
+        ContextT& context;
+        size_t index;
+        bool accepted{false};
+        ~IdentityRollback() { if (!accepted) context.ForgetUnpostedIdentity(index); }
+    } identityRollback{ctx(), chain.firstRingIndex};
+
     // PATH decision using software state only (Apple's pattern)
     // From decompilation @ 0xDBBE line 109: if (*((_BYTE *)this + 28))
     // Apple checks ONLY software flag, never reads hardware registers
@@ -84,6 +92,7 @@ kern_return_t ATManager<ContextT, RingT, RoleTag>::Submit(DescriptorChain&& chai
             //     ScopedLock guard(lockWrapper);
             //     requestStop_(txid, "needsFlush");
             // }
+            identityRollback.accepted = true;
             return kIOReturnSuccess;
         }
         // Fall through to PATH 1 fallback on failure
@@ -97,7 +106,9 @@ kern_return_t ATManager<ContextT, RingT, RoleTag>::Submit(DescriptorChain&& chai
 
     // PATH 1: First submission or re-arm. Hardware operations do not hold the
     // FSM lock, but remain inside the outer context queue lock.
-    return SubmitPath1_(chain, txid, opts);
+    const auto result = SubmitPath1_(chain, txid, opts);
+    identityRollback.accepted = result == kIOReturnSuccess;
+    return result;
 }
 
 template<typename ContextT, typename RingT, typename RoleTag>
@@ -283,6 +294,7 @@ void ATManager<ContextT, RingT, RoleTag>::RequestStop(uint32_t txid, const char*
         ~SubmissionQueueGuard() { context_.UnlockSubmissionQueue(); }
         ContextT& context_;
     } submissionQueueGuard(ctx());
+
     // Phase 1.2: Use ScopedLock for automatic RAII
     IOLockWrapper lockWrapper(lock());
     ScopedLock guard(lockWrapper);

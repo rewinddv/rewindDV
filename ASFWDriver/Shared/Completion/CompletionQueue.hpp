@@ -20,6 +20,7 @@
 #endif
 
 #include "../../Logging/Logging.hpp"
+#include "NativeSourceRetirement.hpp"
 
 namespace ASFW::Shared {
 
@@ -95,11 +96,11 @@ public:
     }
 
     ~CompletionQueue() {
-        if (source_) {
-            source_->SetEnable(false);
-            source_->Cancel(nullptr);
-            source_.reset();
-        }
+        // Normal release requires the root's terminal drain. Last-resort
+        // containment retains a native source if a caller violates that contract.
+#ifndef ASFW_HOST_TEST
+        if (source_) (void)source_.detach();
+#endif
     }
 
     /**
@@ -123,16 +124,30 @@ public:
     void Deactivate() noexcept {
         dqActive_.store(false, std::memory_order_release);
         ASFW_LOG(Async, "CompletionQueue::Deactivate() - queue now inactive");
-        // CRITICAL: Disable and cancel notifications during runtime teardown
-        if (source_) {
-            source_->SetEnable(false);
-            source_->Cancel(nullptr);
-        }
+        // Native cancellation is joined separately by BeginNativeRetirement.
     }
 
     /**
      * Mark that client is bound (set when dataAvailable handler is installed)
      */
+    void BeginNativeRetirement(const std::shared_ptr<NativeCallbackDrain>& drain) {
+        Deactivate();
+        clientBound_.store(false, std::memory_order_release);
+#ifndef ASFW_HOST_TEST
+        nativeDrain_ = drain;
+        RetireNativeSource(source_, drain);
+#else
+        source_.reset(); // Host queue has no native asynchronous callback source.
+#endif
+    }
+    [[nodiscard]] bool NativeRetirementComplete() const noexcept {
+#ifndef ASFW_HOST_TEST
+        return !source_ && (!nativeDrain_ || (nativeDrain_->AllTerminal() && !nativeDrain_->Quarantined()));
+#else
+        return true;
+#endif
+    }
+
     void SetClientBound() noexcept {
         clientBound_.store(true, std::memory_order_release);
         ASFW_LOG(Async, "CompletionQueue::SetClientBound() - client now bound");
@@ -240,6 +255,7 @@ private:
     CompletionQueue() = default;
 
     OSSharedPtr<IODataQueueDispatchSource> source_{};
+    std::shared_ptr<NativeCallbackDrain> nativeDrain_;
 
     // Remember the actual capacity passed to Create() for validation
     size_t capacityBytes_{0};

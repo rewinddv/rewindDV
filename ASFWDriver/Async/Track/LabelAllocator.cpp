@@ -8,15 +8,19 @@
 namespace ASFW::Async {
 
 LabelAllocator::LabelAllocator()
-    : bitmap_(0), generation_(0), next_label_(0) {}
+    : ownershipLock_(IOLockAlloc()), bitmap_(0), generation_(0), next_label_(0) {}
+
+LabelAllocator::~LabelAllocator() { if (ownershipLock_) IOLockFree(ownershipLock_); }
 
 void LabelAllocator::Reset() {
+    if (HasAnyLabelsInUse()) return;
     bitmap_.store(0, std::memory_order_relaxed);
     generation_.store(0, std::memory_order_relaxed);
     next_label_.store(0, std::memory_order_relaxed);
 }
 
 uint8_t LabelAllocator::Allocate() {
+    if (!ownershipLock_) return kInvalidLabel;
     // Round-robin allocator: start from next_label_ cursor, scan for a free bit.
     uint8_t start = next_label_.load(std::memory_order_relaxed);
     uint64_t snapshot = bitmap_.load(std::memory_order_relaxed);
@@ -65,18 +69,112 @@ uint8_t LabelAllocator::NextLabel() noexcept {
 }
 
 void LabelAllocator::Free(uint8_t label) {
+    CompleteLogical(label, false);
+}
+
+void LabelAllocator::ReleaseIfTerminal(uint8_t label) {
+    auto& record = ownership_[label];
+    if (!record.logicalDone || record.atPending || record.uncertainWire) return;
+    record = {};
+    bitmap_.fetch_and(~ASFW::FW::bit<uint64_t>(label), std::memory_order_release);
+}
+
+void LabelAllocator::BindOperation(uint8_t label, uint32_t operation) {
+    if (label >= 64 || !ownershipLock_) return;
+    IOLockLock(ownershipLock_);
+    ownership_[label] = Ownership{.operation = operation};
+    IOLockUnlock(ownershipLock_);
+}
+
+uint32_t LabelAllocator::Operation(uint8_t label) const {
+    if (label >= 64 || !ownershipLock_) return 0;
+    IOLockLock(ownershipLock_);
+    const auto operation = ownership_[label].operation;
+    IOLockUnlock(ownershipLock_);
+    return operation;
+}
+
+bool LabelAllocator::Matches(uint32_t operation) const {
+    return operation && operation < 0x80000000u &&
+        Operation(static_cast<uint8_t>((operation - 1) & 63)) == operation;
+}
+
+bool LabelAllocator::MarkPosted(uint32_t operation) {
+    if (!operation || !ownershipLock_) return false;
+    IOLockLock(ownershipLock_);
+    auto& record = ownership_[(operation - 1) & 63];
+    const bool admitted = record.operation == operation && !record.logicalDone;
+    if (admitted && !record.posted) { record.posted = true; record.atPending = true; }
+    IOLockUnlock(ownershipLock_);
+    return admitted;
+}
+
+void LabelAllocator::AbandonUnposted(uint32_t operation) {
+    if (!operation || !ownershipLock_) return;
+    IOLockLock(ownershipLock_);
+    const auto label = static_cast<uint8_t>((operation - 1) & 63);
+    auto& record = ownership_[label];
+    if (record.operation == operation) {
+        record.atPending = false;
+        record.posted = false;
+        record.uncertainWire = false; // Caller proves no hardware publication occurred.
+        record.logicalDone = true;
+        ReleaseIfTerminal(label);
+    }
+    IOLockUnlock(ownershipLock_);
+}
+
+bool LabelAllocator::RetireAT(uint32_t operation) {
+    if (!operation || !ownershipLock_) return false;
+    IOLockLock(ownershipLock_);
+    const auto label = static_cast<uint8_t>((operation - 1) & 63);
+    auto& record = ownership_[label];
+    const bool accepted = record.operation == operation && record.atPending;
+    if (accepted) { record.atPending = false; ReleaseIfTerminal(label); }
+    IOLockUnlock(ownershipLock_);
+    return accepted;
+}
+
+void LabelAllocator::RetireStoppedAT() {
+    if (!ownershipLock_) return;
+    IOLockLock(ownershipLock_);
+    for (uint8_t label = 0; label < 64; ++label) {
+        ownership_[label].atPending = false;
+        ReleaseIfTerminal(label);
+    }
+    IOLockUnlock(ownershipLock_);
+}
+
+bool LabelAllocator::HasUncertainWire() const {
+    if (wireFault_.load(std::memory_order_acquire)) return true;
+    if (!ownershipLock_) return true;
+    IOLockLock(ownershipLock_);
+    bool uncertain = false;
+    for (const auto& record : ownership_) uncertain |= record.uncertainWire;
+    IOLockUnlock(ownershipLock_);
+    return uncertain;
+}
+
+void LabelAllocator::CompleteLogical(uint8_t label, bool uncertainWire) {
     if (label >= kMaxLabels) {
         return;
     }
-    const uint64_t mask = ASFW::FW::bit<uint64_t>(label);
-    const uint64_t before = bitmap_.fetch_and(~mask, std::memory_order_release);
-    ASFW_LOG_V3(Async, "LabelAllocator::Free: label=%u bitmap=0x%016llx→0x%016llx",
-                label,
-                before,
-                before & ~mask);
+    if (!ownershipLock_) return;
+    IOLockLock(ownershipLock_);
+    auto& record = ownership_[label];
+    record.logicalDone = true;
+    record.uncertainWire |= uncertainWire && record.posted;
+    ReleaseIfTerminal(label);
+    IOLockUnlock(ownershipLock_);
 }
 
 void LabelAllocator::ClearBitmap() {
+    if (!ownershipLock_) return;
+    IOLockLock(ownershipLock_);
+    for (const auto& record : ownership_) {
+        if (record.operation) { IOLockUnlock(ownershipLock_); return; }
+    }
+    IOLockUnlock(ownershipLock_);
     const uint64_t before = bitmap_.exchange(0, std::memory_order_release);
     next_label_.store(0, std::memory_order_relaxed);
     ASFW_LOG(Async, "LabelAllocator::ClearBitmap: bitmap=0x%016llx→0x0000000000000000", before);

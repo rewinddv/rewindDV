@@ -301,8 +301,8 @@ bool ContextManager::teardown(bool disable_hw) noexcept {
 
     ASFW_LOG(Async, "ContextManager::teardown - cleaning up");
 
-    bool safe = state_->hw && state_->hw->HardwareGone();
-    if (!safe && state_->hw) {
+    bool safe = false;
+    if (state_->hw && state_->hw->IsAvailable()) {
         if (disable_hw) {
             const auto at = stopAT();
             const auto ar = stopAR();
@@ -319,8 +319,28 @@ bool ContextManager::teardown(bool disable_hw) noexcept {
                    idle(state_->arReqCtx) && idle(state_->arRspCtx);
         }
     }
+    if (safe) {
+        // Keep one admitted MMIO scope across the final idle observations and
+        // CommandPtr retirement. An unavailable read must never look like zero.
+        auto access = state_->hw->TryBeginAccess();
+        safe = static_cast<bool>(access);
+        const Driver::Register32 controls[] = {ATRequestTag::kControlSetReg,
+            ATResponseTag::kControlSetReg, ARRequestTag::kControlSetReg,
+            ARResponseTag::kControlSetReg};
+        const Driver::Register32 pointers[] = {ATRequestTag::kCommandPtrReg,
+            ATResponseTag::kCommandPtrReg, ARRequestTag::kCommandPtrReg,
+            ARResponseTag::kCommandPtrReg};
+        for (unsigned i = 0; safe && i < 4; ++i) {
+            const auto control = access.Read(controls[i]);
+            safe = control != 0xFFFFFFFFu &&
+                (control & (Driver::kContextControlRunBit | Driver::kContextControlActiveBit)) == 0;
+            if (!safe) break;
+            if (disable_hw) access.Write(pointers[i], 0);
+            safe = access.Read(pointers[i]) == 0;
+        }
+    }
     if (!safe) {
-        ASFW_LOG_ERROR(Async, "ContextManager: DMA stop unproven; quarantining mappings until process exit");
+        ASFW_LOG_ERROR(Async, "ContextManager: DMA retirement unproven; retaining mappings and requiring service quarantine");
         dmaQuarantined_ = true;
         (void)state_.release(); // Deliberate retention; a timeout is not a DMA barrier.
         return false;

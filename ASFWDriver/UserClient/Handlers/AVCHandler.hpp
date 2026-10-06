@@ -14,6 +14,8 @@
 #include <DriverKit/OSString.h>
 #include <DriverKit/OSNumber.h>
 #include <memory>
+#include <optional>
+#include "../../Shared/Completion/PostedWorkEpoch.hpp"
 // Include MusicSubunit for static helper types
 #include "../../Protocols/AVC/Music/MusicSubunit.hpp" // Adjusted path: Handler is under UserClient/Handlers. Music is Protocols/AVC/Music/
 
@@ -140,5 +142,24 @@ public:
 private:
     Protocols::AVC::IAVCDiscovery* discovery_;
 };
+
+// The caller resolves both owners on the root lifecycle queue and invokes this
+// before yielding that queue. Hold admission through serialization/submission;
+// result-only calls remain available even after the runtime retires.
+template <typename Callback>
+kern_return_t WithAVCHandlerForRuntime(
+    std::shared_ptr<Protocols::AVC::IAVCDiscovery> discovery,
+    std::shared_ptr<Shared::PostedWorkEpoch> epoch,
+    Callback&& callback) {
+    std::optional<Shared::PostedWorkEpoch::Lease> lease;
+    if (discovery && epoch) {
+        lease.emplace(*epoch);
+        if (!*lease) discovery.reset();
+    } else {
+        discovery.reset();
+    }
+    AVCHandler handler(discovery.get());
+    return callback(handler);
+}
 
 } // namespace ASFW::UserClient

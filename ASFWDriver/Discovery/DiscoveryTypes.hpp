@@ -65,6 +65,7 @@ enum class ConfigROMFormat : uint8_t {
 // Located at address 0xFFFFF0000400. True IEEE 1212 minimal ROMs are q0-only
 // and do not carry the IEEE 1394 GUID/options fields.
 struct BusInfoBlock {
+    bool operator==(const BusInfoBlock&) const = default;
     ConfigROMFormat format{ConfigROMFormat::Unknown};
 
     // BIB header quadlet (quadlet 0) - IEEE 1212
@@ -105,6 +106,7 @@ enum class CfgKey : uint8_t {
 };
 
 struct RomEntry {
+    bool operator==(const RomEntry&) const = default;
     CfgKey key;
     uint32_t value;
     uint8_t entryType{0};  // 0=immediate, 1=CSR offset, 2=leaf, 3=directory
@@ -112,6 +114,7 @@ struct RomEntry {
 };
 
 struct UnitDirectory {
+    bool operator==(const UnitDirectory&) const = default;
     // Offset in quadlets relative to the start of the root directory (header quadlet).
     uint32_t offsetQuadlets{0};
 

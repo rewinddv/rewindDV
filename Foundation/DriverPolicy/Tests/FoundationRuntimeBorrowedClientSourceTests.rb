@@ -49,11 +49,16 @@ puts 'Foundation runtime borrowed-client source gates passed: ROM/AVC/CMP/IRM ow
 driver = File.read('ASFWDriver/ASFWDriver.cpp')
 teardown = driver[/bool ExecuteRuntimeTeardown\(.*?\) \{(.*?)\n\}/m, 1]
 abort 'ExecuteRuntimeTeardown body not found' unless teardown
-begin_quiesce = teardown.index('ctx.deps.asyncSubsystem->BeginQuiesce();')
-epoch_barrier = teardown.index('ctx.deps.asyncSubsystem->RetirePostedWorkAndWait()')
-async_stop = teardown.index('ctx.deps.asyncSubsystem->Stop();')
+prepare = driver[/bool PrepareRuntimeTeardown\(.*?\) \{(.*?)\n\}/m, 1]
+abort 'PrepareRuntimeTeardown body not found' unless prepare
+begin_quiesce = prepare.index('ctx.deps.asyncSubsystem->BeginQuiesce();')
+epoch_barrier = prepare.index('ctx.deps.asyncSubsystem->RetirePostedWorkAndWait()')
+async_stop = teardown.index('!ctx.deps.asyncSubsystem->Stop()')
 abort 'async callback epoch retirement is missing' unless begin_quiesce && epoch_barrier && async_stop
-abort 'async callback epoch must retire before async stop' unless begin_quiesce < epoch_barrier && epoch_barrier < async_stop
+abort 'async callback epoch must retire before native drain' unless begin_quiesce < epoch_barrier &&
+  driver.match?(/if \(PrepareRuntimeTeardown\(\*this, ctx, \*plan\)\) \{\s*ctx.nativeDrainPlan = \*plan;\s*BeginNativeRuntimeDrain\(\);/m)
+abort 'native terminal barrier must precede async stop' unless
+  teardown.index('!ctx.nativeDrain->AllTerminal()') < async_stop
 
 session = File.read('ASFWDriver/ConfigROM/Remote/ROMScanSession.cpp')
 start = session[/void ROMScanSession::Start\(.*?\) \{(.*?)\n\}/m, 1]

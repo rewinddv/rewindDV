@@ -75,6 +75,7 @@ public:
     void SuspendAllForBusReset();
 
 private:
+    void TerminateDeviceLocked(Guid64 guid);
     void NotifyDeviceAdded(std::shared_ptr<FWDevice> device);
     void NotifyDeviceResumed(std::shared_ptr<FWDevice> device);
     void NotifyDeviceSuspended(std::shared_ptr<FWDevice> device);

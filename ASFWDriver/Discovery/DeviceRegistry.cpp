@@ -19,6 +19,8 @@ constexpr uint32_t kUnitSwVersion_SBP2 = 0x010483; // SBP-2 Unit_Sw_Version
 namespace {
 
 void PopulateDeviceIdentity(DeviceRecord& device, const ConfigROM& rom) {
+    device.vendorId = 0;
+    device.modelId = 0;
     for (const auto& entry : rom.rootDirMinimal) {
         if (entry.key == CfgKey::VendorId) {
             device.vendorId = entry.value;
@@ -127,10 +129,15 @@ DeviceRecord DeviceRegistry::UpsertFromROM(const ConfigROM& rom, const LinkPolic
     const Guid64 guid = rom.bib.guid;
     const auto operationalNodeId = TryOperationalNodeId(rom.nodeId);
 
+    if (nextDeviceIncarnation_ == std::numeric_limits<uint64_t>::max() &&
+        !devicesByGuid_.contains(guid)) {
+        IOLockUnlock(lock_);
+        return {}; // Exhaustion is terminal; never alias an old incarnation.
+    }
     auto [it, inserted] = devicesByGuid_.try_emplace(guid);
     auto& device = it->second;
     if (inserted) {
-        device.deviceIncarnation = ++lastDeviceIncarnationByGuid_[guid];
+        device.deviceIncarnation = ++nextDeviceIncarnation_;
         device.routeEpoch = AllocateRouteEpochLocked();
     } else if (device.gen != rom.gen || device.nodeId != rom.nodeId ||
                !HasLiveRoute(device)) {
@@ -254,7 +261,6 @@ void DeviceRegistry::RetireDevice(Guid64 guid) {
     IOLockLock(lock_);
     auto it = devicesByGuid_.find(guid);
     if (it != devicesByGuid_.end()) {
-        lastDeviceIncarnationByGuid_[guid] = it->second.deviceIncarnation;
         devicesByGuid_.erase(it);
     }
     for (auto mapping = genNodeToGuid_.begin(); mapping != genNodeToGuid_.end();) {
@@ -360,8 +366,6 @@ void DeviceRegistry::Clear() {
     IOLockLock(lock_);
     devicesByGuid_.clear();
     genNodeToGuid_.clear();
-    lastDeviceIncarnationByGuid_.clear();
-    nextRouteEpoch_ = 0;
     IOLockUnlock(lock_);
 }
 
@@ -399,17 +403,14 @@ DeviceRegistry::GenNodeKey DeviceRegistry::MakeKey(Generation gen, uint8_t nodeI
 }
 
 uint64_t DeviceRegistry::AllocateRouteEpochLocked() noexcept {
-    // Zero is reserved for an invalid token. Wrap is theoretically possible but
-    // requires 2^64 route changes during one driver incarnation.
-    ++nextRouteEpoch_;
-    if (nextRouteEpoch_ == 0) {
-        ++nextRouteEpoch_;
-    }
-    return nextRouteEpoch_;
+    // Exhaustion must invalidate routes, never recycle an old token.
+    if (nextRouteEpoch_ == std::numeric_limits<uint64_t>::max()) return 0;
+    return ++nextRouteEpoch_;
 }
 
 bool DeviceRegistry::HasLiveRoute(const DeviceRecord& device) noexcept {
-    return device.state != LifeState::Lost && device.state != LifeState::Quarantined &&
+    return device.deviceIncarnation != 0 && device.routeEpoch != 0 &&
+           device.state != LifeState::Lost && device.state != LifeState::Quarantined &&
            TryOperationalNodeId(device.nodeId).has_value();
 }
 

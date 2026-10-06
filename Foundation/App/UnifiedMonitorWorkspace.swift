@@ -300,7 +300,7 @@ private struct WorkspaceModeSelector: NSViewRepresentable {
     control.segmentDistribution = .fill
     control.controlSize = .large
     control.font = .systemFont(ofSize: 16, weight: .semibold)
-    for index in MonitorSource.allCases.indices { control.setWidth(148, forSegment: index) }
+    for index in MonitorSource.allCases.indices { control.setWidth(128, forSegment: index) }
     control.setAccessibilityLabel("Workspace mode")
     control.setAccessibilityIdentifier("monitor-source")
     return control
@@ -313,7 +313,7 @@ private struct WorkspaceModeSelector: NSViewRepresentable {
   }
 
   func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSSegmentedControl, context: Context) -> CGSize? {
-    CGSize(width: 300, height: 36)
+    CGSize(width: 390, height: 36)
   }
 
   @MainActor final class Coordinator: NSObject {
@@ -338,12 +338,13 @@ struct UnifiedMonitorWorkspace: View {
   @State private var confirmPhysicalStop = false
   @State private var playbackOpenPanel: NSOpenPanel?
   @StateObject private var rangeReview = ReviewedRangeModel()
+  @ObservedObject var surgery: SurgeryModel
 
   private var source: MonitorSource { model.monitorSource }
 
   private var busy: Bool { model.isBusy || model.wholeTapeActive || installer.isInFlight }
   private var sourceChangeLocked: Bool {
-    busy || rangeReview.isBusy || live.active || live.busy || live.lockedOut || model.controlLockedOut || model.requiresSupervisedStop
+    busy || rangeReview.isBusy || surgery.busy || surgery.choosing || live.active || live.busy || live.lockedOut || model.controlLockedOut || model.requiresSupervisedStop
   }
   private var policy: WorkspaceCapabilities {
     WorkspaceCapabilities(
@@ -364,6 +365,9 @@ struct UnifiedMonitorWorkspace: View {
     ScrollView([.horizontal, .vertical]) {
       VStack(alignment: .leading, spacing: 10) {
         header
+        if source == .surgery {
+          SurgeryView(model: surgery, playbackURL: playback.sourceURL)
+        } else {
         // Identical reserved height in both modules; options never move the
         // preview or meters when toggled, and sidebar expansion is independent.
         viewingControls.frame(width: 720, height: 82, alignment: .topLeading).zIndex(2)
@@ -394,8 +398,9 @@ struct UnifiedMonitorWorkspace: View {
           Spacer()
         }
         .font(.caption).foregroundStyle(.secondary)
+        }
       }
-      .frame(width: max(1210, workspaceWidth - 44), alignment: .leading)
+      .frame(width: max(source == .surgery ? 720 : 1210, workspaceWidth - 44), alignment: .leading)
       .padding(.horizontal, 22).padding(.top, 4).padding(.bottom, 22)
       .fixedSize(horizontal: false, vertical: true)
       // A short Capture page and a taller Playback page share one origin.
@@ -442,7 +447,7 @@ struct UnifiedMonitorWorkspace: View {
       HStack {
         if source == .deck {
           deckConnection
-        } else {
+        } else if source == .file {
           Button("Open DV…", systemImage: "folder") { chooseFile() }
             .buttonStyle(.borderedProminent).tint(.blue).controlSize(.large)
             .fixedSize(horizontal: true, vertical: true)
@@ -467,7 +472,7 @@ struct UnifiedMonitorWorkspace: View {
           guard !sourceChangeLocked, selection != source else { return }
           model.monitorSource = selection
         }), isEnabled: !sourceChangeLocked)
-      .frame(width: 300, height: 36, alignment: .leading)
+      .frame(width: 390, height: 36, alignment: .leading)
   }
 
   private var viewingControls: some View {
