@@ -119,6 +119,7 @@ def validate_release(status, remote, provenance=None):
         versions = provenance['versions']
         check(versions['application_version'] == r['application_version'], 'Released application mismatch')
         check(str(versions['driver_build']) == str(r['driver_build']), 'Released driver mismatch')
+        check(str(versions.get('app_bundle_build')) == str(r['application_build']), 'Released app build mismatch')
         check(provenance['source_commit'] == r['source_revision'] and provenance['tag'] == r['tag'], 'Released source/tag mismatch')
         check(provenance['artifact']['sha256'] == r['package_sha256'] and provenance['artifact']['name'] == r['package_name'], 'Released provenance hash mismatch')
         check(provenance['repository_id'] == release.REPOSITORY_ID and provenance['repository'] == release.REPOSITORY, 'Released repository mismatch')

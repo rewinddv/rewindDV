@@ -4,21 +4,21 @@
     "application_version": "0.0.89",
     "driver_build": 190,
     "source_revision": "934953a4771e4a50f1fa71c830bd37ac3cd39dbb",
-    "state": "source-published; software-validated; bounded capture runtime validated; live unload unqualified",
+    "state": "source-published; software-validated; bounded capture runtime validated; ad-hoc engineering prerelease available; live unload unqualified",
     "updated_utc": "2026-10-06T03:40:16.319674+00:00",
     "application_build": 188
   },
   "public_release": {
-    "application_version": "0.0.81",
-    "driver_build": 183,
-    "tag": "alpha-0.0.81",
-    "source_revision": "da62378ad47bb769a3bf7230f1d80e7fce5104e3",
-    "package_name": "rewindDV-Alpha-0.0.81-Build183-AdHoc.zip",
-    "package_sha256": "3da2b307e481548be3a51c2fcf9ff3cfcee892a85b8ae4b66ea1620622aaedae",
+    "application_version": "0.0.89",
+    "driver_build": 190,
+    "tag": "alpha-0.0.89",
+    "source_revision": "fc8d55485d081ace5d2777f3a98a6b95c9e97bf6",
+    "package_name": "rewindDV-Alpha-0.0.89-Driver190-AppBuild188-AdHoc.zip",
+    "package_sha256": "3b96ac54a90832076a5862eedc8bbe537e95d8b3c880df3fb84ae97b7949936d",
     "state": "prerelease",
-    "signing": "ad-hoc; not notarized",
+    "signing": "ad-hoc; hardened runtime; not notarized",
     "requires_sip_disabled": true,
-    "application_build": 183
+    "application_build": 188
   },
   "qualification": {
     "public_summary": "Alpha 0.0.89 / B190 development passed software validation and five bounded NTSC DV captures on one Sony HVR-M15U setup, including normal capture STOP, same-session re-entry, fresh-app re-entry, about sixty seconds and a four-minute operator-stopped capture job. This does not establish fresh-system installation or hardware qualification of the separately packaged ad-hoc binary. Full-tape completion, broader hardware and formats remain unqualified.",
@@ -41,7 +41,7 @@
   "links": {
     "source": "https://github.com/rewinddv/rewindDV",
     "releases": "https://github.com/rewinddv/rewindDV/releases",
-    "release": "https://github.com/rewinddv/rewindDV/releases/tag/alpha-0.0.81",
+    "release": "https://github.com/rewinddv/rewindDV/releases/tag/alpha-0.0.89",
     "install": "https://github.com/rewinddv/rewindDV/blob/main/INSTALL.md",
     "issues": "https://github.com/rewinddv/rewindDV/issues",
     "contribute": "https://github.com/rewinddv/rewindDV/blob/main/CONTRIBUTING.md",

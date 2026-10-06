@@ -280,3 +280,12 @@ rebuild or historical asset replacement is allowed. Capture evidence for the
 development-signed runtime is kept distinct from the public package, whose
 hardware installation remains unqualified. Live unload/hot replacement remains
 unqualified; the package documents shutdown/restart-based maintenance.
+
+Automated disclosure failures remain preserved. If independent review establishes
+that a match comes only from nonsemantic binary bytes or a known structured
+signature/PkgInfo format, record the exact ZIP, manifest and provenance hashes and
+classify every finding. Any real identifier, secret or inspection gap still blocks
+publication. Use a new candidate directory containing byte-identical reviewed
+files; never alter or replace already-published bytes or label a raw failed scan
+as an automated PASS. The producer retains provisional provenance before reporting
+a disclosure block so manual review can bind all candidate identities.
