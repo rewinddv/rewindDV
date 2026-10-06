@@ -1,3 +1,20 @@
+# Current development validation
+
+Alpha 0.0.89 / app188 / Driver B190 has completed source-bound offline validation:
+464 Swift Testing cases, 14 XCTest cases, 26 host/integration gates, 22 native
+playback runs, Debug/Release builds, and focused DMA, callback, transaction-identity
+and sanitizer regressions. These are software results for accepted development.
+Fresh public source and distribution-build checks are recorded with the public
+package provenance; they do not extend hardware qualification.
+
+Five bounded NTSC DV captures on one Sony HVR-M15U setup passed normal capture
+STOP/retirement and re-entry while the driver stayed loaded. The longest saved
+DV was 238.038 seconds. See [COMPATIBILITY](COMPATIBILITY.md) for actual durations
+and retained continuity observations. Live global unload remains unqualified.
+The public ad-hoc package is not newly installed or physically qualified.
+
+## Retained earlier test report
+
 # rewindDV alpha test report
 
 - Application version (About rewindDV):

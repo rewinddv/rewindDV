@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "source_revision": "eca8ebfd5bc8a5096441cf3c1b67d2a48a1cdb66",
-  "scope": "Reviewed publishable source, build inputs, regression tests and licenses. Public documentation/status tooling is separate.",
+  "source_revision": "934953a4771e4a50f1fa71c830bd37ac3cd39dbb",
+  "scope": "Reviewed publishable source/build/test/notice surface; privacy transformations are recorded separately; public status and release tooling are independent.",
   "files": [
     {
       "path": "ACKNOWLEDGMENTS.md",
@@ -12,14 +12,14 @@
     {
       "path": "ASFWDriver/ASFWDriver.cpp",
       "mode": "100644",
-      "git_blob": "e6837312cbb0872c93993181610d4b3cdf297cfb",
-      "sha256": "aec2c0bccc4bad908c5befe1a2bac875eef273016701453bfee795e8f2edcb92"
+      "git_blob": "da0fd2695e52ff7f674df1d548bd6e6a134aab0e",
+      "sha256": "29a0b71cb2ec5d0dc366c29b276736a0c9ba164bd9d78402c9e56725a6e5629d"
     },
     {
       "path": "ASFWDriver/ASFWDriver.iig",
       "mode": "100644",
-      "git_blob": "0bba790e8545b60e3a4025a0a90318730adbb97b",
-      "sha256": "9a580e9e00b8e589e4e16a020cd2bf889247804d63130043a4f021159a46912d"
+      "git_blob": "4c5eea2229c3d63a1f86252d64598808fa239af1",
+      "sha256": "a904c080c0a62c5feab3fdd536816588a27eb34a6893fcd18be6d94a3699f65f"
     },
     {
       "path": "ASFWDriver/Async/AsyncSubsystem.cpp",
@@ -30,20 +30,20 @@
     {
       "path": "ASFWDriver/Async/AsyncSubsystem.hpp",
       "mode": "100644",
-      "git_blob": "91a5738836511d4266d0baa43567a9d0cd58e1f6",
-      "sha256": "9ffb7c75b0e10bf43353af51a6bda0be1f2d1f5378a32b1c262bcac39ad874a7"
+      "git_blob": "be6e556fc6428378c2ffab9987e4bd3f66c69e9d",
+      "sha256": "dcd3a7d28a580f9457fb0934bd01edcada31cf4aec3125a9374678dc2f21848e"
     },
     {
       "path": "ASFWDriver/Async/AsyncSubsystemBusReset.cpp",
       "mode": "100644",
-      "git_blob": "2a1dc16b411a400b482c26dca71d74d0d7d665e7",
-      "sha256": "495e1296a1c74bb126f55bdb329b565d91ee77e6bb3c8588d641f343d53a4877"
+      "git_blob": "b3c4f1b5acb507fc71a8e6afd810c7cc6e112b56",
+      "sha256": "9ebae3c95dd54c539da5cb118e679b0f2fa6300cc13d8593700dbf46fa694c07"
     },
     {
       "path": "ASFWDriver/Async/AsyncSubsystemCommandQueue.cpp",
       "mode": "100644",
-      "git_blob": "5f43f6d0c964f842ab630cb46d37b0d6fe835ed9",
-      "sha256": "5b8314e1a3e860ffd583ba2964a0b4551038052ab73ba2c54b9df5ed3b3b047e"
+      "git_blob": "fe65e9d2665e747529a5fe65bf6160909a34f993",
+      "sha256": "2c83fc84f6c1a391b37e3680639101d395637a47885e3212e65298f37c9d827c"
     },
     {
       "path": "ASFWDriver/Async/AsyncSubsystemDiagnostics.cpp",
@@ -60,8 +60,8 @@
     {
       "path": "ASFWDriver/Async/AsyncSubsystemLifecycle.cpp",
       "mode": "100644",
-      "git_blob": "655ef7e75f19f95a618113f3142dbb6dcbece373",
-      "sha256": "d8bc36dd29f8668a02bef3923fd54384dbbf7b54fe9526335e46347057327cc4"
+      "git_blob": "9cd04490eeaf3effd420c4ba1b3c1e783ee6598d",
+      "sha256": "7aa1f0f63bf7120db9da7d8b77886f986234cc7e100310d79bf429b88226e9a1"
     },
     {
       "path": "ASFWDriver/Async/AsyncTypes.hpp",
@@ -78,8 +78,8 @@
     {
       "path": "ASFWDriver/Async/Commands/AsyncCommandImpl.hpp",
       "mode": "100644",
-      "git_blob": "289025d6ccf93c373461c514200acb6b510e1160",
-      "sha256": "0e458ccc0a29f519b69af075089856e6497c38c8b76336f12fa0a2ddff24d2e6"
+      "git_blob": "c2047fc0824088ba6f3b92d71f6bbbb0d7debba2",
+      "sha256": "056eb30c1e08eafb83bca9ba122399d46c30c2f9ef75180ac7cf9416fa4076ce"
     },
     {
       "path": "ASFWDriver/Async/Commands/CompletionBehavior.hpp",
@@ -144,8 +144,8 @@
     {
       "path": "ASFWDriver/Async/Contexts/ARContextBase.hpp",
       "mode": "100644",
-      "git_blob": "33fa22680ffb0d23086ed0b13d4260a9390c123c",
-      "sha256": "5b8f4dc8ff982bed3c8da7a30626aa14e5aa585308afded4b2df50ba07ba79fd"
+      "git_blob": "5d1d721098ebe0258d39db58d909433cabdca728",
+      "sha256": "288884c4fc281779578a40d8a697e64e3a8513dd1d268a1dc90a424392dbf188"
     },
     {
       "path": "ASFWDriver/Async/Contexts/ARRequestContext.hpp",
@@ -168,8 +168,8 @@
     {
       "path": "ASFWDriver/Async/Contexts/ATContextBase.hpp",
       "mode": "100644",
-      "git_blob": "85cbfe9e38e20bfa6d89caf07c75b8f70ac0110e",
-      "sha256": "11d1dff851f81bec41a4ead417427728eee82ec6d4e2f173c950b83fc297ea4c"
+      "git_blob": "5d04da399e2ec3701e43edc5047f596f44eccd8e",
+      "sha256": "e4cf595de3841468708e9be81f5ad4b1bbae915c3294181457b31b557b831c9a"
     },
     {
       "path": "ASFWDriver/Async/Contexts/ATRequestContext.hpp",
@@ -222,20 +222,20 @@
     {
       "path": "ASFWDriver/Async/Core/Transaction.hpp",
       "mode": "100644",
-      "git_blob": "d92c3f26215ec8964b3cbc3e18dd21268cd65114",
-      "sha256": "b01e4254fdb2c077c164935f6caceb0c34b9f4a729d1a8a4d04c5717458dcb5b"
+      "git_blob": "e01fd8b038f568ffac57c724bc55d880583f7910",
+      "sha256": "3cda9015a5fc3dbb52ccf1aabf44cca5f20747f06e42ec704febbee63cdd287d"
     },
     {
       "path": "ASFWDriver/Async/Core/TransactionManager.cpp",
       "mode": "100644",
-      "git_blob": "0a543cab4d5e1a6afbf4cb9c7f009550103ee4f5",
-      "sha256": "c40622b264c616266f4089e735acec3f210f1bc4b0c1e074272fee1712b1114a"
+      "git_blob": "8b49a16918e78f008b28173ace942eb2fdc1768f",
+      "sha256": "9f965d8cc9a0032792edcd1ecaa28efa0f3d5a5c8bc05e58a5e6dec91efc088d"
     },
     {
       "path": "ASFWDriver/Async/Core/TransactionManager.hpp",
       "mode": "100644",
-      "git_blob": "fc0fa85d767fb862058e1ab78b98d16e7e6bd891",
-      "sha256": "412af0b779b5a976918aff58ca450e80433d5dc7bde864f38c20d071e5e80567"
+      "git_blob": "0d688e2035053ba1e165a5b8af3b3d11644bcaef",
+      "sha256": "78c9c51f0be692a2287aa68ebc6cd381d3d7e8ed0be43b48e4445e428df237ea"
     },
     {
       "path": "ASFWDriver/Async/DMAMemoryImpl.cpp",
@@ -264,8 +264,8 @@
     {
       "path": "ASFWDriver/Async/Engine/ATManagerImpl.hpp",
       "mode": "100644",
-      "git_blob": "b56c5f1d15413b2f45c3672e0b66009b0932e254",
-      "sha256": "d20576396a65d5bc7e9a4d860d1825e9ba99a47897508f2deae734e3bfd62918"
+      "git_blob": "db5f084bd8d47164a68ad6f14c1f03e119b51b3d",
+      "sha256": "3080d4e595a3ce4e0e9e99b0f6a53915e1cf66a9fd3925656377ffaabeeb6225"
     },
     {
       "path": "ASFWDriver/Async/Engine/ATTrace.cpp",
@@ -282,8 +282,8 @@
     {
       "path": "ASFWDriver/Async/Engine/ContextManager.cpp",
       "mode": "100644",
-      "git_blob": "00e59ba09bd79bc54e06efc20736b4467da4a84a",
-      "sha256": "15d10e5b2946a64b376c9d52cb73818816eaf38341a6a6afee083ba271c25ca9"
+      "git_blob": "5f7f9290b05ee052f4f22d089a754dbd67feae6d",
+      "sha256": "7384fa98d36d7049e81cf5b856a13c72c8c1e0bc4290dd3c2ef50d6981183fbd"
     },
     {
       "path": "ASFWDriver/Async/Engine/ContextManager.hpp",
@@ -294,14 +294,14 @@
     {
       "path": "ASFWDriver/Async/FireWireBusImpl.cpp",
       "mode": "100644",
-      "git_blob": "959f3482d75cc8cb6e62930fc4e2c14124e2e1a8",
-      "sha256": "036687fe3cf53a2a0c74f0bb45f4a001d7e0d7da158d71d515d74edd8dc49fb7"
+      "git_blob": "626dbfe4f42c7d645a33c533d98ca2f071431b0e",
+      "sha256": "3257b211c1f6cf2db111cd6ee5ce16efbc61159861e9cc8dbc9914a2247adb30"
     },
     {
       "path": "ASFWDriver/Async/FireWireBusImpl.hpp",
       "mode": "100644",
-      "git_blob": "ed98240b31fcf4db662f94c8745fd72383d4ab18",
-      "sha256": "7f01731be3483b6a2ebca909f574543b32d2b0ba1d8ed35c2dbc7cc1fd484c0a"
+      "git_blob": "c14117b56d52069d45d18039071390f92d4bc23a",
+      "sha256": "340a1e38be4f5415580c0c665716662810c4b2fbd67f9c6ed0272b494fd921d2"
     },
     {
       "path": "ASFWDriver/Async/ForwardDecls.hpp",
@@ -312,8 +312,8 @@
     {
       "path": "ASFWDriver/Async/Interfaces/IAsyncControllerPort.hpp",
       "mode": "100644",
-      "git_blob": "83cbc6480f97894893adb62534d4a59b3541d7d1",
-      "sha256": "85a2e1209a2d7b32f6a5715fdc57d0a24d242bddf9d4c857d162b82ae768ed1a"
+      "git_blob": "cf91b5f426ad42e26b1d8ac74bb62151889f291b",
+      "sha256": "9db302220791e7d99663a3b5de851aac8c0e8480fbfe0b354fb14502d7e8b5f5"
     },
     {
       "path": "ASFWDriver/Async/Interfaces/IAsyncSubsystemPort.hpp",
@@ -336,8 +336,8 @@
     {
       "path": "ASFWDriver/Async/Interfaces/IFireWireBusOps.hpp",
       "mode": "100644",
-      "git_blob": "348b4d096d7a8802a0b56cf2fb9cc1110e9ef42b",
-      "sha256": "2d0eb48cc02cc33df33b0b098f17277e8c52e129d965ce2ba9607ddd9b889f6d"
+      "git_blob": "d6b5bf0d76fe94cb1a2aed3e174ef6b7b586b578",
+      "sha256": "fdfe0079b11d3d6773adead99953713fc06eb22556971484f10b82ce46948e59"
     },
     {
       "path": "ASFWDriver/Async/Interfaces/ILinkSpeedSource.hpp",
@@ -420,26 +420,26 @@
     {
       "path": "ASFWDriver/Async/Track/LabelAllocator.cpp",
       "mode": "100644",
-      "git_blob": "bf738bd4c9585065aa097a462f6dbb2f06516e0a",
-      "sha256": "1115c2201aaffd73b2e43e2b419baf3fcf040aec1636bd61e22946e5dc4b361a"
+      "git_blob": "c74cb4753592786843af0680dac99d818cca7a4a",
+      "sha256": "3e6af59a3cacf77eccdbf47c23e22c88fc0658cc4be9062d21062c35c8e570a3"
     },
     {
       "path": "ASFWDriver/Async/Track/LabelAllocator.hpp",
       "mode": "100644",
-      "git_blob": "73a3c87f16a8147b9d8827288482cd51a3436614",
-      "sha256": "1322bb1719ffe65cbfcdcd149c066d9c3846b7684c5385813e3a0604c9f4fc4a"
+      "git_blob": "74c482a3a6e9f96685a8c78c7e04ccbe076adda4",
+      "sha256": "240af7f8d94be5b2e843bd1532694dc22cfef1c2b23144c86ddb2a79441567f0"
     },
     {
       "path": "ASFWDriver/Async/Track/PayloadRegistry.cpp",
       "mode": "100644",
-      "git_blob": "e2a8d5ec8d01f381ed83fbd23c2ddf9c850a464d",
-      "sha256": "224761e3a796125118c6210d23705688b2dfea7b3cbff19d492d81f79bcce305"
+      "git_blob": "7a1779f871feb3453778c02e5999ab1ba571b4e5",
+      "sha256": "99650985fda1494de9f26fe474bb4623ab73594a04edabbe4699fe0bd80221c8"
     },
     {
       "path": "ASFWDriver/Async/Track/PayloadRegistry.hpp",
       "mode": "100644",
-      "git_blob": "22a5789bda09c6eb85e8da839a1a9d9c33d6f793",
-      "sha256": "24d1e0454f5126b4a92e61bf2f16043f1926cdd0f4da08cf808aa2783e4a702e"
+      "git_blob": "4c74776e64f92ef330caa4cdf5d904714cb1f679",
+      "sha256": "75a3e447acce6db2ea6e694d2efedafeb8437a46c95d806f7a017a66adbed1c3"
     },
     {
       "path": "ASFWDriver/Async/Track/PreExpiryResponseService.hpp",
@@ -448,22 +448,28 @@
       "sha256": "f90d8fbafe65ec0f16f74aa8c4dc30bc1e206eeb7fdae007702d7d407e0956f4"
     },
     {
+      "path": "ASFWDriver/Async/Track/QueuedHandleSequence.hpp",
+      "mode": "100644",
+      "git_blob": "59a8727aec8339040105c78563217303900cdc56",
+      "sha256": "97334ec2acc4093a832a6beaa966b30df90b880c0cfdab22f999d030d73ee4e4"
+    },
+    {
       "path": "ASFWDriver/Async/Track/Tracking.hpp",
       "mode": "100644",
-      "git_blob": "576f7fe55993408f92b836bd6f73aa30922fb942",
-      "sha256": "dc1f2b96a51722ee87e22371ea6906bb114e8594d960a6da2a66cdf0a8d78ebe"
+      "git_blob": "40e18134336b17cf9c1bcf208b6aa9c36a95d706",
+      "sha256": "cb1cc8a26107981af16da3b31c8690ea986f5025dfa46fafba491721f2fc4294"
     },
     {
       "path": "ASFWDriver/Async/Track/TransactionCompletionHandler.hpp",
       "mode": "100644",
-      "git_blob": "a1f423a1a8474bb42ae430225cfc1c696867ebd2",
-      "sha256": "c63cf12682c0504646745066f88cbbd6f28048ba1413c3b30d2557bc5a3c69e8"
+      "git_blob": "d1fb94b161ac6cc83ab05f2b48cf1914acdcca5b",
+      "sha256": "d36d2ef3f24a28c9910c717d6ab8b7fc8dca953043718f8201f199adde76d070"
     },
     {
       "path": "ASFWDriver/Async/Track/TxCompletion.hpp",
       "mode": "100644",
-      "git_blob": "31c81be1dfc72198e0dc8c84886da741633e3eea",
-      "sha256": "263b8fcafee68f334d7c0e04ab0f1fed22f48612b935f040b8746abc35a2c211"
+      "git_blob": "12a17289d538fd21a491383a1c6332887ebba490",
+      "sha256": "0309a973458a21cca43ded5b2438fe08ac84a3593e70d412a55e13ba5f351713"
     },
     {
       "path": "ASFWDriver/Async/Tx/ATResponseHeader.hpp",
@@ -480,8 +486,8 @@
     {
       "path": "ASFWDriver/Async/Tx/DescriptorBuilder.hpp",
       "mode": "100644",
-      "git_blob": "0d7581d448c30a65041cafcbd846fc85158d6024",
-      "sha256": "60cc8e4de426779c5e3e04c3eddfcf5e922d7c32259a24f5c618006993a14996"
+      "git_blob": "9be85b40f52a62983598de17e735753718961124",
+      "sha256": "e37d45baf2efada829bcf850f1adf4810d5cb15a58ccd7f6f6aa5efde5f1adf1"
     },
     {
       "path": "ASFWDriver/Async/Tx/PacketBuilder.cpp",
@@ -2394,14 +2400,14 @@
     {
       "path": "ASFWDriver/Controller/ControllerCore.hpp",
       "mode": "100644",
-      "git_blob": "a01fbb1c40803734cde05c122b2403ca45f2bd57",
-      "sha256": "4a00253609dcfa6eb3805350a5f90b19ba07c17a106a5ded4bc846d4379da719"
+      "git_blob": "c92812e4981d588bcfe0d3a136c4f8eb53d63f38",
+      "sha256": "b05e124b0a3631e3470e25be798a984fcb195489b3f3264a0e6d8007b40bc40e"
     },
     {
       "path": "ASFWDriver/Controller/ControllerCoreDiscovery.cpp",
       "mode": "100644",
-      "git_blob": "2205d35c08e92c2d14eb79623da680c59c9a34d5",
-      "sha256": "ef2bb792a99419634d7c17a1c26e087434caf7fda15e1fd9ffb860718108efd4"
+      "git_blob": "6adf0cecb12bf8c0e1ec6c54c160a7f8a959a6c3",
+      "sha256": "73fed49998468f357c88bd43175e267297e1b37162373b89f71f740445edfb62"
     },
     {
       "path": "ASFWDriver/Controller/ControllerCoreFacades.cpp",
@@ -2418,8 +2424,8 @@
     {
       "path": "ASFWDriver/Controller/ControllerCoreLifecycle.cpp",
       "mode": "100644",
-      "git_blob": "7c816aa497098f1a3e5decaab28682738602bfe7",
-      "sha256": "38a70a0912decff9c5b62665d238a124b3df0ff94d442f504ccbd2a33104d615"
+      "git_blob": "cce3f80df17d2fdfa870e84bac4fe2230ec47d58",
+      "sha256": "1556d05d30e832fba0281efdd59583336d95c7be952223de0b891cf333c349c0"
     },
     {
       "path": "ASFWDriver/Controller/ControllerStateMachine.cpp",
@@ -2616,26 +2622,26 @@
     {
       "path": "ASFWDriver/Discovery/DeviceManager.cpp",
       "mode": "100644",
-      "git_blob": "f19c7004cf954d4c6676b83184b9fa466a09cbaf",
-      "sha256": "b60c0251b05939df5a3f0530dad823c7c94020cc2b23f1abed4f484c56996209"
+      "git_blob": "2e32fd9a5448adf1b7c7de561da498cfc4ec3421",
+      "sha256": "2ce4b76ce31178a01360574ac39cf8c5a3fc72e680626919c19a8a3e080bb0ac"
     },
     {
       "path": "ASFWDriver/Discovery/DeviceManager.hpp",
       "mode": "100644",
-      "git_blob": "6b3db75015c28f032b8e0b8f66efba7c7cd243d3",
-      "sha256": "3b91def9be07a2dcb23bdfc9702e9e5f17620ac26c38a3e20157f3ac55172a37"
+      "git_blob": "dc75c1c161226ebe14cc95a474541a93875e6ab4",
+      "sha256": "23871eb9b9bc5251627dcfd6e45ba7b5d1d41651c09baebe80e6028e0aaf3dce"
     },
     {
       "path": "ASFWDriver/Discovery/DeviceRegistry.cpp",
       "mode": "100644",
-      "git_blob": "61b1230d200a6176fdce81bd19e6f79d1e7d18ad",
-      "sha256": "605c5bd2ef323bab748d2f8c896b7fb909aa8a1daecdcab4409ce77670cc81f7"
+      "git_blob": "fe5a22346ef3ac6c00949a1534065efe2fbd6018",
+      "sha256": "db88efec2fba3cbb1d7a82f769101ac415d52933b8261f03a3a465e48f17f7f9"
     },
     {
       "path": "ASFWDriver/Discovery/DeviceRegistry.hpp",
       "mode": "100644",
-      "git_blob": "c34f00ca0ae32510fd4979b1ae03cee8e25348bf",
-      "sha256": "249b232d85e3fba80def06d401c4f79c1d817312ca91a464e628edcc63c452e3"
+      "git_blob": "4bcc4c06bec877678cc3c1dff77b9277db4b8e0f",
+      "sha256": "39b7a83af759daa2a582104b546810086cb84e73481f6a81adf01651ab244f47"
     },
     {
       "path": "ASFWDriver/Discovery/DeviceRouteToken.hpp",
@@ -2652,8 +2658,8 @@
     {
       "path": "ASFWDriver/Discovery/DiscoveryTypes.hpp",
       "mode": "100644",
-      "git_blob": "9a58920443d173b7c830d0526f2d73f417aa1fce",
-      "sha256": "e5f2fd03cc3f0aed5c5631e21e25c35f4afa7023f7a5d18322d0a0060a2f8bb2"
+      "git_blob": "5d2767085e6a5d7ae70426aa772f6537ecf74fe9",
+      "sha256": "63c258fe7a8bb8b3280d8ad9a5c736f84bbbc97012d6c75a1c940ed6983d1bd0"
     },
     {
       "path": "ASFWDriver/Discovery/DiscoveryValues.hpp",
@@ -2664,14 +2670,14 @@
     {
       "path": "ASFWDriver/Discovery/FWDevice.cpp",
       "mode": "100644",
-      "git_blob": "541a6fa549e5cb8d3433236bb61628e9216287b8",
-      "sha256": "50bae123a7bd6e9d4c065a02c3313fc626a2e0889dd2d2bf2de8121b0bd810df"
+      "git_blob": "5c74ea60196b65babf81364922ecfc879dfe78bc",
+      "sha256": "c20f5ea782599c3980a7da95a7fa2041bf8f3a6a2477728f447c4aed7a242d08"
     },
     {
       "path": "ASFWDriver/Discovery/FWDevice.hpp",
       "mode": "100644",
-      "git_blob": "05aad4b05ef02c722bb12055eb13ca01dfa8985c",
-      "sha256": "4f76bcf12f23e365aa3fbdd7b23e3320d1032431da8cb60dd61f866a2829ddde"
+      "git_blob": "cffe82cbbb8e6b89038c7aa8d09aeb54be203691",
+      "sha256": "38de72388de0b8c4ccaedaac3abfa40d5b7545b32780e938671a24b8e4a22284"
     },
     {
       "path": "ASFWDriver/Discovery/FWUnit.cpp",
@@ -2754,14 +2760,14 @@
     {
       "path": "ASFWDriver/Hardware/InterruptManager.cpp",
       "mode": "100644",
-      "git_blob": "e9409cb36425459043d27691c28bb79500cbdcb6",
-      "sha256": "e6deb73b57f23c7e987005ee5997b3dfdf6c5e9b5a5ea678d9856f06aabb834a"
+      "git_blob": "5a52e3da961ec5a9653604a9cbdc0c299bc9ef2a",
+      "sha256": "8e51ab7b8fec376622832c9035cfd60a7c032f59f7383e213c0c543873a831ed"
     },
     {
       "path": "ASFWDriver/Hardware/InterruptManager.hpp",
       "mode": "100644",
-      "git_blob": "a8b2bce6314c248d6c5f76bdc95e17252f5ac2ce",
-      "sha256": "e59517c425fb07e2f342972a1131801c423bccfd9af9442cb8daf2e483cdcae6"
+      "git_blob": "d1d8cd0b09c4a901d42648205fa39bd1bc90bf96",
+      "sha256": "8b2221e260c8bb9ab51e11b07e5139654586b62b9359309e83474a610fb8a9aa"
     },
     {
       "path": "ASFWDriver/Hardware/InterruptStallPolicy.hpp",
@@ -3012,14 +3018,14 @@
     {
       "path": "ASFWDriver/Protocols/AVC/AVCDiscovery.cpp",
       "mode": "100644",
-      "git_blob": "a065ec75e786be1bafbf91fea8589dd12d1f6a2f",
-      "sha256": "2b2205193a50bbb48b85113ce4c7ea3b948b096188ada9d7f57f59f3e96ab16f"
+      "git_blob": "1ea871b7dc8a96d84ad334b33dbc35ceeca1fd34",
+      "sha256": "d430e39316baede2c0431fc27966dbdda774573fe1192bcb4e11308bb2a4d0df"
     },
     {
       "path": "ASFWDriver/Protocols/AVC/AVCDiscovery.hpp",
       "mode": "100644",
-      "git_blob": "21687934ed14180afd54289dd5f28bbeedf61fc0",
-      "sha256": "4fea16decf7695dd267b617b5a3efa12c44ba3a701521e1de00b55c1df511cfb"
+      "git_blob": "b5c3d80d4e90e80a8d5843639a558283fe3c630c",
+      "sha256": "3ee452fef9f1c86114b5ed5fdf965e347c0727084a03fec485534535994dc168"
     },
     {
       "path": "ASFWDriver/Protocols/AVC/AVCSignalFormatCommand.hpp",
@@ -3036,14 +3042,14 @@
     {
       "path": "ASFWDriver/Protocols/AVC/AVCUnit.cpp",
       "mode": "100644",
-      "git_blob": "c0e8fa9277102a5ee8be7be81df06a36863c4a8f",
-      "sha256": "f5ee2877021f70599e1d6a432083f45c0840182b98bcf2ebb0b5f43e2ffd119d"
+      "git_blob": "3c7a1507426487e8de2c24f46e17ca555eb8c738",
+      "sha256": "eaeaeabb6c39908fec58a89eebd0cf6fecd74f016a8d111eeef6541cd23435fc"
     },
     {
       "path": "ASFWDriver/Protocols/AVC/AVCUnit.hpp",
       "mode": "100644",
-      "git_blob": "b2d2401aa5b00f0e4b5b60244f0522759a4a0ede",
-      "sha256": "99169c12d5bf7367dc1882e9fd03d1f78f0100009ccccb8d0715a7d06ad7d553"
+      "git_blob": "9fc07db8c9328597c41dc0de2686278afe2cc0a8",
+      "sha256": "fcb89c89532cc7ef27a2ba01d5e20a4872003c97214b2a2b915af2fcb06bc620"
     },
     {
       "path": "ASFWDriver/Protocols/AVC/AVCUnitPlugInfoCommand.hpp",
@@ -3156,14 +3162,14 @@
     {
       "path": "ASFWDriver/Protocols/AVC/FCPTransport.cpp",
       "mode": "100644",
-      "git_blob": "284695717b9d9e122aa4ba46d9c0451ba05204c6",
-      "sha256": "902655a09215426c10774059c83943598f15f36c5020d9b84a37ca2b59d13923"
+      "git_blob": "1286cbd3488fc63ff385b3260d259dd78f28cadd",
+      "sha256": "2c85f385644302b93e260551f79d85246318f062abf077b56c3e21155a171852"
     },
     {
       "path": "ASFWDriver/Protocols/AVC/FCPTransport.hpp",
       "mode": "100644",
-      "git_blob": "35ed4512f9caf44866953200774c93721affcd9b",
-      "sha256": "ac91312d3f5f217aa8a069ecf9fec6aa6f8fb2234e36d608a892823f80955527"
+      "git_blob": "45948502b62d0ec3df2fbd8ad6d69e52bb14dff0",
+      "sha256": "5ad2cab2aed17d0212e82610a94553f86689dec51577ade115c440155360c868"
     },
     {
       "path": "ASFWDriver/Protocols/AVC/IAVCCommandSubmitter.hpp",
@@ -3372,14 +3378,14 @@
     {
       "path": "ASFWDriver/Protocols/SBP2/Session/DriverKitSessionScheduler.cpp",
       "mode": "100644",
-      "git_blob": "6085e4b47638f06ae7869db8d42a9bb06973344a",
-      "sha256": "bd0b05e4e2b7b4e8e7ddfa8731088ce1a6a6248d2177197b6ec39901e9ba13a1"
+      "git_blob": "e5f97b83e0cd00c32a936b8aa4a0b3021bd6848f",
+      "sha256": "167e810d0a2684890d8f16dccf4a028c9a40ebad55b6a30784e7fd39b20fa409"
     },
     {
       "path": "ASFWDriver/Protocols/SBP2/Session/DriverKitSessionScheduler.hpp",
       "mode": "100644",
-      "git_blob": "64af99df4450eec07c0694bdf9b328bb2e33edc5",
-      "sha256": "f92eaff1fcd533a03bfb9bfd7ee31d7618b7ded96bfc47e99f1e96f73f5310b3"
+      "git_blob": "02b277f2562850394171a66b1b2f6dbd780db092",
+      "sha256": "acd3910052398ca2e1933d1dd8d91de89facb26620b4baf5b5865b0e1efe47bf"
     },
     {
       "path": "ASFWDriver/Protocols/SBP2/Session/FetchAgent.cpp",
@@ -3516,32 +3522,38 @@
     {
       "path": "ASFWDriver/Scheduling/WatchdogCoordinator.cpp",
       "mode": "100644",
-      "git_blob": "fad3e94fd7332cf2b17a1c567b28817e9a2bebab",
-      "sha256": "21ac24a140c4a8621834bf49fd2063fc1cebeff6161a4418b153961215e2aac9"
+      "git_blob": "696012f95354e9e7ebb54ba58985cc3df000efb6",
+      "sha256": "cd370dfe7464235d31460426203628de80d4cb072829aa1ea1c3c6dd70654eb1"
     },
     {
       "path": "ASFWDriver/Scheduling/WatchdogCoordinator.hpp",
       "mode": "100644",
-      "git_blob": "7db91d71b054661523f88076921583016c71f1d1",
-      "sha256": "e2af18b13be1e91348349aeac66a575ad4ec800ab196d709a19a23bf025ed6b0"
+      "git_blob": "a5c31bbc414ff8f1e1feca007314e3bcb9679a84",
+      "sha256": "7611ee18da57b081f58366a430283747dc68417d86ae061c920c5095a7a39832"
     },
     {
       "path": "ASFWDriver/Service/DriverContext.cpp",
       "mode": "100644",
-      "git_blob": "30b804bcb8f444225553547134e269e9a2b86197",
-      "sha256": "84f3389c43de6ce2ec671c3cdd6748126870ae201d347a145d16e5a53ca057f2"
+      "git_blob": "a731c824b517cc65ac4b92f5c2bc90231b519603",
+      "sha256": "157d8c379f67b7158ee31c4a97ec7a3c4f0915f679d0cb81f6d8ee1d67f9a2ec"
     },
     {
       "path": "ASFWDriver/Service/DriverContext.hpp",
       "mode": "100644",
-      "git_blob": "8c292fe7c380205fe4b9c3cf316b1bfcf7ad819a",
-      "sha256": "dc8c23c078c5af39aeb3936a5c76f7810cd880ecccab1573398cbae1334f04b9"
+      "git_blob": "d61e05054d0b59bc76822fde98be91ad4864f4c1",
+      "sha256": "efcf9d7e9643d0561431b6e5f242ef0094c3c8390438d8fb5aaee4e6af7f170b"
     },
     {
       "path": "ASFWDriver/Service/FCPInboundLocalHandler.hpp",
       "mode": "100644",
       "git_blob": "df50deb93efbe192007845ea946a12d6a5703b0f",
       "sha256": "89afa701e5b3727bc4b0d1653fc4b00f56fb2a7df31138eef8a0d86b5ff3b175"
+    },
+    {
+      "path": "ASFWDriver/Service/Lifecycle/RUNTIME_LIFECYCLE_CONTRACT.md",
+      "mode": "100644",
+      "git_blob": "f3a773da9311b166397d1bbe2387b4cd9455abef",
+      "sha256": "6e0d1dcdbce5ed8704655f805e5a7a14521e4c72144833f730c30002893643c1"
     },
     {
       "path": "ASFWDriver/Service/Lifecycle/RuntimeLifecycleCoordinator.cpp",
@@ -3576,8 +3588,20 @@
     {
       "path": "ASFWDriver/Shared/Completion/CompletionQueue.hpp",
       "mode": "100644",
-      "git_blob": "e2e8e03a27512cf424e6c890eccb0c759975cc92",
-      "sha256": "9ec357c9e9e0a90da154a796acd6b3432bd135b922e0c783252155318c23ce8c"
+      "git_blob": "c034b85ff85589ca52e94255293ddd92e2fefae2",
+      "sha256": "36c58a73606ccad4bc3a8b9e86b97f06f362b0505531926eb7d6b8b83f505143"
+    },
+    {
+      "path": "ASFWDriver/Shared/Completion/NativeCallbackDrain.hpp",
+      "mode": "100644",
+      "git_blob": "2e0f72aae1abd1d2ee918b137d110d73bfb46aab",
+      "sha256": "24fdb4ca468d6a73a9dd07cdd7887a3ad8daf71beb6a5d838ef5812ab003a867"
+    },
+    {
+      "path": "ASFWDriver/Shared/Completion/NativeSourceRetirement.hpp",
+      "mode": "100644",
+      "git_blob": "af6ea352566173aa3cfd7dd07f5140dde223c480",
+      "sha256": "8365016c28db68e769e8962f7c6343fddb969c537e8db27cf899598988f3ea0f"
     },
     {
       "path": "ASFWDriver/Shared/Completion/PostedWorkEpoch.hpp",
@@ -3726,8 +3750,8 @@
     {
       "path": "ASFWDriver/UserClient/Core/ASFWDriverUserClient.cpp",
       "mode": "100644",
-      "git_blob": "48d8f95715a351ee4a5f8ca93f8023f4bd20a5e5",
-      "sha256": "da00d26c195293c25f254d4c79f9feeb5cbe0f28a2b2d736235e14d6e79b71d3"
+      "git_blob": "108880412d9f192f2901ec4f0873a651042a4b46",
+      "sha256": "ef78cddb17ac6ecf3e38da5f7f26abf39345ef55adda1a4fb05282c0ef0e3a6b"
     },
     {
       "path": "ASFWDriver/UserClient/Core/ASFWDriverUserClient.iig",
@@ -3744,8 +3768,8 @@
     {
       "path": "ASFWDriver/UserClient/Core/UserClientRuntimeState.hpp",
       "mode": "100644",
-      "git_blob": "06fb3cf0d9cf07de3b0494a8d3bf1ed631767bf1",
-      "sha256": "187a06448f1b782333ed51289c97964ab2019da2b2073bc2b2795ef48e22af00"
+      "git_blob": "bbfa3c2fa792b29a81ba02579a92c6e01993f240",
+      "sha256": "241cffb619a866418ea35d7394f1e377924b380a526e1cb0181e1f1b837b931a"
     },
     {
       "path": "ASFWDriver/UserClient/Handlers/AVCHandler.cpp",
@@ -3756,8 +3780,8 @@
     {
       "path": "ASFWDriver/UserClient/Handlers/AVCHandler.hpp",
       "mode": "100644",
-      "git_blob": "4cd40eb2864820ee6da533a9e11d7c76f99cce89",
-      "sha256": "1e4d99a289b2964e9dc04b1e69380d3d34c8f9670c9f876d64a55be1eef7ecb0"
+      "git_blob": "f471060773082241d632f8f2c2d997625eacf8a1",
+      "sha256": "9adb0757bdee9f7b33922d6af18c64375ba909f38bb842082f09a5588401100c"
     },
     {
       "path": "ASFWDriver/UserClient/Handlers/AsyncPortAccess.hpp",
@@ -4032,14 +4056,14 @@
     {
       "path": "Foundation/App/DriverBridge.swift",
       "mode": "100644",
-      "git_blob": "a138a617e16990164229de371a775462e020c0be",
-      "sha256": "1a248029a9fda3b807492ce1d2a575624a20361e3b9e226901af399f24c5a669"
+      "git_blob": "e12433d22ba81202f6750c160c1c86a6a7e1a98c",
+      "sha256": "2a8e57c3a510cf42f8ca2cd07b5c5e1a4e7cd9ce7e0711693f212cba55707a3c"
     },
     {
       "path": "Foundation/App/DriverReadiness.swift",
       "mode": "100644",
-      "git_blob": "e71477b8168b2a2eb72dbdca4732bcabdd239b14",
-      "sha256": "9d06f25ad4ec3d8ff1f9cbbf512d296032b3ed28bbd22a472bbc8c4d817b12a5"
+      "git_blob": "ae749c5815aaf73848d8a1579626c8551aee18ad",
+      "sha256": "ce4c4f74ac84d263103a2655d1df2a12d0f8154c1c8894c2b5a447a868e07b06"
     },
     {
       "path": "Foundation/App/DurableSerialExecutor.swift",
@@ -4188,8 +4212,8 @@
     {
       "path": "Foundation/App/RewindDVApp.swift",
       "mode": "100644",
-      "git_blob": "70f3656ac2856a819275c8b02a9af3e1ca3f9172",
-      "sha256": "231d03558096f90c942bf41ac6eeaa601907417e7deef89a885e8efe85618a84"
+      "git_blob": "ab5fccdb143654b622268564c9a51d50524ef3d5",
+      "sha256": "5913b8b656fe4931b36749170d457539c97f6f24cae35cde2dd47eb52b2386b4"
     },
     {
       "path": "Foundation/App/RewindDVSection.swift",
@@ -4200,8 +4224,20 @@
     {
       "path": "Foundation/App/SupportDiagnostics.swift",
       "mode": "100644",
-      "git_blob": "44d46f5230eead5a32ac1dc00fed193915d22c1f",
-      "sha256": "fcc07e8ff956c2e1ea9b85962c34e1f170ba2f14944cf49d9e3aad6116390b3d"
+      "git_blob": "54157234682b6a56678d211709917152f27fce88",
+      "sha256": "692f0ddaad043d8ab1eae820d850973c40bce96a221f5c4ec556674c54174293"
+    },
+    {
+      "path": "Foundation/App/SurgeryModel.swift",
+      "mode": "100644",
+      "git_blob": "cfc39084cc361c84b6314a69c3605248694f4c99",
+      "sha256": "23e77ba698c3e333d4fd665f11ce06aca9d971b99baf599ee82eb66ddc98fe80"
+    },
+    {
+      "path": "Foundation/App/SurgeryView.swift",
+      "mode": "100644",
+      "git_blob": "81cd67411837620d929922a2ac4fde7e54d88b6c",
+      "sha256": "3b056dead39953a6c8bf32dac4b63c7c3f7056e4fcf0a6f4ee1166ed36073c6d"
     },
     {
       "path": "Foundation/App/TapeEvidenceMapView.swift",
@@ -4212,8 +4248,8 @@
     {
       "path": "Foundation/App/UnifiedMonitorWorkspace.swift",
       "mode": "100644",
-      "git_blob": "1fbe4bf22e057ae65de39760b614a063e1d89898",
-      "sha256": "49bd4734814a72a6e851db52e43c65f59b1709d84f89b5003b27d634d2f855bb"
+      "git_blob": "3e636804910d2fffea8e0e30d3b6c538e0c3ad20",
+      "sha256": "1762482de3824f8b4bf9e6415adfcf36adff4f9366220f6f13a44c72ff84b3b3"
     },
     {
       "path": "Foundation/App/WholeTapeCaptureModel.swift",
@@ -4230,8 +4266,8 @@
     {
       "path": "Foundation/Config/AlphaVersion.txt",
       "mode": "100644",
-      "git_blob": "58a1699dc73c5728f7e947ac86148052e96b43fa",
-      "sha256": "983fbdfef16ab9e547718a722a6fe3424fa58cbf57095a7481c92498cb4075bb"
+      "git_blob": "a82a0477e0dc6f05b8f07ecfc3cbd30188a5ace0",
+      "sha256": "a6c7552b99905adf0a7db61ba1ef2f962a91cb6ed63ad1e2344ec33e37bccb7d"
     },
     {
       "path": "Foundation/Config/App.entitlements",
@@ -4246,6 +4282,12 @@
       "sha256": "7c4ff5ed5b52bb036501e3486cee7f9b5bfece42a0d407e4f44cb8b970f9a583"
     },
     {
+      "path": "Foundation/Config/DriverBuild.xcconfig",
+      "mode": "100644",
+      "git_blob": "d199fad0399c0664a09b7fcc3852742ebb5ee373",
+      "sha256": "6e14b14ca72a3120bd134a0c7ef52aa02654ba7a3bc9633b18245697b92b4799"
+    },
+    {
       "path": "Foundation/Config/DriverInfo.plist",
       "mode": "100644",
       "git_blob": "2d0ef4f7ef1ded1a57c8765bdab31a22dd7b42fb",
@@ -4254,8 +4296,8 @@
     {
       "path": "Foundation/Config/DriverVersion.hpp",
       "mode": "100644",
-      "git_blob": "d004ff6f48201bd8c1ae8954fea7932ee4f003ee",
-      "sha256": "28c72a7a639adecce4148a78b4f229850682e6a82af9fae81611be802af5cb6c"
+      "git_blob": "8d7867f336a05e84cb23fe4a81ed9f438d05e490",
+      "sha256": "27e5a9b80045614dccd3cd6fd4bc7b832782d4bb9f666caa9eac3dcdb03bcef3"
     },
     {
       "path": "Foundation/Docs/Alpha078ReleaseNotes.md",
@@ -4338,8 +4380,8 @@
     {
       "path": "Foundation/DriverPolicy/Tests/AppAuditHardeningSourceTests.rb",
       "mode": "100644",
-      "git_blob": "1e2737f05677a92db8937c1594fc545272080cd4",
-      "sha256": "2c0134be57a004d019c9554f373317b8d3c4d9585e4f49e7557d4bc3eeca1503"
+      "git_blob": "f19aea5c258376ca26d28b90f5a147cde7b0a9eb",
+      "sha256": "d11907e51c4a32ecff79724805bd3ced88449923f2c789b93babde05eb95b512"
     },
     {
       "path": "Foundation/DriverPolicy/Tests/ClockConversionTests.cpp",
@@ -4350,8 +4392,8 @@
     {
       "path": "Foundation/DriverPolicy/Tests/ConfigROMExportSourceTests.rb",
       "mode": "100644",
-      "git_blob": "9d7e8c3b6983da7d41069ad915593ddd0e1b8bd6",
-      "sha256": "4fb20e852e6f5187a7d3a737c49ce2650151d5e52e50ec1f51d9a9ba9d00f55c"
+      "git_blob": "58961ed86e45d5fdba4653ea6c8c09ccfeb8f2c6",
+      "sha256": "a3f29dcc4c9ca8bd1976d3fd11c4ddc63d0ec7e8ac7c7fc2527f8fdbe25279e9"
     },
     {
       "path": "Foundation/DriverPolicy/Tests/DMASafeCopyCodegenTests.rb",
@@ -4380,8 +4422,8 @@
     {
       "path": "Foundation/DriverPolicy/Tests/FoundationFCPQuadletPipelineTests.cpp",
       "mode": "100644",
-      "git_blob": "4741444b076ea3a6410d1e094823316935d00c2d",
-      "sha256": "dd447ee9ac918df52b51f9b36a4011cb49399a0a06a6c3b7e6708f1e833dac8e"
+      "git_blob": "e072e266b779d96e614a591776037811b7437fb8",
+      "sha256": "fc7c6b60662590715385fcaf7603895973d787f2ee095219b826d9b36535aebb"
     },
     {
       "path": "Foundation/DriverPolicy/Tests/FoundationFCPTransportTests.cpp",
@@ -4410,14 +4452,14 @@
     {
       "path": "Foundation/DriverPolicy/Tests/FoundationReceiveOuterGateTests.rb",
       "mode": "100644",
-      "git_blob": "763fd3be2a8fae7bb4face6923ef482caa640702",
-      "sha256": "760ff38e01f942bcc2c0f836eb9f97658af4719f7325ab71b32a04f6eeb189e5"
+      "git_blob": "ccc57b35c5e480872c99056fa25bfd12354df8f0",
+      "sha256": "6eeeed996c4fa61cc18be03f52976e2e8e7fe51903f3fcaaddc416f7497570a1"
     },
     {
       "path": "Foundation/DriverPolicy/Tests/FoundationRuntimeBorrowedClientSourceTests.rb",
       "mode": "100644",
-      "git_blob": "d52769f6f385fa129c5af74309e511957707ea4e",
-      "sha256": "d53d2a5bca8a42712f448f0d700bf205af7a7410e4385a3709e4898c8e1d69e6"
+      "git_blob": "9426f66d08c530176ac9c4dda50bbc6881795b2e",
+      "sha256": "c15db16d3e49c27d05270c76f0cdc8b077dacc36551fc266cbf1379cc632dff0"
     },
     {
       "path": "Foundation/DriverPolicy/Tests/FoundationTapeStateTests.cpp",
@@ -4448,6 +4490,12 @@
       "mode": "100644",
       "git_blob": "c10c9fb548b1453ad945e1a5df654eedc6e1fb77",
       "sha256": "87122bbe80ed58b956b16bbe6a1c36c9cfb02cfbbd4d0f9beb866ac80e34b9a1"
+    },
+    {
+      "path": "Foundation/DriverPolicy/Tests/NativeCallbackDrainTests.cpp",
+      "mode": "100644",
+      "git_blob": "11cea88d944bc262f55bc00e10fba73f1487a777",
+      "sha256": "5b0c5aab507fda703689bb0836fa08789f06c6217af572defeaf48e60a765a04"
     },
     {
       "path": "Foundation/DriverPolicy/Tests/RuntimeEpochTests.cpp",
@@ -4494,14 +4542,14 @@
     {
       "path": "Foundation/Package.swift",
       "mode": "100644",
-      "git_blob": "91025f88840a30e68270482f934125b8210fbd88",
-      "sha256": "889d6dbc8246410cec0c76ad74592cefd97cd789779d66932eae617cc73ee042"
+      "git_blob": "8a457cd8e0156bcb7ad9717203c602e981621edd",
+      "sha256": "627dfb4bbb2cff7be19746ecbf64487605ea4c29fa28ed38ecc424ba76d08a93"
     },
     {
       "path": "Foundation/RewindDV.xcodeproj/project.pbxproj",
       "mode": "100644",
-      "git_blob": "89e6e3e169c63d9b5a528db560ae1659baa4cd45",
-      "sha256": "ee234bcebdbe102f3d068805af1ca7ab5da565df2258bda8b0bbcc94b0d3bde5"
+      "git_blob": "4c208bedff4b19372a70eac59197737de32e0cfe",
+      "sha256": "bbfc022eaa7269c32603bed6bd613d05e31100f4e16be659d47dc7492fd16f25"
     },
     {
       "path": "Foundation/Sources/RewindDVArchiveCore/ArchiveAdmission.swift",
@@ -4536,8 +4584,8 @@
     {
       "path": "Foundation/Sources/RewindDVArchiveCore/DVCaptureMetadataEpochs.swift",
       "mode": "100644",
-      "git_blob": "d8cf211df5c68a26b0364e1ad840f2970cb9f79b",
-      "sha256": "06ed851f014d870b1eb004e8fb1e81ae5f8c01196f8758b434ce10abd32e5bad"
+      "git_blob": "4eb5f601d12b03d5b9548200888c37248fa35e87",
+      "sha256": "7013d3045fd7d77c1f794f512f77fe4c2be0025ce1ffad48b32a5cd45b933136"
     },
     {
       "path": "Foundation/Sources/RewindDVArchiveCore/DVCorpusSemantics.swift",
@@ -4548,8 +4596,8 @@
     {
       "path": "Foundation/Sources/RewindDVArchiveCore/DVDIFPacketAssembler.swift",
       "mode": "100644",
-      "git_blob": "e5c0fb295bd7fcc8328e3103107121d2b462c113",
-      "sha256": "b649eca30061f1ef3d18a33c0947f10420bc334097fe62adac5d58fc56a75645"
+      "git_blob": "a0f4acf5fbe8d498d63ccd9b0ee85678c5f65cbe",
+      "sha256": "ed194c41798a06a3e6a948abffa7a7abf5ddf846908d3978b3452754515a8a7b"
     },
     {
       "path": "Foundation/Sources/RewindDVArchiveCore/DVExternalReportReader.swift",
@@ -4572,8 +4620,8 @@
     {
       "path": "Foundation/Sources/RewindDVArchiveCore/DVFrameForensics.swift",
       "mode": "100644",
-      "git_blob": "129853f1093e15eb2e673f51478bfa88c4f8a6cf",
-      "sha256": "b2042cec65005e9d7fac75bc5262c7712b94cdb70cdc225cea692c6f1eae1353"
+      "git_blob": "ecc1f3c444c0156b2f508235842dae7d9e1ee700",
+      "sha256": "4cf5ed1b96c1e43f60aba00af1dcce0013327f7fae5c589e61dbad5c7beaa8d6"
     },
     {
       "path": "Foundation/Sources/RewindDVArchiveCore/DVFrameTimelineEvidence.swift",
@@ -4590,8 +4638,8 @@
     {
       "path": "Foundation/Sources/RewindDVArchiveCore/DVIngestExporter.swift",
       "mode": "100644",
-      "git_blob": "f520b21b6a3b88535e183fce5dcc956273cbb8db",
-      "sha256": "a2a3789d087466cd357aa3a995a3a077aae816468828dfd71eaca03000394dee"
+      "git_blob": "1cab9bf463164d279c81bb9d34614dc4617a7715",
+      "sha256": "a56787667f1dc623a8d0ca69073107fff4d1278a9a62951ffc749a8b2777f9af"
     },
     {
       "path": "Foundation/Sources/RewindDVArchiveCore/DVMetadataConfidence.swift",
@@ -4608,8 +4656,8 @@
     {
       "path": "Foundation/Sources/RewindDVArchiveCore/DVMetadataInventory.swift",
       "mode": "100644",
-      "git_blob": "cc52685b877f33b699436c0b749c31c632e5e9ab",
-      "sha256": "9e1b2f96d03bbfb3dc91cd1fafa58f76a784c7adddb5236b48852ea8a99dddc9"
+      "git_blob": "5aabcac9997b8e4772cb19da0a788241b68666f2",
+      "sha256": "d0fd855f63bdf40e522d8e25b76e5d903282ba407ef6d6bb15dc40a0235d2b89"
     },
     {
       "path": "Foundation/Sources/RewindDVArchiveCore/DVMultiPass.swift",
@@ -4632,8 +4680,8 @@
     {
       "path": "Foundation/Sources/RewindDVArchiveCore/DVPortablePublication.swift",
       "mode": "100644",
-      "git_blob": "2aa07b583802e619cd5c0c8ee2fe2c9e61967050",
-      "sha256": "cf14601429645be32b94152663f37da800b7a0cb7cd894169329e6a1cc268b98"
+      "git_blob": "e5d1edd324062912cfa4ac8d12e593432e53c1d2",
+      "sha256": "e201e6e1bd00f869c5a9abe3cf5d46df02f1d4b4512fbd5615aa7f5268461f91"
     },
     {
       "path": "Foundation/Sources/RewindDVArchiveCore/DVPositionEvidence.swift",
@@ -4650,8 +4698,8 @@
     {
       "path": "Foundation/Sources/RewindDVArchiveCore/DVReviewedRangeExporter.swift",
       "mode": "100644",
-      "git_blob": "23180e549adcbbcd2cedd37aa6394f51492b76ac",
-      "sha256": "5c4be65d59fc8e17d2024dbc56e041eccb6d69171602de2493d274c1fdc7bff3"
+      "git_blob": "a9577906711b9b93c391163cfd4e521e99fcb325",
+      "sha256": "bd463f9d2b5d8553359ab3286f2610c2fbdd586b658078f9fad013615c05e273"
     },
     {
       "path": "Foundation/Sources/RewindDVArchiveCore/DVSceneSegmentation.swift",
@@ -4670,6 +4718,12 @@
       "mode": "100644",
       "git_blob": "07ecd7f7a0f5eeb4581a077866c986ead9cb5261",
       "sha256": "702c50284f479d74c0e99460efb9894761d10ee202d9b7f10ef23a420f164619"
+    },
+    {
+      "path": "Foundation/Sources/RewindDVArchiveCore/DVSurgeryByteExporter.swift",
+      "mode": "100644",
+      "git_blob": "bab0855c6ef3c3913edafb0f49db6860def25710",
+      "sha256": "b718998e8a6452d0a88bdc68a737aed01dca6816ce8b773612f4156fb09be5aa"
     },
     {
       "path": "Foundation/Sources/RewindDVArchiveCore/DVTapeDefectInspector.swift",
@@ -4770,8 +4824,8 @@
     {
       "path": "Foundation/Sources/RewindDVMonitorCore/DVPlaybackTimeline.swift",
       "mode": "100644",
-      "git_blob": "5750eb65d810c604289768fb3447f59732886421",
-      "sha256": "c900a5345ec061125764a7598007ad37c24e98a232d6533d3383f3e814024851"
+      "git_blob": "4657a9e653a2ff5d893e085dccead06e3759fd61",
+      "sha256": "8f5439e3d00c7218b3ea80aead182b4e17d312a4d52ff1620009d5f94254a395"
     },
     {
       "path": "Foundation/Sources/RewindDVMonitorCore/DVPreviewPacketAssembler.swift",
@@ -4784,6 +4838,12 @@
       "mode": "100644",
       "git_blob": "cd0e827fa5e3c10c48d1755f9c44b80cd60e2f1d",
       "sha256": "a4d7a809bedc4c3a4a4723437fc14498b3da448b1461f6f29f84d8171198048d"
+    },
+    {
+      "path": "Foundation/Sources/RewindDVMonitorCore/DVSurgeryClip.swift",
+      "mode": "100644",
+      "git_blob": "b10b68c3c4e80e6f5dc4ec47397152c456c077f3",
+      "sha256": "03094fc14762d3154e5eca6edbe47ea27bf5a31dac9e3e2c8872cf5a73f21f2a"
     },
     {
       "path": "Foundation/Sources/RewindDVMonitorCore/DVTechnicalSpecifications.swift",
@@ -4860,8 +4920,8 @@
     {
       "path": "Foundation/Sources/RewindDVMonitorCore/WorkspacePolicy.swift",
       "mode": "100644",
-      "git_blob": "e8d10f7177579c36f676abac783dd7fe7477732d",
-      "sha256": "f280d0f6bbcebc5eee4554331da88b217fcc027c881933f8f6832bdbc58b1e60"
+      "git_blob": "b8b6b4e0ebd0b66608039b7c8c00556abef75d91",
+      "sha256": "32296d1fc348c14617f4028eab8a56dd9f63657d8de5eee09f41ed8d7d4d30e7"
     },
     {
       "path": "Foundation/Tests/RewindDVArchiveCoreTests/CaptureDirectoryTests.swift",
@@ -4884,14 +4944,20 @@
     {
       "path": "Foundation/Tests/RewindDVArchiveCoreTests/DVCaptureMetadataEpochTests.swift",
       "mode": "100644",
-      "git_blob": "6d8231f7f131f9c2d9f5863cc8437ddcc30a18c6",
-      "sha256": "e6eab6ad75c79ed5ae5e3bbbec65132c78e477a0a8f6735ad21e26f30d4daa00"
+      "git_blob": "9508facf71fd68fc850d998661336b17facb6b33",
+      "sha256": "ca1de598fb3534015c5f2edd329b46cfcd43422dfb018b74cc3bb2c5df300c26"
     },
     {
       "path": "Foundation/Tests/RewindDVArchiveCoreTests/DVCorpusV2Tests.swift",
       "mode": "100644",
       "git_blob": "062fcce78e9e9d58f488a7d4609b69989d696806",
       "sha256": "6aba34536a966736574da47cac563694fd7b7816da5ea3012a41080e4d55b694"
+    },
+    {
+      "path": "Foundation/Tests/RewindDVArchiveCoreTests/DVDataSliceTests.swift",
+      "mode": "100644",
+      "git_blob": "d7004b9aa6f615a62858ae106d7c2798757df697",
+      "sha256": "723fdbca3685f0d7fbff9bdd6a30dbaaa36fe5d1903ef96d9019a06af1201b5e"
     },
     {
       "path": "Foundation/Tests/RewindDVArchiveCoreTests/DVFilmCadenceTests.swift",
@@ -4916,6 +4982,12 @@
       "mode": "100644",
       "git_blob": "b2e1ae41f44c5548442765f3dd6cc1b2b934d755",
       "sha256": "503aec88fa8e23c9c639af2b27b556e96bc35d88a51b6b70eac1fc6ad107d9bc"
+    },
+    {
+      "path": "Foundation/Tests/RewindDVArchiveCoreTests/DVIngestCancellationTests.swift",
+      "mode": "100644",
+      "git_blob": "36c0c28b57019e39b73c810d117a29c86d1d0be0",
+      "sha256": "4a2f37c71a4f8b6d7d9abf3ab5932d60cb168d4e106d369bc40bb509b1e1e5ec"
     },
     {
       "path": "Foundation/Tests/RewindDVArchiveCoreTests/DVIngestExporterTests.swift",
@@ -4946,6 +5018,12 @@
       "mode": "100644",
       "git_blob": "673301c184a9b4ee592084b3c22789a7b82478ba",
       "sha256": "818e1895eb4d9ec0ab1bb629910ccbf684c6b50aa1fed8c7e3052d4670092cbe"
+    },
+    {
+      "path": "Foundation/Tests/RewindDVArchiveCoreTests/DVPublicationReadbackTests.swift",
+      "mode": "100644",
+      "git_blob": "9f2939cc8535abf30339a9c997c04dd89a78a982",
+      "sha256": "fc81ef96bd409f5514b6594e24da508e9bf53fe1d15d4e5053a7dd9cc451ba16"
     },
     {
       "path": "Foundation/Tests/RewindDVArchiveCoreTests/DVRecoveryReviewTests.swift",
@@ -5076,8 +5154,8 @@
     {
       "path": "Foundation/Tests/RewindDVControlCoreTests/DriverReadinessTests.swift",
       "mode": "100644",
-      "git_blob": "3c70afa8c2968f29f5cde2053a597bc95187ac7c",
-      "sha256": "ba5c1e51f2afd62f2325b3d976039495b4f42b7fe96413f3b52fe29f780cbb87"
+      "git_blob": "0bfab18b0275f771482e68eda2bc647a15d4923a",
+      "sha256": "b44c1495ec0dc8a24e5568a692a936e6a2b39ef9d5905dbb17af83b60c1cec30"
     },
     {
       "path": "Foundation/Tests/RewindDVControlCoreTests/DriverRefreshPolicyTests.swift",
@@ -5120,6 +5198,12 @@
       "mode": "100644",
       "git_blob": "e267b37affc077d17e9943cc6d1410e46087a133",
       "sha256": "0cc1d74856ab9cc0dbe9763106547130c7bd8d45364d839ee406bf002a07f391"
+    },
+    {
+      "path": "Foundation/Tests/RewindDVMonitorCoreTests/DVSurgeryTests.swift",
+      "mode": "100644",
+      "git_blob": "c31279df1837996eda413b7b9c36434f1d9f5434",
+      "sha256": "2f3d52e9c4a97703e230a1581f5749f584b05edd18c0d8a52afe8518afca64aa"
     },
     {
       "path": "Foundation/Tests/RewindDVMonitorCoreTests/DVTechnicalSpecificationsTests.swift",
@@ -5214,8 +5298,8 @@
     {
       "path": "Foundation/Tools/CaptureAdmissionBoundaryRegression.swift",
       "mode": "100644",
-      "git_blob": "59b82fd80185bb84d5a2840b2bef46b8c4ee1284",
-      "sha256": "fac75b1575a21383a87b7d714f0df0e71fa79da19999c1fd9b7e149a0daf2d13"
+      "git_blob": "3ed577ac9aa0ef012184911a43b5b5ec2474c096",
+      "sha256": "846a4fefc37c68997036977363d44923651786269940cafc5eb22f298a3b2e68"
     },
     {
       "path": "Foundation/Tools/CaptureAdmissionCases.swift.inc",
@@ -5236,6 +5320,12 @@
       "sha256": "b236f754553fe66fc96cad4ca3630b332068eb55420e7a8763e7ca3e274e23dc"
     },
     {
+      "path": "Foundation/Tools/LiveDVFrameDecodeRegression.swift",
+      "mode": "100644",
+      "git_blob": "e0b2e9220b8b6fc5ec0818827d3c95abbeab4de0",
+      "sha256": "ecb5c8eea8e4c34a369ad01c85d2240e157b5c029e96fdb6bfa5dea577e42bbf"
+    },
+    {
       "path": "Foundation/Tools/LiveReceiveRingRegression.swift",
       "mode": "100644",
       "git_blob": "cb70d2fb9162e216021ef4e9f0fff81cd50ba54e",
@@ -5254,10 +5344,22 @@
       "sha256": "09f560025d3ca95ff5124740134b03c38c0103d3f38e7fdd726658616d5004ef"
     },
     {
+      "path": "Foundation/Tools/OfflinePlaybackContinuityRegression.swift",
+      "mode": "100644",
+      "git_blob": "4e8fbf1f3a21de24d7b5b30ea2b36e9789df8c0b",
+      "sha256": "52b982646dab2e6520ff13de5815157728b5516d3f630a5b310d074ed2bdd859"
+    },
+    {
       "path": "Foundation/Tools/OfflinePlaybackFormatRegression.swift",
       "mode": "100644",
       "git_blob": "04ef27ca3d240366c82e622022b17264bd8091f4",
       "sha256": "e5be6a8eeb6617a1c0da1bb606f3892aaee6204217a482d57ea97fa212c7f80a"
+    },
+    {
+      "path": "Foundation/Tools/OfflineSurgeryRegression.swift",
+      "mode": "100644",
+      "git_blob": "29a99ef1ff8ce65bca45100541015ba219d10439",
+      "sha256": "f2800ec6c6107cb8ac907a098d7b97015bd01bce93903ca5cf1a79af55367730"
     },
     {
       "path": "Foundation/Tools/PlayCallbackBindingRegression.swift",
@@ -5268,8 +5370,8 @@
     {
       "path": "Foundation/Tools/PostCaptureMemoryRegression.swift",
       "mode": "100644",
-      "git_blob": "d094d76a67622df903a4c948254915922cfc9efc",
-      "sha256": "c3c3bf4c478c6d4accb94efb98b7ad88c984108617064b59dd044520aa2deb49"
+      "git_blob": "26788d4c286fb703d1295defbeb5a5e79a047d4e",
+      "sha256": "e6983478affe51e370b1ef3d87d23a8c63819a24e7db8bc7bb75f52678a993bc"
     },
     {
       "path": "Foundation/Tools/QuitSupervisionRegression.swift",
@@ -5298,8 +5400,8 @@
     {
       "path": "Foundation/Tools/generate-app-info.zsh",
       "mode": "100755",
-      "git_blob": "c0a26dbaae7daa43dbeb7f5738b4db42d6d5a4cc",
-      "sha256": "88b75df426c33c190f78cc6663573cd93a6836cc2dbb4ec01b37f203b8b31f1f"
+      "git_blob": "1bc918143eec1a1b5d6541a8b316ec309767ced4",
+      "sha256": "e518422257d3a7c3d19e1b23dfa3a0e6f01c15880adb42352d2d6f3039112e58"
     },
     {
       "path": "Foundation/Tools/package-b172-app-only.zsh",
@@ -5332,6 +5434,12 @@
       "sha256": "7b47d1e78503f8f2df8c7913b38619de8053b26c291f4f0e804f5ba3c27d6d15"
     },
     {
+      "path": "Foundation/Tools/run-native-callback-drain-regression.zsh",
+      "mode": "100644",
+      "git_blob": "7cdf7e82f64b0e5196cabc5bfbfd50f97bd1956d",
+      "sha256": "ed86126e71039b3e5a84edc4a06409f67ab2a3a64c24561d1cddf95dff5a8088"
+    },
+    {
       "path": "Foundation/Tools/run-post-capture-memory-regression.zsh",
       "mode": "100755",
       "git_blob": "4394a8a7eadcc672d2c9fc36ff20f99f8c7a249b",
@@ -5350,6 +5458,12 @@
       "sha256": "15199b20631e8e1c245a10588e240da9ffc29b48acfdd86bc8bb2de56e132bb9"
     },
     {
+      "path": "Foundation/Tools/verify-d4-acceptance.py",
+      "mode": "100644",
+      "git_blob": "2485d13a0ccf2be98aaa7f5fad32e9668aa5542c",
+      "sha256": "74482ccfea01adc8438a0408b3810a3f61e30b3d5b0a37f5f87f006d916b4c0d"
+    },
+    {
       "path": "Foundation/Tools/verify-fcp-response-ordering.zsh",
       "mode": "100755",
       "git_blob": "d39dbf34c8e108aabc87fb44fafdd5bc679f5145",
@@ -5358,8 +5472,8 @@
     {
       "path": "Foundation/Tools/verify-ohci-hardening.zsh",
       "mode": "100644",
-      "git_blob": "9a249ed293f390ce30fce3a3b6f4233c57c39966",
-      "sha256": "c963bc0021f6aa9e06d8601979283cb163753ed6329449c6d326bb3f3dbf96aa"
+      "git_blob": "882ad9adb3c7d33928ee52cb93f70e741b401903",
+      "sha256": "813778d222f0610266fdc4a7c2598b66f4d163090b6bc3cbc5dced67cf6a86a3"
     },
     {
       "path": "LICENSE",
@@ -5418,8 +5532,14 @@
     {
       "path": "tests/async/ATManagerHotAppendTests.cpp",
       "mode": "100644",
-      "git_blob": "304b00a47d84fa1b1317d56a3901326fbf8a84ac",
-      "sha256": "667658b669434d5a175131e1063f7eca519b42342e00cd49b9d0f1baf8f6c033"
+      "git_blob": "ff1a04c3e04887f6e17ee4752d89dd7c490a5bee",
+      "sha256": "61062e50029a4d62b4ff4b77c3f470262108d9ebfe5fa5998d13024a3d14cad4"
+    },
+    {
+      "path": "tests/async/AsyncBusContractTests.cpp",
+      "mode": "100644",
+      "git_blob": "5a193816b8ca8a2c67ffb6c20e2011488757a6a1",
+      "sha256": "0d94a30e93110f13e42f7005871fe0d45429af907010c6dd4f0c4908088d4a95"
     },
     {
       "path": "tests/async/BufferRingDMATests.cpp",
@@ -5428,10 +5548,28 @@
       "sha256": "96c995434f394e20fbcdaba46a4e15bf73c2c5b9ace58d251c2a23c0c13bedfc"
     },
     {
+      "path": "tests/async/CommandPayloadAdmissionTests.cpp",
+      "mode": "100644",
+      "git_blob": "c886ec11345c64bf8c2aab695cdb9cfa47dadf09",
+      "sha256": "a7676822c12c4fb78f1823aa0ec1b9904724597e66547483c67f0e7f5024038b"
+    },
+    {
       "path": "tests/async/ContextControlTests.cpp",
       "mode": "100644",
-      "git_blob": "97525c29fdabbf69c2e036d1febd4a37bc22a98c",
-      "sha256": "4192ba7cc2c4e53839747a1e160b47e37cc12fa4631d7aeebd981c4ca7a90a96"
+      "git_blob": "3087e0ce5f50e8049062d76fb8b93dfb2c594cfa",
+      "sha256": "887c7ce1a6e52073fa9ccb2057857fcd3d9e806abd905a6335f6884df24cc6de"
+    },
+    {
+      "path": "tests/async/OperationLifetimeTests.cpp",
+      "mode": "100644",
+      "git_blob": "afd1f23558e29c7a74a1e9d15bebd22a01ff963a",
+      "sha256": "0da8f60a1e480ec1911d11b7990cbd057fba8c70c7d7381a419d9d6f9bfc496e"
+    },
+    {
+      "path": "tests/async/QueuedReadAdmissionTests.cpp",
+      "mode": "100644",
+      "git_blob": "f49bbe6907aac32ff980f21a5977cb620c16dfa8",
+      "sha256": "3eebbc8e9f49f42dfd7dbc1ae207de0103bfdbae421de00b9d28f57f3b1a13bf"
     },
     {
       "path": "tests/async/ReceiveStartOrderTests.cpp",
@@ -5448,20 +5586,26 @@
     {
       "path": "tests/async/TrackingRejectionTests.cpp",
       "mode": "100644",
-      "git_blob": "70b6eb9ae90054df64115b2e7ed50689109d00e8",
-      "sha256": "6617b4fc335f423a7bb03607828f37cae28a8df30e0866ada6c1238a6aa5ac7f"
+      "git_blob": "9c939066f05386e52b3e529afe4215bce128b2c1",
+      "sha256": "6b4ab07ea718cf98823d895123ac1e99ac4c4bcf46223b16080679ff66cb220c"
+    },
+    {
+      "path": "tests/async/fixtures/D4HistoricalOracle.cpp",
+      "mode": "100644",
+      "git_blob": "d544f82fb7f2670276d843f9dc8029a5cbba104f",
+      "sha256": "fbc9b58efd78c891c7bd0a82617e1dce7e880641f97e47457619ab70feb118a8"
     },
     {
       "path": "tests/common/CSRContractVerifierTests.cpp",
       "mode": "100644",
-      "git_blob": "f3dbb83c12e615d0c4e125ad65d6dbf71d7899ab",
-      "sha256": "99cc4a60b781b17a3e44b9d45deddcd0cf7bcadc30846cba620b7777570e7c6f"
+      "git_blob": "99adfb29108b695ea22470ae62cbe4cdc27b9bad",
+      "sha256": "896c119a973ec9a036696cd9ec360ec3337bb77a0832448c1c5c5c78db0702cb"
     },
     {
       "path": "tests/core/BusResetCoordinatorTests.cpp",
       "mode": "100644",
-      "git_blob": "b9d4aca3bb629ba705ec183db966e14059d6a3fc",
-      "sha256": "e22cedf756b5f7b9674aefbf63535208d973564352923e86970240ad27fcaa01"
+      "git_blob": "71dde59a1d3dd53c45bddf8ee8ec781aa3362564",
+      "sha256": "daf9c01c8d8de6653842a81ca5eae51fa5d25dd8bc4d0198ccde6e54b34a6c8e"
     },
     {
       "path": "tests/core/BusResetPacketCaptureTests.cpp",
@@ -5476,16 +5620,22 @@
       "sha256": "903733420716e20a96257fe55c7abee41bbb055b06623fd0b094a673d6b3caa6"
     },
     {
+      "path": "tests/core/ControllerDeferredLifetimeTests.cpp",
+      "mode": "100644",
+      "git_blob": "abca8b434c70fd9f801b38a39070a76c3f3335e3",
+      "sha256": "03b5d773e25ae377d379aa15095f41c93964c9661e34bd692db5b4ec1b95bec2"
+    },
+    {
       "path": "tests/core/CyclePolicyCoordinatorTests.cpp",
       "mode": "100644",
-      "git_blob": "7c6bce741d60b2847be9039f4202cb6109740c7a",
-      "sha256": "4b197ccb4722e10f9885222fa4c05e077c9e294782d985c185f70c33cb30ff41"
+      "git_blob": "71c7f3b079c29375c27fc4f4ae2ec46e9cf7508b",
+      "sha256": "4e7e825aa3ae534ec3ac13040abe0e6eba032575168d0087aec7a41ec85d8793"
     },
     {
       "path": "tests/core/CyclePolicyExecutorTests.cpp",
       "mode": "100644",
-      "git_blob": "2bb08885e9574f792c8bb28e731e4df9dd8ae48b",
-      "sha256": "757a7f933222a3a3da375a65a8372a5675cadbcffd6ef733bc8ab1594fa65d64"
+      "git_blob": "1307e1ab6de394cd0ca843d355db1d90a814eafc",
+      "sha256": "d44dae197663960e985d78991c8914c3deaab7c84d67390509769158a076513b"
     },
     {
       "path": "tests/core/FWTypesTests.cpp",
@@ -5496,8 +5646,8 @@
     {
       "path": "tests/core/HardwareInterfaceOrderTests.cpp",
       "mode": "100644",
-      "git_blob": "f2610d9f07084fc842e7ce6ae3b601aadcaacf00",
-      "sha256": "0b36069b34f61bf1c3edb6f1a81e62117d2e5a4cbad0c6ec1cda762819f75501"
+      "git_blob": "b9377eab8482decb591d71512cb3b764a3a29188",
+      "sha256": "0f47a9bd0a2c4f635bb30426a12a72295e13a71e5e3601fbb45a67c7ec098fe4"
     },
     {
       "path": "tests/core/InterruptEventSequencerTests.cpp",
@@ -5516,6 +5666,12 @@
       "mode": "100644",
       "git_blob": "70237c008ffcbd0b3f91f8ad7a1f943f523a1132",
       "sha256": "b4c949b53bed391c3f6059bbc23cbadc7eaa9705a2bce11f789d5852838f9fed"
+    },
+    {
+      "path": "tests/discovery/GenerationIndexTests.cpp",
+      "mode": "100644",
+      "git_blob": "419204681187dd6f15fea2eb13d7cf89ce7ea298",
+      "sha256": "44d4b30e50d60031f498a1604919b369dc97955b1ee395d1ab6fb14dc369c31e"
     },
     {
       "path": "tests/mocks/AudioDriverKit/AudioDriverKit.h",
@@ -5768,6 +5924,36 @@
       "mode": "100644",
       "git_blob": "96ab0db64606e18728bfe3894eeada74205ee5c9",
       "sha256": "4ef455111ad6acecb6969e1e0eeb9d75dd8726a0314bec33406d914ef5451602"
+    },
+    {
+      "path": "tests/protocols/AVCHandlerTests.cpp",
+      "mode": "100644",
+      "git_blob": "abb0ecf3c00371cbace0050d0882157efcd0bc7b",
+      "sha256": "d7feb954be045e1e50cdfa93f42b565b597dfe09f414ed359dd96f2bababcaed"
+    },
+    {
+      "path": "tests/protocols/AVCLifetimeRegressionTests.cpp",
+      "mode": "100644",
+      "git_blob": "636bb09a23b88f37ba3d79ec369271cae1a53dac",
+      "sha256": "5387304125b97208de70110c47f55a177e0095aba5cd61107057907a5dc44aed"
+    },
+    {
+      "path": "tests/protocols/FCPHandleLifetimeTests.cpp",
+      "mode": "100644",
+      "git_blob": "1e406827729d1e45d1abf434b45d0a4b546c5e57",
+      "sha256": "903e82a30ddd56022f606ba13fd7527cd35b9efbb0d7e58b229367371511f425"
+    },
+    {
+      "path": "tests/protocols/FCPResponseRouterTests.cpp",
+      "mode": "100644",
+      "git_blob": "e6044dad07b74d6b4eac71550ddfe13b95ef3f0d",
+      "sha256": "21df7f19f0a818d1ee446096f78e34f98a7eb1cfde77d3625d5d4e3363f118c8"
+    },
+    {
+      "path": "tests/protocols/FCPTransportTests.cpp",
+      "mode": "100644",
+      "git_blob": "37c0b734bc27ea752db8cf320fc0d003e1d22cf2",
+      "sha256": "b1e93fcc46204c8d849f05c3ca60ee67deee14510055eb7610afd2bd1766cb6e"
     },
     {
       "path": "tests/support/BusResetCoordinatorDepsStubs.cpp",

@@ -40,6 +40,11 @@ def fake_app(stage):
 
 
 class IdentityTests(unittest.TestCase):
+    def test_adhoc_keeps_independent_app_driver_identity(self):
+        values = {"application_version":"0.0.89", "driver_build":"190", "app_bundle_build":"188"}
+        self.assertEqual(r.release_identity(values, "alpha", "alpha-0.0.89", signing="ad-hoc"),
+                         "rewindDV-Alpha-0.0.89-Driver190-AppBuild188-AdHoc.zip")
+
     def test_canonical_destination(self):
         r.destination(r.REPOSITORY, r.REPOSITORY_ID)
 

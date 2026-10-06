@@ -1,7 +1,6 @@
 # Remove rewindDV and restore security
 
-1. Finish capture and verification, stop tape motion, quit rewindDV and disconnect
-   FireWire. Preserve original captures and any reports you need.
+1. Finish capture and verification, stop tape motion and quit rewindDV. Preserve original captures and reports. Live extension disable/unload and hot replacement are unqualified: do not toggle an active driver off or unplug it as a shutdown shortcut. Shut down macOS normally, disconnect FireWire while the Mac is powered off, then start with FireWire disconnected. This establishes a fresh maintenance boot without an attached rewindDV runtime.
 2. With SIP still disabled, inspect the registered extension:
 
    ```sh
@@ -16,8 +15,7 @@
    sudo systemextensionsctl uninstall - net.rewinddigital.RewindDV.Driver
    ```
 
-   Restart when requested or when marked `terminated waiting for uninstall on
-   reboot`. Check the list again. No output means no registered rewindDV
+   Restart normally after the uninstall request, keeping FireWire disconnected. If a request fails or a terminating runtime remains, stop and request support; do not force-kill it or repeat the request. Check the list again after restart. No output means no registered rewindDV
    extension was listed. Never use `systemextensionsctl reset` or manually
    delete `/Library/SystemExtensions`.
 3. Once the extension is absent, move **/Applications/RewindDV.app** to Trash
@@ -47,7 +45,7 @@ Capture folders remain at the locations you selected. These removal steps do
 not delete captures or app reports. Do not remove parent Library directories,
 other vendors' drivers or unrelated files.
 
-For rollback, complete driver removal first, then use a separately retained,
+For replacement or rollback, complete this shutdown/restart-based driver removal first, then use a separately retained,
 verified previous package and its instructions. Never use a withdrawn download
 as an assumed supported rollback. This release includes no prior binary.
 

@@ -22,7 +22,7 @@ def check(ok, message):
         raise ValueError(message)
 
 
-def validate_identities(status, alpha, driver):
+def validate_identities(status, alpha, driver, app_build=None):
     check(status['schema_version'] == 1, 'Unsupported status schema')
     for name in ('development', 'public_release'):
         identity = status[name]
@@ -31,6 +31,10 @@ def validate_identities(status, alpha, driver):
         check(re.fullmatch(r'[0-9a-f]{40}', identity['source_revision']), 'Full public source revision required')
     check(status['development']['application_version'] == alpha, 'Development alpha disagrees with source')
     check(status['development']['driver_build'] == driver, 'Development driver disagrees with source')
+    if app_build is not None:
+        check(status['development'].get('application_build') == app_build, 'App build disagrees with source')
+    check(type(status['development'].get('application_build')) is int, 'Independent app build required')
+    check(isinstance(status['qualification'].get('capture'), str) and isinstance(status['qualification'].get('hot_unload'), str), 'Separate capture and hot-unload states required')
     r = status['public_release']
     check(r['tag'] == 'alpha-' + r['application_version'], 'Release tag disagrees with application version')
     check(re.fullmatch(r'[0-9a-f]{64}', r['package_sha256']), 'Exact released package hash required')
@@ -41,29 +45,37 @@ def validate_identities(status, alpha, driver):
 
 def source_versions(root):
     alpha = (root / 'Foundation/Config/AlphaVersion.txt').read_text().strip()
-    header = (root / 'Foundation/Config/DriverVersion.hpp').read_text()
-    header_builds = set(re.findall(r'Build(\d+)', header))
-    check(len(header_builds) == 1, 'Driver header has ambiguous build numbers')
-    driver = int(next(iter(header_builds)))
+    config = (root / 'Foundation/Config/DriverBuild.xcconfig').read_text()
+    builds = re.findall(r'^REWINDDV_DRIVER_BUILD = ([1-9][0-9]*)$', config, re.M)
+    check(len(builds) == 1 and int(builds[0]) <= 4294967295, 'Ambiguous canonical driver build')
+    check('CURRENT_PROJECT_VERSION = $(REWINDDV_DRIVER_BUILD)' in config,
+          'Driver bundle version is not bound to canonical driver build')
     project = (root / 'Foundation/RewindDV.xcodeproj/project.pbxproj').read_text()
-    # The checked-in OpenStep project has project defaults and per-target overrides.
-    # Resolve the driver independently of the app target, for Debug and Release.
+    # CI uses the same checked-in OpenStep structure without Apple plutil.
     blocks = re.findall(r'"buildSettings" = \{(.*?)\n      \};', project, re.S)
-    defaults = [b for b in blocks if '"PRODUCT_BUNDLE_IDENTIFIER"' not in b and '"CURRENT_PROJECT_VERSION"' in b]
     driver_blocks = [b for b in blocks if '"PRODUCT_BUNDLE_IDENTIFIER" = "net.rewinddigital.RewindDV.Driver";' in b]
-    check(len(defaults) == 2 and len(driver_blocks) == 2, 'Review changed build configuration structure')
-    number = lambda b: re.search(r'"CURRENT_PROJECT_VERSION" = "(\d+)";', b)
-    for default, target in zip(defaults, driver_blocks):
-        value = number(target) or number(default)
-        check(value and int(value.group(1)) == driver, 'Effective driver build disagrees with header')
-    return alpha, driver
+    check(len(driver_blocks) == 2 and not any('"CURRENT_PROJECT_VERSION"' in b for b in driver_blocks),
+          'Driver build must resolve through its canonical xcconfig')
+    config_ids = re.findall(r'"([A-Za-z0-9]+)" = \{\n      "isa" = "PBXFileReference";\n      "lastKnownFileType" = "text.xcconfig";\n      "path" = "Config/DriverBuild.xcconfig";', project)
+    check(len(config_ids) == 1 and project.count('"baseConfigurationReference" = "' + config_ids[0] + '";') == 2,
+          'Both driver configurations must use the canonical xcconfig')
+    header = (root / 'Foundation/Config/DriverVersion.hpp').read_text()
+    check('REWINDDV_STRINGIFY(REWINDDV_DRIVER_BUILD)' in header, 'Compiled driver metadata is not canonical')
+    return alpha, int(builds[0])
+
+
+def source_app_build(root):
+    project = (root / 'Foundation/RewindDV.xcodeproj/project.pbxproj').read_text()
+    defaults = re.findall(r'"CURRENT_PROJECT_VERSION" = "([0-9]+)";', project)
+    check(len(set(defaults)) == 1, 'Ambiguous independent app build')
+    return int(defaults[0])
 
 
 def status_block(status):
     d, r = status['development'], status['public_release']
     return (START + '\n'
             f"**Current development:** Alpha {d['application_version']} / Driver B{d['driver_build']}. "
-            f"[Reviewed public source]({status['links']['source']}/tree/{d['source_revision']}).\n\n"
+            f"App build {d['application_build']}. [Reviewed public source]({status['links']['source']}/tree/{d['source_revision']}).\n\n"
             f"**Latest public download:** [Alpha {r['application_version']} / Driver B{r['driver_build']}]"
             f"({status['links']['release']}) — engineering prerelease, ad-hoc signed and not notarized. "
             'Installation requires disabling SIP, which reduces macOS security.\n\n'
@@ -149,7 +161,7 @@ def main():
     parser.add_argument('--live', action='store_true')
     args = parser.parse_args()
     status = json.loads((ROOT / 'PROJECT-STATUS.json').read_text())
-    validate_identities(status, *source_versions(ROOT))
+    validate_identities(status, *source_versions(ROOT), app_build=source_app_build(ROOT))
     count = validate_manifest(ROOT, status)
     block = status_block(status)
     for name in DOCS:

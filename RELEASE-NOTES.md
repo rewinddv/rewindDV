@@ -1,14 +1,33 @@
 # Development and releases
 
 <!-- project-status:start -->
-**Current development:** Alpha 0.0.87 / Driver B188. [Reviewed public source](https://github.com/rewinddv/rewindDV/tree/eca8ebfd5bc8a5096441cf3c1b67d2a48a1cdb66).
+**Current development:** Alpha 0.0.89 / Driver B190. App build 188. [Reviewed public source](https://github.com/rewinddv/rewindDV/tree/934953a4771e4a50f1fa71c830bd37ac3cd39dbb).
 
 **Latest public download:** [Alpha 0.0.81 / Driver B183](https://github.com/rewinddv/rewindDV/releases/tag/alpha-0.0.81) — engineering prerelease, ad-hoc signed and not notarized. Installation requires disabling SIP, which reduces macOS security.
 
 Development source and bounded tests do not approve a new download. Application versions and driver builds advance independently. [Machine-readable status](PROJECT-STATUS.json).
 <!-- project-status:end -->
 
-## Current source changes since Alpha 0.0.81
+## Current Alpha 0.0.89 / Driver B190 source
+
+Current source hardens DMA retirement and transaction identity, device-generation
+lifetimes, dispatch and callback ownership, user-client runtime binding, and
+native cancellation completion lifetimes. Failed or unproved retirement retains
+ownership and blocks reuse. The application requires the exact independent driver
+build; app188 and driver190 are not coupled counters. The source also includes
+lossless reviewed Surgery assembly and bounded archive/export cancellation.
+
+Software validation and bounded NTSC capture/STOP/re-entry evidence are recorded
+in [TEST-REPORT](TEST-REPORT.md) and [COMPATIBILITY](COMPATIBILITY.md). Shared driver
+services remain loaded after normal capture STOP. Live extension unload remains
+unqualified; [UNINSTALL](UNINSTALL.md) uses a shutdown/restart boundary.
+
+A public ad-hoc package is prepared separately from the tested development-signed
+installation. Check the explicit latest-download status above for the artifact
+actually published. No normal SIP-on, notarized, broad hardware or full-tape claim
+is made. Earlier release identities remain unchanged.
+
+## Historical Alpha 0.0.87 / B188 source changes
 
 The Alpha 0.0.87 / B188 source adds DMA-safe handling of unaligned partial receive
 completions, bounded reset-segment recovery and capture shutdown supervision,

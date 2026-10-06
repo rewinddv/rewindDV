@@ -261,3 +261,22 @@ diff, then validate and deploy. The organization profile links this status sourc
 without maintaining a second version table. An app-only update can retain a driver;
 a driver update never triggers an artificial alpha-number bump. An older public
 release than current development is an expected, validated lifecycle state.
+
+## Current public ad-hoc distribution preparation
+
+`tools/build_adhoc_candidate.py` builds both app and independent driver from one
+clean, full public checkout, runs source/software checks, signs nested bundles
+ad hoc with source entitlements and hardened runtime, removes build-machine
+metadata, and seals ZIP/manifest/provenance/checksum assets. It never installs,
+alters system security or publishes. Use a new external output directory and an
+external private disclosure configuration. Public provenance contains only public
+source identities, generic toolchain/check names and artifact hashes.
+
+After the independent artifact, restored-ZIP, source-range and disclosure review
+passes, explicit maintainer release authority permits creating a new annotated
+public-only source tag and a draft engineering prerelease. Upload only the sealed
+four assets; rehash downloaded assets before publishing the draft. No automatic
+rebuild or historical asset replacement is allowed. Capture evidence for the
+development-signed runtime is kept distinct from the public package, whose
+hardware installation remains unqualified. Live unload/hot replacement remains
+unqualified; the package documents shutdown/restart-based maintenance.

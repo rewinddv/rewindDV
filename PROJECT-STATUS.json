@@ -1,11 +1,12 @@
 {
   "schema_version": 1,
   "development": {
-    "application_version": "0.0.87",
-    "driver_build": 188,
-    "source_revision": "eca8ebfd5bc8a5096441cf3c1b67d2a48a1cdb66",
-    "state": "source-published; software-validated; bounded physical evidence; not release-approved",
-    "updated_utc": "2026-10-05T00:02:48.505907+00:00"
+    "application_version": "0.0.89",
+    "driver_build": 190,
+    "source_revision": "934953a4771e4a50f1fa71c830bd37ac3cd39dbb",
+    "state": "source-published; software-validated; bounded capture runtime validated; live unload unqualified",
+    "updated_utc": "2026-10-06T03:40:16.319674+00:00",
+    "application_build": 188
   },
   "public_release": {
     "application_version": "0.0.81",
@@ -16,10 +17,11 @@
     "package_sha256": "3da2b307e481548be3a51c2fcf9ff3cfcee892a85b8ae4b66ea1620622aaedae",
     "state": "prerelease",
     "signing": "ad-hoc; not notarized",
-    "requires_sip_disabled": true
+    "requires_sip_disabled": true,
+    "application_build": 183
   },
   "qualification": {
-    "public_summary": "The Alpha 0.0.87 / B188 development candidate passed four bounded NTSC DV captures on one Sony HVR-M15U setup, including 609.442 seconds of saved DV. This does not qualify the public download, full-tape endurance, induced-reset capture, or the unresolved device-disappearance cause.",
+    "public_summary": "Alpha 0.0.89 / B190 development passed software validation and five bounded NTSC DV captures on one Sony HVR-M15U setup, including normal capture STOP, same-session re-entry, fresh-app re-entry, about sixty seconds and a four-minute operator-stopped capture job. This does not establish fresh-system installation or hardware qualification of the separately packaged ad-hoc binary. Full-tape completion, broader hardware and formats remain unqualified.",
     "architecture": "Apple silicon (app arm64, driver arm64e); Intel unsupported",
     "macos_deployment_floor": "26.0",
     "bounded_runtime_macos": [
@@ -30,8 +32,11 @@
     "hdv_capture": "not physically qualified",
     "dv_playback": "saved raw DV25 NTSC/PAL and transitions validated offline",
     "hdv_playback": "not qualified",
-    "full_tape_endurance": "not qualified",
-    "distribution": "Public download is ad-hoc signed, not notarized; SIP must be disabled. Developer ID, notarization and normal SIP-on distribution remain future work."
+    "full_tape_endurance": "not qualified for the current B190 candidate; bounded job stopped at four minutes",
+    "distribution": "Engineering packages are ad-hoc signed, not notarized, and require SIP disabled. Fresh-system installation and exact public-package hardware qualification remain unverified.",
+    "capture": "bounded NTSC DV capture and normal receive retirement passed on one Sony HVR-M15U setup; longest saved DV 238.038 seconds; full-tape completion intentionally omitted",
+    "hot_unload": "unqualified; use shutdown/restart-based replacement or removal; successful live extension disable is not a prerequisite for normal capture STOP",
+    "startup": "stable final generation before capture; no reset observed during these bounded captures; broader startup/reset coverage remains open"
   },
   "links": {
     "source": "https://github.com/rewinddv/rewindDV",

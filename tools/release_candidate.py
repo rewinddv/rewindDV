@@ -195,11 +195,13 @@ def versions(root, env):
     return versions_from_settings(root, settings)
 
 
-def release_identity(v, channel, tag):
+def release_identity(v, channel, tag, signing="unsigned"):
     require(channel in {"alpha", "beta", "rc", "stable"}, "Unknown release channel")
     expected = ("v" if channel == "stable" else channel + "-") + v["application_version"]
     require(tag == expected and tag not in HISTORICAL, "Tag/version mismatch or historical tag reuse")
-    return f"rewindDV-{channel.title()}-{v['application_version']}-Driver{v['driver_build']}-AppBuild{v['app_bundle_build']}-Unsigned.zip"
+    require(signing in {"unsigned", "ad-hoc"}, "Unknown artifact signing state")
+    suffix = "AdHoc" if signing == "ad-hoc" else "Unsigned"
+    return f"rewindDV-{channel.title()}-{v['application_version']}-Driver{v['driver_build']}-AppBuild{v['app_bundle_build']}-{suffix}.zip"
 
 
 def tag_guard(tag, source, refs, mode, release_exists=False):
@@ -251,7 +253,7 @@ def package(stage, output, name, v):
 def verify_artifact(candidate, receipt, expected_receipt_hash):
     require(file_sha(candidate / "provenance.json") == expected_receipt_hash, "Reviewed provenance receipt changed")
     a = receipt["artifact"]
-    name = release_identity(receipt["versions"], receipt["channel"], receipt["tag"])
+    name = release_identity(receipt["versions"], receipt["channel"], receipt["tag"], signing=receipt.get("signing", "unsigned"))
     require(a["name"] == name, "Artifact naming/version mismatch")
     archive = candidate / name
     require(not any(p.is_symlink() for p in candidate.iterdir()), "Candidate symlink refused")

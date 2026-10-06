@@ -6,17 +6,15 @@ lifecycle identities. Current bounded development evidence is summarized in
 historical; neither establishes full-tape endurance nor qualifies the downloadable
 artifact.
 
-The current source includes DMA alignment handling for partial receive completions,
-bounded capture reset recovery and shutdown supervision, FCP response submission
-ordering, reset-ingress Self-ID retention, cancellation of obsolete reset recovery,
-and control-timer startup ordering. The application also opens macOS driver
-approval settings directly. Regression coverage is offline unless separately
-identified; compiling this public projection does not qualify a signed binary.
+Normal capture STOP has bounded positive receive-retirement evidence in current
+B190 development. Live DriverKit extension disable/unload, hot replacement and
+reboot-free removal remain unqualified. Follow the shutdown/restart maintenance
+procedure; never use global extension disable as a capture-session STOP.
 
-Spontaneous device disappearance remains an unresolved investigation. This source
-checkpoint does not establish its initiating cause, uninterrupted capture through
-a disconnect, or full-tape endurance. Capture recovery preserves recorded gaps and
-uncertainty instead of claiming that missing packets were recovered.
+Startup/reset behavior, earlier device disappearance, full-tape endurance,
+provider-loss during capture, sleep/wake and physical PAL/HDV capture remain open
+areas. No continuing reset or active uncertainty occurred during the current
+bounded captures. Retained gaps and unknown source quality remain authoritative.
 
 - Saved raw DV25 NTSC/PAL playback and transitions are validated offline. Physical
   PAL capture, HDV playback and broader device/audio-format transitions remain
@@ -43,9 +41,9 @@ The targeted Alpha 0.0.77 scenarios passed on the configuration in
 - Natural end-of-tape, hour-long endurance, other hardware/formats and
   active-capture disconnect/power loss remain unqualified. Blank video or absent
   timecode does not establish EOT.
-- Historical independent controller/coordinator teardown, completion lifetime
-  and AV/C reset/ownership review gaps remain open. Compilation and host tests
-  do not close those gaps or establish every real-device timing behavior.
+- Current source includes reviewed driver ownership and cancellation-lifetime
+  hardening. Live global unload and broader physical timing coverage remain
+  unqualified; compilation and host tests do not establish them.
 - The existing bounded diagnostic journal normally synchronizes every five
   seconds and uses one-second UI observations. Export requests a flush; recent
   records can still be lost in a crash or power failure. Support ZIPs have size

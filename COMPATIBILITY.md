@@ -1,36 +1,47 @@
 # Bounded compatibility evidence
 
 <!-- project-status:start -->
-**Current development:** Alpha 0.0.87 / Driver B188. [Reviewed public source](https://github.com/rewinddv/rewindDV/tree/eca8ebfd5bc8a5096441cf3c1b67d2a48a1cdb66).
+**Current development:** Alpha 0.0.89 / Driver B190. App build 188. [Reviewed public source](https://github.com/rewinddv/rewindDV/tree/934953a4771e4a50f1fa71c830bd37ac3cd39dbb).
 
 **Latest public download:** [Alpha 0.0.81 / Driver B183](https://github.com/rewinddv/rewindDV/releases/tag/alpha-0.0.81) — engineering prerelease, ad-hoc signed and not notarized. Installation requires disabling SIP, which reduces macOS security.
 
 Development source and bounded tests do not approve a new download. Application versions and driver builds advance independently. [Machine-readable status](PROJECT-STATUS.json).
 <!-- project-status:end -->
 
-## 2026-10-04 development candidate: bounded physical evidence
+## Current Alpha 0.0.89 / Driver B190 development
 
-On 2026-10-04, the unchanged Alpha 0.0.87 / B188 development candidate passed
-four bounded recorded-NTSC-DV captures on Apple silicon, macOS 27.0.1 and one
-Sony HVR-M15U with the existing tested adapter chain (PCI 11c1:5901).
-After a Mac-side adapter restart, the captures contained 763, 717, 18,265 and
-765 complete frames. The longest saved DV was 609.442 seconds; receive ownership
-was 613.448 seconds. Saved hashes, frame accounting, stopped-state observations,
-quiesced receive close and normal app shutdown checks passed.
+On one Sony HVR-M15U setup using Apple silicon, macOS 27.0.1 and the supported
+Apple adapter chain, the development-signed candidate passed stationary startup
+and sixty-second idle observation, short NTSC DV capture, same-app capture
+re-entry, capture after a normal app quit/reopen, approximately sixty seconds of
+capture, and an operator-stopped four-minute automated capture job.
 
-These are empirical results for that development installation, not installation
-or hardware qualification of the downloadable ad-hoc package. Each capture
-retained two counter discontinuities after empty packets and one terminal partial
-frame. Zero reported host-ring drops does not prove uninterrupted hardware
-continuity or pristine audiovisual content. The long preview had two unusable-PCM
-frame observations; subjective saved-playback acceptance remains pending.
+The five captures saved 79, 300, 119, 1,789 and 7,134 complete NTSC frames.
+Saved durations were 2.636, 10.010, 3.971, 59.693 and 238.038 seconds. The first
+two differed from the nominal four-second target; actual durations are retained.
+Each had positive capture-owned receive retirement, final acknowledgement and
+independent saved-byte hash verification. The driver remained loaded throughout.
 
-The earlier device disappearance remains unexplained. Reconnecting the Mac-side
-adapter recreated the attachment and restored bounded operation; it does not
-isolate the cause or establish a permanent fix. Full tapes, natural EOT, induced
-resets during capture, physical PAL/HDV capture and HDV playback remain unqualified.
-The app deployment floor is macOS 26; broader OS/hardware/storage support remains
-unverified. App arm64 and driver arm64e target Apple silicon; Intel is unsupported.
+All five reported zero host-ring drops, oversized packets and rejected packets.
+Each retained two continuity-counter changes after empty packets and one terminal
+partial frame; none of those changes discarded a partial frame. Exact missing
+frames, hardware continuity and source recording quality remain unknown.
+
+These observations apply to the tested development-signed runtime. The separately
+built public ad-hoc package has not been installed or physically qualified.
+Its signatures and offline checks are separate evidence. A successful capture
+STOP does not unload the extension; live unload/replacement remains unqualified.
+Use the shutdown/restart-based maintenance procedure in [UNINSTALL](UNINSTALL.md).
+The four-minute job was intentionally stopped by the operator, not completed to
+end of tape. Full-tape completion/endurance, natural EOT, physical PAL/HDV capture,
+provider-loss/reconnect, sleep/wake and broader hardware remain unqualified.
+
+## Historical Alpha 0.0.87 / B188 development evidence
+
+Earlier development had four bounded NTSC captures, including 609.442 seconds of
+saved DV after a Mac-side adapter restart. That older result is not the current
+candidate's endurance qualification. Its earlier device-disappearance cause
+remains unresolved. Historical release and source identities are preserved.
 
 ## Historical Alpha 0.0.77 / retained B183 evidence
 

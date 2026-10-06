@@ -1,4 +1,4 @@
-# rewindDV Alpha 0.0.81 · Driver Build183
+# rewindDV Alpha 0.0.89 · Driver B190
 
 Engineering alpha. Ad-hoc signed and not notarized.
 
@@ -24,26 +24,28 @@ The driver matches FireWire OHCI PCI controller 11c1:5901, as used by the tested
 Apple Thunderbolt-to-FireWire adapter chain. A USB-to-FireWire cable is not a
 substitute. Other controller IDs are unsupported by this build.
 
+Live extension unload/hot replacement and reboot-free removal are unqualified. Use the shutdown/restart procedure in UNINSTALL.md. Normal capture STOP keeps the driver loaded and has bounded receive-retirement evidence.
+
 Natural end-of-tape, full-length endurance, physical PAL DV capture, HDV playback/capture, active-capture
 disconnect and power loss remain unqualified. Blank video or missing timecode
 does not establish end-of-tape. Unknown continuity, missing-frame counts and
 unresolved content-quality markers remain unknown. Saved-byte hashes establish
 byte consistency, not flawless audiovisual content. Keep physical STOP available.
 
-This app was built from the published Alpha 0.0.81 source with ad-hoc signing.
-The exact signed Build183 extension is retained from Alpha 0.0.77.
+This app was built from the published Alpha 0.0.89 source with ad-hoc signing.
+Both the app and B190 extension are freshly built from the exact published source and signed ad hoc.
 Offline checks passed;
-the packaged ad-hoc app has not been installed or newly physically qualified.
+the exact packaged ad-hoc app/driver have not been installed or newly physically qualified. Bounded B190 development-signed capture evidence is described in COMPATIBILITY.md.
 Fresh-system installation and broader compatibility remain unverified.
 
 ## Verify the download
 
 Download the ZIP and its checksum sidecar together from
-https://github.com/rewinddv/rewindDV/releases/tag/alpha-0.0.81.
+https://github.com/rewinddv/rewindDV/releases/tag/alpha-0.0.89.
 Open Terminal in their containing folder and run:
 
 ```sh
-shasum -a 256 -c rewindDV-Alpha-0.0.81-Build183-AdHoc.zip.sha256
+shasum -a 256 -c rewindDV-Alpha-0.0.89-Driver190-AppBuild188-AdHoc.zip.sha256
 ```
 
 Expect `OK`. Stop if verification fails. A sidecar detects corruption; it does
@@ -62,8 +64,7 @@ local re-signing is required. Re-signing changes the released bytes.
 
 ## Prepare and install
 
-1. Save work and back up. Stop tape motion, quit capture applications and
-   disconnect FireWire. If an older rewindDV app/driver is installed, follow
+1. Save work and back up. Finish capture verification, stop tape motion and quit capture applications. Do not unplug an active driver or use live extension disable. Shut down normally, disconnect FireWire while powered off, then start with it disconnected. If an older rewindDV app/driver is installed, follow
    `UNINSTALL.md` first; retain a separately verified previous package if you
    need rollback. Do not overwrite an active older driver.
 2. Shut down the Mac. Hold power until startup options appear; select
@@ -92,8 +93,8 @@ local re-signing is required. Re-signing changes the released bytes.
    Approval may appear in **General → Login Items & Extensions → Driver
    Extensions** or **Privacy & Security**, depending on macOS.
 5. Restart. Open the app, reconnect the adapter and powered-on deck with tape
-   stopped, and verify Diagnostics shows **Build183** attached and responding.
-   About rewindDV must show **Alpha 0.0.81**. Activation acceptance alone does
+   stopped, and verify Diagnostics shows **B190** attached and responding.
+   About rewindDV must show **Alpha 0.0.89**. Activation acceptance alone does
    not establish readiness. Stop if versions mismatch or a lockout appears.
 
 If activation or connection fails, avoid repeated activation/reboot attempts.

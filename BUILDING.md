@@ -4,7 +4,7 @@ Use Xcode 27 and its installed Apple SDKs on macOS. Preserve the project's
 per-target architectures and deployment settings. The app deployment floor is
 macOS 26.0; that setting alone is not a qualification claim for every OS release.
 Source verification uses an unsigned Release build of the app and dependent
-driver. It does not rebuild or replace the existing signed development artifacts.
+driver. Public distribution builds are prepared independently; local development artifacts remain immutable.
 
 Clone `https://github.com/rewinddv/rewindDV.git` and run from its root.
 The automatic source archives on historical LAB release tags are hub snapshots;
