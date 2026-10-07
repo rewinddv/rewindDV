@@ -271,6 +271,26 @@ class SourceTests(unittest.TestCase):
             r.source_guard(self.root, self.g("rev-parse", "HEAD"))
 
 
+class DisclosureBlobTests(unittest.TestCase):
+    def reviewed_document(self):
+        return (Path(__file__).resolve().parents[1] / "Foundation/CLIAndMCP.md").read_bytes()
+
+    def test_exact_reviewed_cli_examples_pass(self):
+        r.inspect_source_blob(self.reviewed_document())
+
+    def test_added_private_path_invalidates_document_exception(self):
+        data = self.reviewed_document() + b"/" + b"Users/fixture-user/private-input"
+        with self.assertRaises(r.GateError): r.inspect_source_blob(data)
+
+    def test_same_example_in_unreviewed_blob_still_fails(self):
+        data = b"/".join([b"", b"Volumes", b"DV", b"Capture 001.dv"])
+        with self.assertRaises(r.GateError): r.inspect_source_blob(data)
+
+    def test_reviewed_document_cannot_carry_added_credential(self):
+        data = self.reviewed_document() + b"ghp_" + b"A" * 40
+        with self.assertRaises(r.GateError): r.inspect_source_blob(data)
+
+
 class PreparationTests(unittest.TestCase):
     def test_build_environment_drops_external_overrides(self):
         with tempfile.TemporaryDirectory() as t, patch.dict(os.environ, {

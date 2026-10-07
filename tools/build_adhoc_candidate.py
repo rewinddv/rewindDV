@@ -39,6 +39,7 @@ def main():
         ('status-tests', [sys.executable, '-B', 'tools/test_project_status.py']),
         ('source-status', [sys.executable, '-B', 'tools/project_status.py']),
         ('swift-tests', ['xcrun', 'swift', 'test', '--package-path', 'Foundation', '--disable-sandbox', '--scratch-path', str(work/'package'), '--cache-path', str(work/'cache'), '--config-path', str(work/'config'), '--security-path', str(work/'security')]),
+        ('public-cli-release-build', ['xcrun', 'swift', 'build', '--package-path', 'Foundation', '--product', 'rewinddv', '-c', 'release', '--disable-sandbox', '--scratch-path', str(work/'cli'), '--cache-path', str(work/'cli-cache'), '--config-path', str(work/'cli-config'), '--security-path', str(work/'cli-security'), '-Xswiftc', '-file-prefix-map', '-Xswiftc', str(root)+'=/rewindDV', '-Xswiftc', '-debug-prefix-map', '-Xswiftc', str(root)+'=/rewindDV']),
         ('public-release-build', ['xcodebuild', '-project', gate.PROJECT, '-target', 'RewindDV', '-configuration', 'Release', 'SYMROOT='+str(work/'products'), 'OBJROOT='+str(work/'objects'), 'CLANG_MODULE_CACHE_PATH='+str(work/'modules'), 'CODE_SIGNING_ALLOWED=NO', 'CODE_SIGNING_REQUIRED=NO', 'DEVELOPMENT_TEAM=', 'OTHER_CFLAGS=$(inherited) -ffile-prefix-map='+str(root)+'=/rewindDV -fdebug-prefix-map='+str(root)+'=/rewindDV', 'OTHER_CPLUSPLUSFLAGS=$(inherited) -ffile-prefix-map='+str(root)+'=/rewindDV -fdebug-prefix-map='+str(root)+'=/rewindDV', 'OTHER_SWIFT_FLAGS=$(inherited) -file-prefix-map '+str(root)+'=/rewindDV -debug-prefix-map '+str(root)+'=/rewindDV', 'build'])]:
         checks.append(gate.checked_command(command, root, env, work, label))
     gate.source_guard(root, args.source)
@@ -69,10 +70,30 @@ def main():
     for file in app.rglob('*'):
         gate.require(not file.is_symlink(), 'Bundle symlink requires independent review')
         if file.is_file(): file.chmod(0o755 if file.name in ['RewindDV', gate.DRIVER_ID] else 0o644)
+    # SwiftPM's native Xcode build backend emits into out/Products/Release.
+    # Resolve through --show-bin-path rather than assuming a backend layout.
+    cli_bin = Path(gate.run(['xcrun', 'swift', 'build', '--package-path', 'Foundation',
+        '--product', 'rewinddv', '-c', 'release', '--scratch-path', str(work/'cli'),
+        '--show-bin-path'], env=env)) / 'rewinddv'
+    cli = stage/'rewinddv'
+    shutil.copyfile(cli_bin, cli); cli.chmod(0o755)
+    gate.run(['codesign', '--force', '--sign', '-', '--options', 'runtime',
+              '--timestamp=none', str(cli)], env=env)
+    gate.run(['codesign', '--verify', '--strict', str(cli)], env=env)
+    signature = subprocess.run(['codesign', '-d', '--verbose=4', str(cli)],
+                               capture_output=True, text=True, env=env)
+    gate.require(signature.returncode == 0 and 'Signature=adhoc' in signature.stderr
+                 and 'TeamIdentifier=not set' in signature.stderr
+                 and 'Authority=' not in signature.stderr and 'runtime' in signature.stderr,
+                 'CLI ad-hoc signature identity/runtime mismatch')
+    gate.require(gate.run(['lipo', '-archs', str(cli)], env=env) == 'arm64',
+                 'CLI architecture changed')
+    (work/'cli-signature.txt').write_text(signature.stderr)
+    shutil.copyfile(root/'Foundation/CLIAndMCP.md', stage/'CLIAndMCP.md')
     for doc in ['INSTALL.md', 'UNINSTALL.md', 'LICENSE', 'NOTICE', 'ThirdPartyNotices.txt', 'SOURCE-PROVENANCE.txt']:
         shutil.copyfile(root/doc, stage/doc)
     shutil.copytree(root/'licenses', stage/'licenses')
-    (stage/'READ-ME.txt').write_text('rewindDV Alpha '+versions['application_version']+' / app'+versions['app_bundle_build']+' / Driver B'+versions['driver_build']+'\nAd-hoc signed engineering prerelease; not notarized. Read INSTALL.md and UNINSTALL.md before use.\nExact packaged artifact has not been installed or physically qualified. Development-source bounded NTSC capture evidence is separate.\nLive extension unload and hot replacement are unqualified; use the documented shutdown/restart maintenance procedure.\nSource: https://github.com/'+gate.REPOSITORY+'/commit/'+args.source+'\n')
+    (stage/'READ-ME.txt').write_text('rewindDV Alpha '+versions['application_version']+' / app'+versions['app_bundle_build']+' / Driver B'+versions['driver_build']+'\nAd-hoc signed engineering prerelease; not notarized. Read INSTALL.md and UNINSTALL.md before use.\nExact packaged artifact has not been installed or physically qualified. Development-source bounded NTSC capture evidence is separate.\nLive extension unload and hot replacement are unqualified; use the documented shutdown/restart maintenance procedure.\nIncludes the ad-hoc signed arm64 rewinddv CLI / MCP client. Read CLIAndMCP.md; start the app and accept its notice before ./rewinddv status or ./rewinddv mcp. External path grants are session-scoped.\nSource: https://github.com/'+gate.REPOSITORY+'/commit/'+args.source+'\n')
     candidate = output/'candidate'; candidate.mkdir()
     artifact = gate.package(stage, candidate, name, versions)
     spec = importlib.util.spec_from_file_location('disclosure', root/'tools/check-publication-content.py')

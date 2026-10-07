@@ -1,4 +1,4 @@
-# rewindDV Alpha 0.0.89 · Driver B190
+# rewindDV Alpha 0.0.93 · Driver B190
 
 Engineering alpha. Ad-hoc signed and not notarized.
 
@@ -32,7 +32,7 @@ does not establish end-of-tape. Unknown continuity, missing-frame counts and
 unresolved content-quality markers remain unknown. Saved-byte hashes establish
 byte consistency, not flawless audiovisual content. Keep physical STOP available.
 
-This app was built from the published Alpha 0.0.89 source with ad-hoc signing.
+This app was built from the published Alpha 0.0.93 source with ad-hoc signing.
 Both the app and B190 extension are freshly built from the exact published source and signed ad hoc.
 Offline checks passed;
 the exact packaged ad-hoc app/driver have not been installed or newly physically qualified. Bounded B190 development-signed capture evidence is described in COMPATIBILITY.md.
@@ -41,11 +41,11 @@ Fresh-system installation and broader compatibility remain unverified.
 ## Verify the download
 
 Download the ZIP and its checksum sidecar together from
-https://github.com/rewinddv/rewindDV/releases/tag/alpha-0.0.89.
+https://github.com/rewinddv/rewindDV/releases/tag/alpha-0.0.93.
 Open Terminal in their containing folder and run:
 
 ```sh
-shasum -a 256 -c rewindDV-Alpha-0.0.89-Driver190-AppBuild188-AdHoc.zip.sha256
+shasum -a 256 -c rewindDV-Alpha-0.0.93-Driver190-AppBuild188-AdHoc.zip.sha256
 ```
 
 Expect `OK`. Stop if verification fails. A sidecar detects corruption; it does
@@ -57,7 +57,14 @@ codesign -d --verbose=4 './RewindDV.app'
 codesign -d --verbose=4 './RewindDV.app/Contents/Library/SystemExtensions/net.rewinddigital.RewindDV.Driver.dext'
 ```
 
-Both signatures must report `Signature=adhoc` and `TeamIdentifier=not set`.
+Verify the included CLI as well:
+
+```sh
+codesign --verify --strict './rewinddv'
+codesign -d --verbose=4 './rewinddv'
+```
+
+App, driver and CLI signatures must report `Signature=adhoc` and `TeamIdentifier=not set`.
 Ad-hoc signing provides an integrity check, not an Apple-verified publisher or
 notarization. No developer account, device registration, profile download or
 local re-signing is required. Re-signing changes the released bytes.
@@ -94,7 +101,7 @@ local re-signing is required. Re-signing changes the released bytes.
    Extensions** or **Privacy & Security**, depending on macOS.
 5. Restart. Open the app, reconnect the adapter and powered-on deck with tape
    stopped, and verify Diagnostics shows **B190** attached and responding.
-   About rewindDV must show **Alpha 0.0.89**. Activation acceptance alone does
+   About rewindDV must show **Alpha 0.0.93**. Activation acceptance alone does
    not establish readiness. Stop if versions mismatch or a lockout appears.
 
 If activation or connection fails, avoid repeated activation/reboot attempts.
@@ -102,6 +109,20 @@ Request help through a minimal, sanitized issue at
 https://github.com/rewinddv/rewindDV/issues or contact info@rewinddv.com.
 Review diagnostic exports privately; never post raw logs, support ZIPs,
 personal paths, device identities or footage to public issues.
+
+## CLI / MCP
+
+The ZIP includes an arm64 `rewinddv` executable and `CLIAndMCP.md`. Keep the
+verified client in a convenient directory, start the app, accept its alpha notice,
+and run `./rewinddv status`. Use `./rewinddv mcp` as a local stdio MCP server.
+If macOS applies download quarantine to the verified CLI, remove it only from
+that executable with `xattr -d com.apple.quarantine ./rewinddv`, then repeat the
+signature check. Do not change global Gatekeeper or AMFI settings.
+
+Playback, Surgery and offline inspection work without activating the driver.
+External source/destination paths need a GUI sandbox grant for the current
+session. Driver activation and supervised physical recovery remain interactive.
+The ad-hoc package is not notarized or a normal SIP-on distribution.
 
 ## Remove or roll back
 

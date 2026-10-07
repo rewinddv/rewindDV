@@ -265,7 +265,8 @@ release than current development is an expected, validated lifecycle state.
 ## Current public ad-hoc distribution preparation
 
 `tools/build_adhoc_candidate.py` builds both app and independent driver from one
-clean, full public checkout, runs source/software checks, signs nested bundles
+clean, full public checkout, runs source/software checks, builds the arm64 CLI/MCP
+client, signs the standalone CLI and nested bundles
 ad hoc with source entitlements and hardened runtime, removes build-machine
 metadata, and seals ZIP/manifest/provenance/checksum assets. It never installs,
 alters system security or publishes. Use a new external output directory and an
@@ -289,3 +290,8 @@ publication. Use a new candidate directory containing byte-identical reviewed
 files; never alter or replace already-published bytes or label a raw failed scan
 as an automated PASS. The producer retains provisional provenance before reporting
 a disclosure block so manual review can bind all candidate identities.
+
+The Alpha 0.0.93 preparation includes the CLI executable and usage document in
+the sealed archive. A narrowly hash-bound source-history exception recognizes
+two generic volume examples in the already-reviewed CLI usage blob; changed
+content and all other path/credential markers still fail the source gate.
