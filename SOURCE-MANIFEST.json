@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "source_revision": "8b2a549779016dde3e0c47bde6a9a37ff750d6e6",
+  "source_revision": "482cf2fcdee763535dd5e69a658886accce20f36",
   "scope": "Reviewed publishable source/build/test/notice surface; privacy transformations are recorded separately; public status and release tooling are independent.",
   "files": [
     {

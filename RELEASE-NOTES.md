@@ -1,14 +1,14 @@
 # Development and releases
 
 <!-- project-status:start -->
-**Current development:** Alpha 0.0.93 / Driver B190. App build 188. [Reviewed public source](https://github.com/rewinddv/rewindDV/tree/8b2a549779016dde3e0c47bde6a9a37ff750d6e6).
+**Current development:** Alpha 0.0.93 / Driver B190. App build 188. [Reviewed public source](https://github.com/rewinddv/rewindDV/tree/482cf2fcdee763535dd5e69a658886accce20f36).
 
-**Latest public download:** [Alpha 0.0.89 / Driver B190](https://github.com/rewinddv/rewindDV/releases/tag/alpha-0.0.89) — engineering prerelease, ad-hoc signed and not notarized. Installation requires disabling SIP, which reduces macOS security.
+**Latest public download:** [Alpha 0.0.93 / Driver B190](https://github.com/rewinddv/rewindDV/releases/tag/alpha-0.0.93) — engineering prerelease, ad-hoc signed and not notarized. Driver installation requires disabling SIP, which reduces macOS security. Offline playback, Surgery and inspection require no driver activation.
 
 Development source and bounded tests do not approve a new download. Application versions and driver builds advance independently. [Machine-readable status](PROJECT-STATUS.json).
 <!-- project-status:end -->
 
-## Current Alpha 0.0.93 / Driver B190 source
+## Alpha 0.0.93 / Driver B190 public download
 
 Saved-DV opening presents the first frame without a whole-file index. Rapid
 scrubbing prioritizes the latest request, and detailed metadata follows the
@@ -25,8 +25,13 @@ recovery remain attended. See [CLI/MCP](Foundation/CLIAndMCP.md).
 
 The current source passed offline package tests, native app/CLI builds and
 read-only CLI/MCP/socket checks. These changes do not add physical capture
-qualification or constitute a newly published binary. The latest downloadable
-package remains Alpha 0.0.89 / Driver B190.
+qualification. The separately built and verified latest downloadable
+package is Alpha 0.0.93 / Driver B190, including the native arm64 CLI/MCP client.
+The app, driver and CLI are ad-hoc signed with hardened runtime and are not
+notarized. Driver activation is unnecessary for offline playback and Surgery.
+The exact public package has not been installed or physically qualified.
+
+ZIP SHA-256: `1d72e36932700230d2be98e66dc8718e514761576a9e2c6ae867861cdbff23e8`.
 
 ## Retained Alpha 0.0.89 / Driver B190 source changes
 

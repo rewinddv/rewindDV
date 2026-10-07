@@ -1,5 +1,20 @@
 # Current development validation
 
+Alpha 0.0.93 / app188 / Driver B190 public source passes 273 Swift Testing
+cases, 14 XCTest cases, native app/driver/CLI Release builds, 38 release-tool
+regressions, 10 status tests and 10 disclosure tests. The restored public ZIP
+passes exact manifest/hash/mode checks, strict ad-hoc signature verification
+and architecture checks. The packaged client responds to read-only app status
+and enumerates all 66 MCP tools.
+
+Automated disclosure findings were retained and manually reviewed: a
+nonsemantic binary-byte collision, generic documented volume examples and
+structured signature resources. The reviewed package contains no personal
+signing identity or provisioning profiles. No fresh physical qualification or
+installation of this exact package was performed.
+
+## Retained Alpha 0.0.89 validation
+
 Alpha 0.0.89 / app188 / Driver B190 has completed source-bound offline validation:
 464 Swift Testing cases, 14 XCTest cases, 26 host/integration gates, 22 native
 playback runs, Debug/Release builds, and focused DMA, callback, transaction-identity

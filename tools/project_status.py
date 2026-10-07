@@ -78,7 +78,7 @@ def status_block(status):
             f"App build {d['application_build']}. [Reviewed public source]({status['links']['source']}/tree/{d['source_revision']}).\n\n"
             f"**Latest public download:** [Alpha {r['application_version']} / Driver B{r['driver_build']}]"
             f"({status['links']['release']}) — engineering prerelease, ad-hoc signed and not notarized. "
-            'Installation requires disabling SIP, which reduces macOS security.\n\n'
+            'Driver installation requires disabling SIP, which reduces macOS security. Offline playback, Surgery and inspection require no driver activation.\n\n'
             'Development source and bounded tests do not approve a new download. '
             'Application versions and driver builds advance independently. '
             '[Machine-readable status](PROJECT-STATUS.json).\n' + END)
