@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "source_revision": "934953a4771e4a50f1fa71c830bd37ac3cd39dbb",
+  "source_revision": "8b2a549779016dde3e0c47bde6a9a37ff750d6e6",
   "scope": "Reviewed publishable source/build/test/notice surface; privacy transformations are recorded separately; public status and release tooling are independent.",
   "files": [
     {
@@ -3994,6 +3994,12 @@
       "sha256": "e661446b9d1377ee289477d243f6f5c1d0fb22f7865b033bc213c6b01c3da7e7"
     },
     {
+      "path": "Foundation/App/AutomationCommandBridge.swift",
+      "mode": "100644",
+      "git_blob": "0e5094a3f7c240baa02321c1131fffe8c287b9dd",
+      "sha256": "97da8a3a59c24577df6425fe907681bb1db0edd528b10dd82eab04d3043f0d51"
+    },
+    {
       "path": "Foundation/App/AutomationStatusSnapshot.swift",
       "mode": "100644",
       "git_blob": "aad28921a94c35fc8913aa47a73cad034202605d",
@@ -4032,8 +4038,8 @@
     {
       "path": "Foundation/App/DVMetadataInspector.swift",
       "mode": "100644",
-      "git_blob": "92e9d913aa925ef2e0d15b5d9ab9b7d3a4932aa1",
-      "sha256": "cac81fa5a4cce40d90bdebbc6d6c1f51d58957a3140dacb54e17a8f9b5602091"
+      "git_blob": "ff28acc24b6a59665f13a3a283e2c813d81e4086",
+      "sha256": "c9ee9b424312e5cfb0acc3ac926d9ca5e4ea2f86679ede586e26c1b927718a93"
     },
     {
       "path": "Foundation/App/DVMetalFieldProcessor.swift",
@@ -4170,8 +4176,8 @@
     {
       "path": "Foundation/App/OfflineDVPlayback.swift",
       "mode": "100644",
-      "git_blob": "17b56ce1fdc0a4e7f84eb46dcc79c2a1a19fa881",
-      "sha256": "6d1b593cdb17daddd1242ce554698cb30861c6f5f1b6471d84f160319fea8f13"
+      "git_blob": "87927ace4b112c9602140f222a9186fe2722fb32",
+      "sha256": "4a76f9185fdd565cd277b5e3f17e93394488c2c4af51d06de1665ac0fbbbf2c4"
     },
     {
       "path": "Foundation/App/Resources/ASFireWire-LICENSE.txt",
@@ -4212,8 +4218,8 @@
     {
       "path": "Foundation/App/RewindDVApp.swift",
       "mode": "100644",
-      "git_blob": "ab5fccdb143654b622268564c9a51d50524ef3d5",
-      "sha256": "5913b8b656fe4931b36749170d457539c97f6f24cae35cde2dd47eb52b2386b4"
+      "git_blob": "a1e87f1badabdb1c745f1e16b96483ebced1fb26",
+      "sha256": "526af5563ee35f94d6d3467b125ae8e3304ba7b8d55f98773e11a09ff3cfbe2d"
     },
     {
       "path": "Foundation/App/RewindDVSection.swift",
@@ -4242,14 +4248,14 @@
     {
       "path": "Foundation/App/TapeEvidenceMapView.swift",
       "mode": "100644",
-      "git_blob": "db5c1bc728ba6625cba2cd5175d832dabb7a517f",
-      "sha256": "c94aafdb21c0df5edd4864e215388425b9b2690918bf8c8d3261be3d81492719"
+      "git_blob": "9fdca21c6f186e7824571505eb874507bdcbda2e",
+      "sha256": "d021ec50eaa006de187854b81d7a9a603b530ebfb5e6cad7d2b78f6fd5f6f559"
     },
     {
       "path": "Foundation/App/UnifiedMonitorWorkspace.swift",
       "mode": "100644",
-      "git_blob": "3e636804910d2fffea8e0e30d3b6c538e0c3ad20",
-      "sha256": "1762482de3824f8b4bf9e6415adfcf36adff4f9366220f6f13a44c72ff84b3b3"
+      "git_blob": "4cf6f317b0d4bd26eaa935c82f3c50f3047a2171",
+      "sha256": "4c7ea00019a7c1a29b9be1ae8dc8c206540cf35f132b323ec7c386cd9f62d1e2"
     },
     {
       "path": "Foundation/App/WholeTapeCaptureModel.swift",
@@ -4264,10 +4270,16 @@
       "sha256": "efc38c3e817c26c8a76b1acf894d8f877e90ef25b71f14aba4d65e8a7af15ec6"
     },
     {
+      "path": "Foundation/CLIAndMCP.md",
+      "mode": "100644",
+      "git_blob": "2e3a5ff50ac69caf59ae93ba8e8716f680dea716",
+      "sha256": "3198e089ee5f82c6e77f3659c63734e4ffd05c268d288c318df80de349fdfaec"
+    },
+    {
       "path": "Foundation/Config/AlphaVersion.txt",
       "mode": "100644",
-      "git_blob": "a82a0477e0dc6f05b8f07ecfc3cbd30188a5ace0",
-      "sha256": "a6c7552b99905adf0a7db61ba1ef2f962a91cb6ed63ad1e2344ec33e37bccb7d"
+      "git_blob": "ef25911de1cfcc038c6c65953b3e7c51b6fc3073",
+      "sha256": "2badf3eddd5cf1b3958184011104da7bf27e6d79c8a7d18fd241275cdef48ec9"
     },
     {
       "path": "Foundation/Config/App.entitlements",
@@ -4298,6 +4310,12 @@
       "mode": "100644",
       "git_blob": "8d7867f336a05e84cb23fe4a81ed9f438d05e490",
       "sha256": "27e5a9b80045614dccd3cd6fd4bc7b832782d4bb9f666caa9eac3dcdb03bcef3"
+    },
+    {
+      "path": "Foundation/DEVELOPMENT.md",
+      "mode": "100644",
+      "git_blob": "2d9d10c650efe2d199357d3b75790aafcc5686fc",
+      "sha256": "22d1ac68ce1312d457fa1e8d67c5d6d44c97ddbff2e3fae782e3f26d21c59e1c"
     },
     {
       "path": "Foundation/Docs/Alpha078ReleaseNotes.md",
@@ -4542,8 +4560,8 @@
     {
       "path": "Foundation/Package.swift",
       "mode": "100644",
-      "git_blob": "8a457cd8e0156bcb7ad9717203c602e981621edd",
-      "sha256": "627dfb4bbb2cff7be19746ecbf64487605ea4c29fa28ed38ecc424ba76d08a93"
+      "git_blob": "919ca6568e84781659786672eb0ace3327ea9590",
+      "sha256": "cd5499c87e98a4e4af26be65684caf5576088fb3e1c6beebd7576f05b7666a32"
     },
     {
       "path": "Foundation/RewindDV.xcodeproj/project.pbxproj",
@@ -4824,8 +4842,8 @@
     {
       "path": "Foundation/Sources/RewindDVMonitorCore/DVPlaybackTimeline.swift",
       "mode": "100644",
-      "git_blob": "4657a9e653a2ff5d893e085dccead06e3759fd61",
-      "sha256": "8f5439e3d00c7218b3ea80aead182b4e17d312a4d52ff1620009d5f94254a395"
+      "git_blob": "552487f59eb076cd23174c46b6a8070e46c32a87",
+      "sha256": "ab50bc64f7fa32008696e662095f783e10fa74f75ad6b4605391d59d568fd874"
     },
     {
       "path": "Foundation/Sources/RewindDVMonitorCore/DVPreviewPacketAssembler.swift",
@@ -4848,8 +4866,8 @@
     {
       "path": "Foundation/Sources/RewindDVMonitorCore/DVTechnicalSpecifications.swift",
       "mode": "100644",
-      "git_blob": "c32d6306bb990d5a0312950c46efc5504506c6db",
-      "sha256": "09b2d85dc5f1ca1a5d263fb05d06b5ee86935ed8fb46cb9382347de2dc240bf9"
+      "git_blob": "82c3e91e1037ac532998c466d62eb09eed826ae5",
+      "sha256": "36ec4e9478457330b501fcbfeca7dbedbc65ea7d92c2e5bd6284088b7a874e01"
     },
     {
       "path": "Foundation/Sources/RewindDVMonitorCore/DVViewingMode.swift",
@@ -4908,8 +4926,8 @@
     {
       "path": "Foundation/Sources/RewindDVMonitorCore/PlaybackDVMetadata.swift",
       "mode": "100644",
-      "git_blob": "df7f7e29c77a98848642e02cc57d6ee1cc652bbd",
-      "sha256": "66dfac79c1b7590100b3602787008c7fc13ce16dc19cfa83fc80aaf68f78ae00"
+      "git_blob": "97842cc99eb2fcedfd5b6cc2761fb4d70b4483f8",
+      "sha256": "0962a9ee342b352ee5c87d6f5cf541500c4a028b6414ab24e602ced4bd9b9662"
     },
     {
       "path": "Foundation/Sources/RewindDVMonitorCore/ReceiveMediaFormatEvidence.swift",
@@ -5190,8 +5208,8 @@
     {
       "path": "Foundation/Tests/RewindDVMonitorCoreTests/DVPlaybackTimelineTests.swift",
       "mode": "100644",
-      "git_blob": "0488ddb57aa6df787017c938b4e07b04c7c63c93",
-      "sha256": "965511f75e629dd87a7ad01dce1c828507bc05f7c0f153fdf78dc3d3d5a81ff5"
+      "git_blob": "6e7cef85c43d8ef2fd1eeb34b95a1d022e410b05",
+      "sha256": "331835537500c12aa043d97c8f704a859bf3ac60c5aee96b4d07e37b4bd5819a"
     },
     {
       "path": "Foundation/Tests/RewindDVMonitorCoreTests/DVPreviewPacketAssemblerTests.swift",
@@ -5262,8 +5280,8 @@
     {
       "path": "Foundation/Tests/RewindDVMonitorCoreTests/PlaybackDVMetadataTests.swift",
       "mode": "100644",
-      "git_blob": "d74e3d1bbcd76aa773ce42f403a2d393cce08581",
-      "sha256": "0cfccd3c9d9ba930e25999d912cd285cf0ffb61e31300c966b340a5871683996"
+      "git_blob": "b96c46665628d2b702ad4bfb8bd24a6715d2d521",
+      "sha256": "f1544f8518cbc28db826fd1b37000d3bbac38930311b35cdea86ce9f3a0fc9e1"
     },
     {
       "path": "Foundation/Tests/RewindDVMonitorCoreTests/ReceiveMediaFormatEvidenceTests.swift",
@@ -5352,8 +5370,38 @@
     {
       "path": "Foundation/Tools/OfflinePlaybackFormatRegression.swift",
       "mode": "100644",
-      "git_blob": "04ef27ca3d240366c82e622022b17264bd8091f4",
-      "sha256": "e5be6a8eeb6617a1c0da1bb606f3892aaee6204217a482d57ea97fa212c7f80a"
+      "git_blob": "6656fb21317cc9a4535782234184590ae46ca9a8",
+      "sha256": "77c1ba4276c3c816db673bdb9b20f9c589cbf5744f9b540f2e157b160f57a224"
+    },
+    {
+      "path": "Foundation/Tools/OfflinePlaybackInteractionRegression.swift",
+      "mode": "100644",
+      "git_blob": "d83ba680750b4963a1d357cdcc56635629bf1569",
+      "sha256": "107a37d748a30b3b1e52ebe9cec447d3fe1f76eea8be1e7a94c0fde729dc41b6"
+    },
+    {
+      "path": "Foundation/Tools/OfflinePlaybackOpenRegression.swift",
+      "mode": "100644",
+      "git_blob": "c2e1301756a6e67c25933f7e1997e66674eb304c",
+      "sha256": "3dcc0b9f8ca961232b2c363e1ba17ca9636adc783c7f10cc0842f7a006122f25"
+    },
+    {
+      "path": "Foundation/Tools/OfflinePlaybackScrubRegression.swift",
+      "mode": "100644",
+      "git_blob": "96b4e82480a3cfeb940bb2ef2f74da6f3e30098e",
+      "sha256": "2d2164617ce23ae316a7f86bfe3e8ef7c3331966a7555a6c6eda12117df67449"
+    },
+    {
+      "path": "Foundation/Tools/OfflinePlaybackSettingsRegression.swift",
+      "mode": "100644",
+      "git_blob": "70324d0837152b259206f030ebe09073b7941926",
+      "sha256": "96475123962e942bf988e60a0083efc2f805f570f61895dad64778668bb6b57f"
+    },
+    {
+      "path": "Foundation/Tools/OfflinePlaybackSmoke.swift",
+      "mode": "100644",
+      "git_blob": "59b83dc028193ab2e1bfc13d031a95be0c1dc2ba",
+      "sha256": "9b578698dcf3ad44edfbce7e19ed2d9619c1bc8e5f83023989c8583b7f22156c"
     },
     {
       "path": "Foundation/Tools/OfflineSurgeryRegression.swift",
@@ -5378,6 +5426,12 @@
       "mode": "100644",
       "git_blob": "c183acef97b308e428db57cdc4bbb13ec5a7d425",
       "sha256": "782511e916d3b4a5381a5ce19a742f608ab5ff8d5afc12627dd7e649b6745aef"
+    },
+    {
+      "path": "Foundation/Tools/RewindDVCommandCLI/main.swift",
+      "mode": "100644",
+      "git_blob": "222ef224f4271017efdd477de959d6cb3d5f250a",
+      "sha256": "4b52a128fce78fd084fa49b9f5c13fb7a09735b2bceff8e8d5b93e1045a3939a"
     },
     {
       "path": "Foundation/Tools/RewindDVInspect/main.swift",

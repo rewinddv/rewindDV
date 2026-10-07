@@ -71,3 +71,21 @@ identities. `python3 -B tools/project_status.py` verifies all manifested public
 inputs and generated current-status blocks; add `--live` to verify the latest
 GitHub download. Run `tools/test_release_candidate.py` and
 `tools/test-publication-content.py` for release/provenance and disclosure regressions.
+
+
+## Alpha 0.0.93 playback and automation
+
+`OfflinePlaybackOpenRegression.swift` checks first-picture readiness, repeated
+play/pause/stop, rapid seek convergence and close/reopen cancellation without
+automatic full-file indexing. `OfflinePlaybackScrubRegression.swift` checks 120
+rapid requests, selected-frame metadata and final-frame seeks using a finished
+raw DV file of at least 30 seconds. They exercise the native playback model and
+need a separately provided DV fixture; no private footage is distributed.
+The complete package suite covers exact/estimated timeline and metadata rules.
+
+Build the native CLI with `xcrun swift build --package-path Foundation --product
+rewinddv` using the same external scratch/cache paths. With a running app, MCP
+`initialize`, `tools/list`, `ping`, and read-only `status` validate the local
+interface without operating tape. See [CLI/MCP](Foundation/CLIAndMCP.md) for
+session-scoped sandbox path grants and attended hardware workflows. A build,
+tool listing or offline pass does not qualify physical capture or recovery.

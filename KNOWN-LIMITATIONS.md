@@ -1,5 +1,14 @@
 # Known limitations
 
+Current Alpha 0.0.93 playback opens without automatic whole-file indexing.
+Preview duration and frame ordinals are estimates until an explicit exact scan.
+A mixed NTSC/PAL seek can reach its position while inspector metadata remains
+unassociated with the displayed source frame; this is unresolved. CLI/MCP
+external path grants are session-scoped and may need renewal after restart.
+Physical supervised recovery and driver activation remain interactive.
+Alpha 0.0.93 software validation does not extend earlier hardware qualification.
+
+
 See [current development and latest public download](README.md) for independent
 lifecycle identities. Current bounded development evidence is summarized in
 [COMPATIBILITY](COMPATIBILITY.md). The earlier B183 evidence below remains

@@ -5,13 +5,15 @@ import unittest
 import project_status as status
 
 BASE = json.loads((Path(__file__).resolve().parents[1] / 'PROJECT-STATUS.json').read_text())
+ALPHA = BASE['development']['application_version']
+DRIVER = BASE['development']['driver_build']
 
 class StatusTests(unittest.TestCase):
     def test_older_download_is_valid(self):
         data = copy.deepcopy(BASE)
         data['public_release'].update(application_version='0.0.81', application_build=183, driver_build=183, tag='alpha-0.0.81')
         data['links']['release'] = data['links']['source'] + '/releases/tag/alpha-0.0.81'
-        status.validate_identities(data, '0.0.89', 190)
+        status.validate_identities(data, ALPHA, DRIVER)
 
     def test_app_only_update_keeps_driver(self):
         data = copy.deepcopy(BASE); data['development']['application_version'] = '0.0.90'
@@ -19,34 +21,34 @@ class StatusTests(unittest.TestCase):
 
     def test_driver_only_update_keeps_app(self):
         data = copy.deepcopy(BASE); data['development']['driver_build'] = 191
-        status.validate_identities(data, '0.0.89', 191)
+        status.validate_identities(data, ALPHA, 191)
 
     def test_source_disagreement_is_rejected(self):
-        for alpha, driver in [('0.0.88', 190), ('0.0.89', 189)]:
+        for alpha, driver in [('0.0.0', DRIVER), (ALPHA, DRIVER - 1)]:
             with self.assertRaises(ValueError): status.validate_identities(BASE, alpha, driver)
 
     def test_app_build_is_independent_and_checked(self):
         data = copy.deepcopy(BASE); data['development']['application_build'] = 189
-        status.validate_identities(data, '0.0.89', 190, app_build=189)
+        status.validate_identities(data, ALPHA, DRIVER, app_build=189)
         with self.assertRaises(ValueError):
-            status.validate_identities(data, '0.0.89', 190, app_build=188)
+            status.validate_identities(data, ALPHA, DRIVER, app_build=188)
 
     def test_capture_and_hot_unload_are_separate_states(self):
         data = copy.deepcopy(BASE)
         data['qualification']['capture'] = 'bounded capture passed'
         data['qualification']['hot_unload'] = 'unqualified'
-        status.validate_identities(data, '0.0.89', 190)
+        status.validate_identities(data, ALPHA, DRIVER)
         del data['qualification']['hot_unload']
-        with self.assertRaises(ValueError): status.validate_identities(data, '0.0.89', 190)
+        with self.assertRaises(ValueError): status.validate_identities(data, ALPHA, DRIVER)
 
     def test_current_block_labels_both_lifecycles(self):
         block = status.status_block(BASE)
-        self.assertIn('Current development:** Alpha 0.0.89 / Driver B190', block)
-        self.assertIn('Latest public download:** [Alpha 0.0.89 / Driver B190]', block)
+        self.assertIn(f'Current development:** Alpha {ALPHA} / Driver B{DRIVER}', block)
+        self.assertIn(f"Latest public download:** [Alpha {BASE['public_release']['application_version']} / Driver B{BASE['public_release']['driver_build']}]", block)
 
     def candidate(self):
         data = copy.deepcopy(BASE); r = data['public_release']
-        r.update(application_version='0.0.90', application_build=188, driver_build=190, tag='alpha-0.0.88', package_name='future.zip')
+        r.update(application_version='0.0.90', application_build=188, driver_build=190, tag='alpha-0.0.90', package_name='future.zip')
         remote = {'tag_name':r['tag'], 'draft':False, 'prerelease':True, 'assets':[
             {'name':r['package_name'], 'digest':'sha256:' + r['package_sha256']},
             {'name':r['package_name'] + '.sha256'}, {'name':'manifest.json','digest':'sha256:' + 'a' * 64}]}

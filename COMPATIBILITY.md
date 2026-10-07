@@ -1,7 +1,7 @@
 # Bounded compatibility evidence
 
 <!-- project-status:start -->
-**Current development:** Alpha 0.0.89 / Driver B190. App build 188. [Reviewed public source](https://github.com/rewinddv/rewindDV/tree/934953a4771e4a50f1fa71c830bd37ac3cd39dbb).
+**Current development:** Alpha 0.0.93 / Driver B190. App build 188. [Reviewed public source](https://github.com/rewinddv/rewindDV/tree/8b2a549779016dde3e0c47bde6a9a37ff750d6e6).
 
 **Latest public download:** [Alpha 0.0.89 / Driver B190](https://github.com/rewinddv/rewindDV/releases/tag/alpha-0.0.89) — engineering prerelease, ad-hoc signed and not notarized. Installation requires disabling SIP, which reduces macOS security.
 

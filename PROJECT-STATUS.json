@@ -1,11 +1,11 @@
 {
   "schema_version": 1,
   "development": {
-    "application_version": "0.0.89",
+    "application_version": "0.0.93",
     "driver_build": 190,
-    "source_revision": "934953a4771e4a50f1fa71c830bd37ac3cd39dbb",
-    "state": "source-published; software-validated; bounded capture runtime validated; ad-hoc engineering prerelease available; live unload unqualified",
-    "updated_utc": "2026-10-06T03:40:16.319674+00:00",
+    "source_revision": "8b2a549779016dde3e0c47bde6a9a37ff750d6e6",
+    "state": "source-published; frame-local playback and CLI/MCP software-validated; inherited bounded B190 capture evidence; latest engineering download remains Alpha089; live unload unqualified",
+    "updated_utc": "2026-10-07T01:15:01.372917+00:00",
     "application_build": 188
   },
   "public_release": {
@@ -21,7 +21,7 @@
     "application_build": 188
   },
   "qualification": {
-    "public_summary": "Alpha 0.0.89 / B190 development passed software validation and five bounded NTSC DV captures on one Sony HVR-M15U setup, including normal capture STOP, same-session re-entry, fresh-app re-entry, about sixty seconds and a four-minute operator-stopped capture job. This does not establish fresh-system installation or hardware qualification of the separately packaged ad-hoc binary. Full-tape completion, broader hardware and formats remain unqualified.",
+    "public_summary": "Alpha 0.0.93 adds frame-local playback and 66 local CLI/MCP tools validated through offline tests, native builds, socket responsiveness and installed read-only automation. No new physical capture qualification was performed for Alpha 0.0.93. Earlier Alpha 0.0.89 / B190 bounded NTSC capture, STOP and re-entry evidence remains scoped to one development-signed setup; exact public-package installation, full-tape completion and broader hardware remain unqualified.",
     "architecture": "Apple silicon (app arm64, driver arm64e); Intel unsupported",
     "macos_deployment_floor": "26.0",
     "bounded_runtime_macos": [
@@ -30,13 +30,14 @@
     "hardware_scope": "Sony HVR-M15U, recorded NTSC DV, tested Apple adapter chain, PCI 11c1:5901",
     "pal_capture": "not physically qualified",
     "hdv_capture": "not physically qualified",
-    "dv_playback": "saved raw DV25 NTSC/PAL and transitions validated offline",
+    "dv_playback": "frame-local open and latest-request scrubbing validated offline; preview coordinates are estimates until explicit exact scan; mixed-format seek inspector association remains unresolved",
     "hdv_playback": "not qualified",
     "full_tape_endurance": "not qualified for the current B190 candidate; bounded job stopped at four minutes",
     "distribution": "Engineering packages are ad-hoc signed, not notarized, and require SIP disabled. Fresh-system installation and exact public-package hardware qualification remain unverified.",
     "capture": "bounded NTSC DV capture and normal receive retirement passed on one Sony HVR-M15U setup; longest saved DV 238.038 seconds; full-tape completion intentionally omitted",
     "hot_unload": "unqualified; use shutdown/restart-based replacement or removal; successful live extension disable is not a prerequisite for normal capture STOP",
-    "startup": "stable final generation before capture; no reset observed during these bounded captures; broader startup/reset coverage remains open"
+    "startup": "stable final generation before capture; no reset observed during these bounded captures; broader startup/reset coverage remains open",
+    "automation": "66 same-user CLI/MCP tools; session-scoped sandbox grants; driver activation and physical recovery require interactive GUI; no new hardware automation qualification"
   },
   "links": {
     "source": "https://github.com/rewinddv/rewindDV",

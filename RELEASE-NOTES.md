@@ -1,14 +1,34 @@
 # Development and releases
 
 <!-- project-status:start -->
-**Current development:** Alpha 0.0.89 / Driver B190. App build 188. [Reviewed public source](https://github.com/rewinddv/rewindDV/tree/934953a4771e4a50f1fa71c830bd37ac3cd39dbb).
+**Current development:** Alpha 0.0.93 / Driver B190. App build 188. [Reviewed public source](https://github.com/rewinddv/rewindDV/tree/8b2a549779016dde3e0c47bde6a9a37ff750d6e6).
 
 **Latest public download:** [Alpha 0.0.89 / Driver B190](https://github.com/rewinddv/rewindDV/releases/tag/alpha-0.0.89) — engineering prerelease, ad-hoc signed and not notarized. Installation requires disabling SIP, which reduces macOS security.
 
 Development source and bounded tests do not approve a new download. Application versions and driver builds advance independently. [Machine-readable status](PROJECT-STATUS.json).
 <!-- project-status:end -->
 
-## Current Alpha 0.0.89 / Driver B190 source
+## Current Alpha 0.0.93 / Driver B190 source
+
+Saved-DV opening presents the first frame without a whole-file index. Rapid
+scrubbing prioritizes the latest request, and detailed metadata follows the
+selected frame after gesture release. Exact coordinates and full-file forensic
+assessment remain explicit scans; preview duration and ordinals are estimates.
+Mixed-format seek metadata association remains an unresolved limitation.
+
+A native `rewinddv` CLI also serves 66 MCP tools over stdio, using the running
+app's same-user local socket and existing operation guards. Playback, Surgery,
+archive inspection, evidence maps, review, multi-pass comparison and recovery-plan
+preparation are available without the driver. External paths require a GUI
+sandbox grant for the current session. Driver activation and physical supervised
+recovery remain attended. See [CLI/MCP](Foundation/CLIAndMCP.md).
+
+The current source passed offline package tests, native app/CLI builds and
+read-only CLI/MCP/socket checks. These changes do not add physical capture
+qualification or constitute a newly published binary. The latest downloadable
+package remains Alpha 0.0.89 / Driver B190.
+
+## Retained Alpha 0.0.89 / Driver B190 source changes
 
 Current source hardens DMA retirement and transaction identity, device-generation
 lifetimes, dispatch and callback ownership, user-client runtime binding, and

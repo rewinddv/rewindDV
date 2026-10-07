@@ -1,5 +1,5 @@
 rewindDV current public source snapshot
-Application Alpha 0.0.89; app build188; independent Driver build190.
+Application Alpha 0.0.93; app build188; independent Driver build190.
 The published build surface is selected from accepted development using a
 reviewed allowlist, active project references and literal local-include closure.
 Selected root ASFWDriver dependencies and focused regression tooling are included.
@@ -12,3 +12,7 @@ SOURCE-MANIFEST.json pins exact publishable input paths and hashes to a public
 source revision. PROJECT-STATUS.json independently records development, download
 and bounded qualification. Artifact provenance binds each engineering package
 back to its exact public source commit and tree.
+
+Current source includes frame-local playback and the app-owned native CLI /
+stdio MCP interface. Latest public download and hardware evidence retain their
+independent lifecycle identities in PROJECT-STATUS.json.

@@ -20,7 +20,7 @@ application and driver source, engineering downloads, documentation, issues and
 contributions. Visit [rewinddv.com](https://rewinddv.com) for the project website.
 
 <!-- project-status:start -->
-**Current development:** Alpha 0.0.89 / Driver B190. App build 188. [Reviewed public source](https://github.com/rewinddv/rewindDV/tree/934953a4771e4a50f1fa71c830bd37ac3cd39dbb).
+**Current development:** Alpha 0.0.93 / Driver B190. App build 188. [Reviewed public source](https://github.com/rewinddv/rewindDV/tree/8b2a549779016dde3e0c47bde6a9a37ff750d6e6).
 
 **Latest public download:** [Alpha 0.0.89 / Driver B190](https://github.com/rewinddv/rewindDV/releases/tag/alpha-0.0.89) — engineering prerelease, ad-hoc signed and not notarized. Installation requires disabling SIP, which reduces macOS security.
 
@@ -53,6 +53,12 @@ See [release provenance and future releases](RELEASING.md).
 - Saved raw DV playback supports offline-validated NTSC/PAL transitions, seeking,
   frame stepping and source-frame inspector values. Preview controls do not
   rewrite captured media.
+- Frame-local file opening and latest-request scrubbing avoid automatic full-file
+  indexing. Exact coordinates remain an explicit scan, and preview estimates
+  stay labeled. Mixed-format inspector association remains an open issue.
+- [Native CLI and 66 local MCP tools](Foundation/CLIAndMCP.md) control playback,
+  Surgery and offline review through the running app's operation guards.
+  External sandbox paths require a GUI grant for the current session.
 - Metadata, tape maps, reports and recovery tools preserve unknown, invalid and
   conflicting observations. Recovery derivatives remain separate from originals.
 - Local diagnostic evidence helps investigate failures without automatically
