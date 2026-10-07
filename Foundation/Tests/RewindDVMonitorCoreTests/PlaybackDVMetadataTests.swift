@@ -87,6 +87,15 @@ private actor HeldMetadataAnalyzer {
   #expect(sampler.report == nil)
 }
 
+@Test @MainActor func frameLocalMetadataQualifiesPreviewOrdinalAndKeepsSourceOffset() async throws {
+  let sampler = PlaybackDVMetadata { _, ordinal, _ in try snapshot(ordinal) }
+  sampler.offer(Data(), ordinal: 5, byteOffset: 600_000, paused: true,
+    presentationConfirmed: true, ordinalIsEstimated: true)
+  try await eventually { sampler.report?.frameOrdinal == 5 }
+  #expect(sampler.ordinalIsEstimated && sampler.status.contains("Source byte 600000"))
+  #expect(sampler.status.contains("estimated frame 5"))
+}
+
 @Test func metadataSummaryRetainsHDVTransport() {
   let sections = [DVTechnicalSpecifications.Section(title: "HDV transport", rows: [
     .init(label: "Format", value: "HDV", evidence: "Synthetic transport observation")])]

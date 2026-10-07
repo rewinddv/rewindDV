@@ -11,9 +11,13 @@ import RewindDVMonitorCore
 /// grouping live in the core layers; this view only renders immutable evidence.
 struct DVMetadataInspector: View {
   let report: DVPackSemanticReport
+  var ordinalIsEstimated = false
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
-      Text("Frame pack metadata · frame \(report.frameOrdinal)").font(.headline)
+      Text(ordinalIsEstimated ? "Selected frame pack metadata" : "Frame pack metadata · frame \(report.frameOrdinal)").font(.headline)
+      if ordinalIsEstimated {
+        Text("Source byte offsets identify this frame. Frame numbers are preview estimates; the whole-file timeline has not been assessed.").font(.caption)
+      }
       Text(report.format).font(.caption).textSelection(.enabled)
       Text("Every observed pack is listed by ID and name. Known fields have labels; unknown or unqualified payloads retain labelled raw bytes. Packs absent from this sampled frame are not invented.")
         .font(.caption).foregroundStyle(.secondary)

@@ -515,7 +515,7 @@ final class RewindDVModel: ObservableObject {
     }
   }
 
-  private func verifyArchive(_ url: URL) {
+  func verifyArchive(_ url: URL) {
     isBusy = true
     analysisError = nil
     archiveVerification = nil
@@ -651,6 +651,7 @@ struct RewindDVApp: App {
   @StateObject private var installer = SystemExtensionInstaller()
   @StateObject private var playback = OfflineDVPlaybackModel()
   @StateObject private var surgery = SurgeryModel()
+  @State private var commandBridge = RewindDVCommandBridge()
   @StateObject private var live = LiveMonitorModel()
   @StateObject private var wholeTape = WholeTapeCaptureModel()
   @StateObject private var tapeMap = TapeEvidenceMapModel()
@@ -706,7 +707,14 @@ struct RewindDVApp: App {
         .accessibilityIdentifier("page-\((model.page ?? .capture).accessibilityID)")
         .frame(minWidth: 760, minHeight: 560)
       }
-      .onAppear { appDelegate.bind(model: model, live: live) }
+      .onAppear {
+        appDelegate.bind(model: model, live: live)
+        commandBridge.start(model: model, playback: playback, surgery: surgery,
+                            live: live, wholeTape: wholeTape, installer: installer,
+                            tapeMap: tapeMap, recovery: recoveryPlanner, multiPass: multiPass,
+                            forensicPrefix: forensicPrefix,
+                            requestActivation: { showActivationConfirmation = true })
+      }
       .confirmationDialog(
         "Request \(DriverBuildRequirement.display) activation?",
         isPresented: $showActivationConfirmation,
@@ -720,6 +728,7 @@ struct RewindDVApp: App {
         )
       }
       .onDisappear {
+        commandBridge.stop()
         playback.close()
       }
       .task(id: scenePhase) {

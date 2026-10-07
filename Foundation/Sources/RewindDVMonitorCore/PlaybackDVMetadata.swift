@@ -20,6 +20,7 @@ import RewindDVArchiveCore
   @Published public private(set) var recordedClock: DVTechnicalSpecifications.Row?
   public private(set) var recordedClockFrameOrdinal: UInt64?
   @Published public private(set) var status = "Waiting for displayed DV frame"
+  @Published public private(set) var ordinalIsEstimated = false
   public private(set) var sampledFrames = 0
   public private(set) var maxPendingFrames = 0
   private struct Request: Sendable {
@@ -30,6 +31,7 @@ import RewindDVArchiveCore
     let generation: UUID
     let immediate: Bool
     let selectionOnly: Bool
+    let ordinalIsEstimated: Bool
     let observedAt: ContinuousClock.Instant
   }
   private var generation = UUID()
@@ -92,7 +94,7 @@ import RewindDVArchiveCore
 
   /// A paused offer is accepted only after the renderer confirms its pixel
   /// buffer. Playing samples are explicitly clock-associated, not display proof.
-  public func offer(_ bytes: Data, ordinal: UInt64, byteOffset: UInt64? = nil, geometry: DVAppleGeometry? = nil, paused: Bool, presentationConfirmed: Bool = false, selectionConfirmed: Bool = false, observedAt: ContinuousClock.Instant = .now) {
+  public func offer(_ bytes: Data, ordinal: UInt64, byteOffset: UInt64? = nil, geometry: DVAppleGeometry? = nil, paused: Bool, presentationConfirmed: Bool = false, selectionConfirmed: Bool = false, ordinalIsEstimated: Bool = false, observedAt: ContinuousClock.Instant = .now) {
     guard !paused || presentationConfirmed || selectionConfirmed else {
       unavailable("Waiting for renderer-confirmed paused frame")
       return
@@ -108,7 +110,7 @@ import RewindDVArchiveCore
     sourceFrameSize = bytes.count
     guard lastOrdinal != ordinal || latest != nil else { return }
     if latest?.ordinal == ordinal && latest?.generation == generation { return }
-    latest = Request(bytes: bytes, ordinal: ordinal, offset: byteOffset, geometry: geometry, generation: generation, immediate: paused, selectionOnly: paused && !presentationConfirmed, observedAt: observedAt)
+    latest = Request(bytes: bytes, ordinal: ordinal, offset: byteOffset, geometry: geometry, generation: generation, immediate: paused, selectionOnly: paused && !presentationConfirmed, ordinalIsEstimated: ordinalIsEstimated, observedAt: observedAt)
     maxPendingFrames = max(maxPendingFrames, 1)
     guard worker == nil else { return }
     worker = Task { [weak self] in await self?.drain() }
@@ -140,7 +142,9 @@ import RewindDVArchiveCore
       switch result {
       case .success(let value):
         snapshot = Snapshot(report: value.report, specifications: value.specifications, geometry: request.geometry); sampledAt = request.observedAt
-        status = "Frame \(request.ordinal) · " + (request.selectionOnly ? "selected source frame; renderer association unavailable" : request.immediate ? "displayed source frame" : "sampled playback clock; display association unverified")
+        if ordinalIsEstimated != request.ordinalIsEstimated { ordinalIsEstimated = request.ordinalIsEstimated }
+        let position = request.ordinalIsEstimated ? "Source byte \(request.offset?.description ?? "unknown") · estimated frame \(request.ordinal)" : "Frame \(request.ordinal)"
+        status = position + " · " + (request.selectionOnly ? "selected source frame; renderer association unavailable" : request.immediate ? "displayed source frame" : "sampled playback clock; display association unverified")
       case .failure:
         snapshot = nil; status = "Unavailable — displayed source frame failed metadata validation"
       }

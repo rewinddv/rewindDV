@@ -30,6 +30,11 @@ public struct DVPlaybackTimeline: Sendable {
   public let runs: [Run]
   public let frameCount: Int
   public let durationTicks: Int64
+  /// A prefix establishes coordinates only for the frames already validated.
+  public let isComplete: Bool
+  /// Ordinary playback uses provisional uniform-system coordinates. Every
+  /// requested frame is fully validated; whole-file uniformity is not inferred.
+  public let isPreviewEstimate: Bool
   private let identity: Identity
   public var durationSeconds: Double { Double(durationTicks) / 30_000 }
   public var byteCount: UInt64 { identity.size }
@@ -50,21 +55,27 @@ public struct DVPlaybackTimeline: Sendable {
     }
   }
 
-  public static func read(url: URL, inspect: ((Data, Int, UInt64) throws -> Void)? = nil) throws -> Self {
+  public static func read(url: URL, inspect: ((Data, Int, UInt64) throws -> Void)? = nil,
+    maximumFrames: Int? = nil, progress: ((Self) throws -> Void)? = nil) throws -> Self {
     let identity = try Identity(url)
     let handle = try FileHandle(forReadingFrom: url)
     defer { try? handle.close() }
+    // FileHandle reads are unbuffered. Two small network reads per frame can
+    // dominate a full tape scan; retain a bounded sequential read-ahead window.
+    // Opening a prefix still reads only enough bytes for the requested frames.
+    var reader = BufferedReader(handle: handle,
+      capacity: maximumFrames == nil ? 4 * 1024 * 1024 : 144_000)
     var runs: [Run] = [], offset: UInt64 = 0, ordinal = 0, tick: Int64 = 0
     while offset < identity.size {
       try Task.checkCancellation()
       try autoreleasepool {
-        let header = try handle.read(upToCount: 80) ?? Data()
+        let header = try reader.read(80)
         guard header.count == 80, header[0] >> 5 == 0,
           header[1] >> 4 == 0, header[2] == 0 else {
           throw Failure(reason: "Invalid DV frame boundary at byte \(offset). Original bytes are unchanged.")
         }
         let pal = header[3] & 0x80 != 0, count = pal ? 144_000 : 120_000
-        let bytes = header + (try handle.read(upToCount: count - 80) ?? Data())
+        let bytes = header + (try reader.read(count - 80))
         try validate(bytes, at: offset)
         try inspect?(bytes, ordinal, offset)
         if runs.last?.isPAL == pal { runs[runs.count - 1].frameCount += 1 }
@@ -72,12 +83,52 @@ public struct DVPlaybackTimeline: Sendable {
           startTick: tick, isPAL: pal, frameCount: 1)) }
         ordinal += 1; offset += UInt64(count); tick += pal ? 1200 : 1001
       }
+      if ordinal == 1 || ordinal.isMultiple(of: 128) {
+        try progress?(Self(runs: runs, frameCount: ordinal, durationTicks: tick,
+          isComplete: false, isPreviewEstimate: false, identity: identity))
+      }
+      if let maximumFrames, ordinal >= maximumFrames { break }
     }
     guard ordinal > 0 else { throw Failure(reason: "The selected DV file is empty.") }
     guard identity == (try Identity(url)) else {
       throw Failure(reason: "The source changed while its playback timeline was being read. Reopen the finished capture.")
     }
-    return Self(runs: runs, frameCount: ordinal, durationTicks: tick, identity: identity)
+    let result = Self(runs: runs, frameCount: ordinal, durationTicks: tick,
+      isComplete: offset == identity.size, isPreviewEstimate: false, identity: identity)
+    try progress?(result)
+    return result
+  }
+
+  public static func preview(url: URL) throws -> Self {
+    let first = try read(url: url, maximumFrames: 1)
+    let frame = first.frame(0)
+    let count = Int(first.byteCount / UInt64(frame.byteCount))
+    let run = Run(firstFrame: 0, byteOffset: 0, startTick: 0,
+      isPAL: frame.isPAL, frameCount: count)
+    return Self(runs: [run], frameCount: count, durationTicks: Int64(count) * frame.durationTicks,
+      isComplete: false, isPreviewEstimate: true, identity: first.identity)
+  }
+
+  private struct BufferedReader {
+    let handle: FileHandle
+    let capacity: Int
+    private var buffer = Data()
+    private var cursor = 0
+    init(handle: FileHandle, capacity: Int) { self.handle = handle; self.capacity = capacity }
+    mutating func read(_ count: Int) throws -> Data {
+      while buffer.count - cursor < count {
+        try Task.checkCancellation()
+        let remainder = Data(buffer.dropFirst(cursor))
+        let next = try handle.read(upToCount: capacity) ?? Data()
+        buffer = remainder
+        buffer.append(next); cursor = 0
+        if next.isEmpty { break }
+      }
+      let end = min(buffer.count, cursor + count)
+      let result = buffer.subdata(in: cursor..<end)
+      cursor = end
+      return result
+    }
   }
 
   public func verifyUnchanged(url: URL) throws {
@@ -117,6 +168,10 @@ public struct DVPlaybackTimeline: Sendable {
     let item = frame(ordinal)
     try handle.seek(toOffset: item.byteOffset)
     let bytes = try handle.read(upToCount: item.byteCount) ?? Data()
+    if isPreviewEstimate, bytes.count > 3,
+      (bytes[3] & 0x80 != 0) != item.isPAL {
+      throw Failure(reason: "This source changes DV systems. Choose Build exact timeline for mixed-system playback. Original bytes are unchanged.")
+    }
     try Self.validate(bytes, at: item.byteOffset)
     guard bytes.count == item.byteCount else {
       throw Failure(reason: "DV system changed at byte \(item.byteOffset). Reopen the source.")

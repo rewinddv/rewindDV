@@ -49,6 +49,14 @@ import Foundation
     }
     let began = Date(); model.open(url: url); try await waitFrame(0)
     print("LOAD_SECONDS", Date().timeIntervalSince(began), "FRAMES", ordinal)
+    try require(!model.isIndexing, "ordinary playback does not start a whole-file index")
+    model.buildExactTimeline()
+    let indexDeadline = Date().addingTimeInterval(120)
+    while model.isIndexing && Date() < indexDeadline {
+      if case .failed(let reason) = model.state { throw Failure(reason: reason) }
+      try await Task.sleep(for: .milliseconds(10))
+    }
+    try require(!model.isIndexing, "whole-file coordinates finish after first picture")
     try require(abs(model.durationSeconds - Double(tick) / 30000) < 1e-9, "duration equals independent variable-cadence source oracle")
     try require(!model.frameCounterIsEstimated, "source ordinals are exact")
     for expected in selected + selected.reversed() {

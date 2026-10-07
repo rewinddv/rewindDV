@@ -83,7 +83,8 @@ final class OfflineDVPlaybackModel: ObservableObject {
   private(set) var appleGeometryFrameOrdinal: UInt64?
   @Published private(set) var technicalSpecificationsStatus = "No file selected"
   private var technicalSpecificationsTask: Task<Void, Never>?
-  @Published private(set) var durationSeconds = 0.0
+  // Index progress belongs to the timeline subtree, not the whole workspace.
+  private(set) var durationSeconds = 0.0
   private(set) var currentTimeSeconds = 0.0
   private(set) var currentFrameOrdinal = 0
   @Published private(set) var frameCounterIsEstimated = true
@@ -184,12 +185,16 @@ final class OfflineDVPlaybackModel: ObservableObject {
   private(set) var lastQueuedExtremeZebras = false
   private var activeLease: SecurityScopedURLLease?
   private var loadTask: Task<Void, Never>?
+  private var indexTask: Task<Void, Never>?
+  private var indexProgressTask: Task<Void, Never>?
+  @Published private(set) var isIndexing = false
   private var verificationTask: Task<Void, Never>?
   private var playbackTask: Task<Void, Never>?
   private var clockTask: Task<Void, Never>?
   private var playbackPumpIsActive = false
   private var scrubFrameInFlight = false
   private var pendingScrubTime: Double?
+  private var interactiveScrubbing = false
   // DV is intra-frame. Retain its native decoder across seeks instead of
   // paying VideoToolbox session creation for every scrubbed frame. Replaced
   // at a file-session boundary; stale readers retain only their old decoder.
@@ -212,6 +217,8 @@ final class OfflineDVPlaybackModel: ObservableObject {
 
   deinit {
     loadTask?.cancel()
+    indexTask?.cancel()
+    indexProgressTask?.cancel()
     verificationTask?.cancel()
     playbackTask?.cancel()
     clockTask?.cancel()
@@ -257,19 +264,7 @@ final class OfflineDVPlaybackModel: ObservableObject {
       }
     }
 
-    sourceFileAuditStatus = "Assessing source audio counts and error flags…"
-    sourceFileAuditTask = Task { [weak self, lease] in
-      let scan = Task.detached(priority: .utility) { _ = lease; return try DVSourceFileAudit.read(url: url) }
-      do {
-        let audit = try await withTaskCancellationHandler { try await scan.value } onCancel: { scan.cancel() }
-        guard let self, self.sessionID == id, !Task.isCancelled else { return }
-        self.sourceFileAudit = audit
-        self.sourceFileAuditStatus = "Whole-file source audit complete"
-      } catch {
-        guard let self, self.sessionID == id, !Task.isCancelled else { return }
-        self.sourceFileAuditStatus = "Unavailable — source audit failed: \(error.localizedDescription)"
-      }
-    }
+    sourceFileAuditStatus = "Not assessed — choose Assess whole file"
 
     loadTask = Task { [weak self, lease] in
       _ = lease
@@ -278,7 +273,7 @@ final class OfflineDVPlaybackModel: ObservableObject {
         try Task.checkCancellation()
         guard let self, self.sessionID == id else { return }
         self.inspection = loaded
-        self.frameCounterIsEstimated = false
+        self.frameCounterIsEstimated = loaded.timeline.isPreviewEstimate
         self.appleGeometry = loaded.appleGeometry
         self.displayAspect = .initial(reportedRatio: Double(loaded.displayAspectRatio))
         self.durationSeconds = loaded.durationSeconds
@@ -292,6 +287,89 @@ final class OfflineDVPlaybackModel: ObservableObject {
         return
       } catch {
         guard let self, self.sessionID == id else { return }
+        self.fail(error)
+      }
+    }
+  }
+
+  /// Expensive source forensics is an explicit assessment, never file-open work.
+  func assessWholeFile() {
+    guard hasLoadedFile, !isIndexing, let url = sourceURL, let lease = activeLease,
+      sourceFileAuditTask == nil else { return }
+    let id = sessionID
+    sourceFileAuditStatus = "Assessing source audio counts and error flags…"
+    sourceFileAuditTask = Task { [weak self, lease] in
+      let scan = Task.detached(priority: .utility) { _ = lease; return try DVSourceFileAudit.read(url: url) }
+      defer { if self?.sessionID == id { self?.sourceFileAuditTask = nil } }
+      do {
+        let audit = try await withTaskCancellationHandler { try await scan.value } onCancel: { scan.cancel() }
+        guard let self, self.sessionID == id, !Task.isCancelled else { return }
+        self.sourceFileAudit = audit
+        self.sourceFileAuditStatus = "Whole-file source audit complete"
+      } catch {
+        guard let self, self.sessionID == id, !Task.isCancelled else { return }
+        self.sourceFileAuditStatus = "Unavailable — source audit failed: \(error.localizedDescription)"
+      }
+    }
+
+  }
+
+  /// Exact mixed-system coordinates are an explicit analysis request. Ordinary
+  /// playback reads only the requested source frame, with provisional timing.
+  func buildExactTimeline() {
+    guard let loaded = inspection, let lease = activeLease, !isIndexing,
+      !loaded.timeline.isComplete else { return }
+    setScrubbing(false)
+    startRenderSession(at: 0, autoplay: false)
+    startIndexing(loaded, lease: lease, sessionID: sessionID)
+  }
+
+  private func startIndexing(_ loaded: AssetInspection, lease: SecurityScopedURLLease, sessionID id: UUID) {
+    let initialTimeline = loaded.timeline
+    guard !initialTimeline.isComplete else { return }
+    isIndexing = true
+    indexProgressTask = Task { [weak self] in
+      while !Task.isCancelled {
+        guard let self, self.sessionID == id else { return }
+        let duration = loaded.durationSeconds
+        if self.durationSeconds != duration {
+          self.durationSeconds = duration
+          self.presentation.objectWillChange.send()
+        }
+        try? await Task.sleep(for: .milliseconds(250))
+      }
+    }
+    indexTask = Task { [weak self, lease] in
+      let scan = Task.detached(priority: .utility) {
+        _ = lease
+        do {
+          try initialTimeline.verifyUnchanged(url: loaded.url)
+          _ = try DVPlaybackTimeline.read(url: loaded.url,
+            inspect: { _, _, _ in try loaded.index.yieldToScrubbing() },
+            progress: { loaded.index.update($0) })
+          try initialTimeline.verifyUnchanged(url: loaded.url)
+        } catch {
+          loaded.index.stop(reason: error.localizedDescription)
+          throw error
+        }
+      }
+      do {
+        try await withTaskCancellationHandler { try await scan.value } onCancel: { scan.cancel() }
+        try Task.checkCancellation()
+        guard let self, self.sessionID == id else { return }
+        self.indexProgressTask?.cancel(); self.indexProgressTask = nil
+        self.isIndexing = false
+        self.frameCounterIsEstimated = false
+        self.durationSeconds = loaded.durationSeconds
+        self.videoDescription = loaded.videoDescription
+        self.presentation.objectWillChange.send()
+        self.startRenderSession(at: self.currentTimeSeconds, autoplay: false)
+      } catch is CancellationError {
+        return
+      } catch {
+        guard let self, self.sessionID == id else { return }
+        self.indexProgressTask?.cancel(); self.indexProgressTask = nil
+        self.isIndexing = false
         self.fail(error)
       }
     }
@@ -332,6 +410,16 @@ final class OfflineDVPlaybackModel: ObservableObject {
     startRenderSession(at: target, autoplay: false, scrubbing: true)
   }
 
+  /// Mouse-drag pictures take priority over background I/O and detailed packs.
+  /// The final displayed frame gets its full inspector when the gesture ends.
+  func setScrubbing(_ active: Bool) {
+    guard interactiveScrubbing != active else { return }
+    interactiveScrubbing = active
+    inspection?.index.setScrubbing(active)
+    if active { metadata.reset() }
+    if !active { samplePausedMetadata() }
+  }
+
   func stepFrames(_ delta: Int) {
     guard let inspection, delta != 0 else { return }
     if state == .playing { updateClockSnapshot() }
@@ -366,6 +454,8 @@ final class OfflineDVPlaybackModel: ObservableObject {
   }
 
   private func beginNewSession(removeDisplayedImage: Bool) {
+    inspection?.index.setScrubbing(false)
+    interactiveScrubbing = false
     sessionID = UUID()
     metadata.clearRecordedClock()
     sourceFileAuditTask?.cancel(); sourceFileAuditTask = nil
@@ -379,6 +469,9 @@ final class OfflineDVPlaybackModel: ObservableObject {
     frameDecoder = LiveDVFrameDecoder()
     renderGeneration &+= 1
     loadTask?.cancel()
+    indexTask?.cancel(); indexTask = nil
+    indexProgressTask?.cancel(); indexProgressTask = nil
+    isIndexing = false
     verificationTask?.cancel()
     playbackTask?.cancel()
     clockTask?.cancel()
@@ -465,7 +558,7 @@ final class OfflineDVPlaybackModel: ObservableObject {
     latestIngestedPCMEndTimeSeconds = nil
     sourceTimecodeWindow.removeAll(keepingCapacity: true)
     metadataWindow.removeAll(keepingCapacity: true)
-    metadata.reset()
+    if !interactiveScrubbing || metadata.report != nil { metadata.reset() }
     currentTimeSeconds = relativeStart
     currentFrameOrdinal = targetFrame
     // The renderer retains its last picture through flush. Retain that picture's
@@ -474,7 +567,7 @@ final class OfflineDVPlaybackModel: ObservableObject {
     if state != nextState { state = nextState }
     let includeAudibleAudio = audioMayPlay
 
-    playbackTask = Task { [weak self] in
+    playbackTask = Task(priority: .userInitiated) { [weak self] in
       guard let self, self.sessionID == id, self.renderGeneration == generation else { return }
       self.playbackPumpIsActive = true
       defer {
@@ -490,10 +583,11 @@ final class OfflineDVPlaybackModel: ObservableObject {
       do {
         // Await the renderer's flush boundary before publishing a new generation.
         await withCheckedContinuation { continuation in
-          self.videoRenderer.flush(removingDisplayedImage: false) { continuation.resume() }
-        }
-        await withCheckedContinuation { continuation in
-          self.navigatorLayer.sampleBufferRenderer.flush(removingDisplayedImage: false) { continuation.resume() }
+          // Both views share the same generation. Flush them concurrently;
+          // two serialized display boundaries add avoidable latency per seek.
+          let completion = RendererFlushCompletion(continuation)
+          self.videoRenderer.flush(removingDisplayedImage: false) { completion.finish() }
+          self.navigatorLayer.sampleBufferRenderer.flush(removingDisplayedImage: false) { completion.finish() }
         }
         try Task.checkCancellation()
         guard self.sessionID == id, self.renderGeneration == generation else { return }
@@ -668,7 +762,7 @@ final class OfflineDVPlaybackModel: ObservableObject {
         presentation.objectWillChange.send()
         // Frame-dependent paused actions (such as range review) may now become
         // available. This is one notification per seek, never per playing frame.
-        objectWillChange.send()
+        if !interactiveScrubbing { objectWillChange.send() }
         return
       }
 
@@ -715,10 +809,12 @@ final class OfflineDVPlaybackModel: ObservableObject {
     acceptRecordedClock(frame.clock, ordinal: frame.ordinal, association: "playback-clock-associated source sample; display association unverified")
     acceptGeometry(frame.pixelBuffer, ordinal: frame.ordinal)
     metadata.offer(frame.bytes, ordinal: frame.ordinal,
-      byteOffset: inspection?.timeline.frame(Int(frame.ordinal)).byteOffset, geometry: appleGeometry, paused: paused)
+      byteOffset: inspection?.timeline.frame(Int(frame.ordinal)).byteOffset, geometry: appleGeometry,
+      paused: paused, ordinalIsEstimated: frameCounterIsEstimated)
   }
 
   private func samplePausedMetadata() {
+    guard !interactiveScrubbing else { return }
     guard videoRenderer.status != .failed else {
       metadata.unavailable("Unavailable — video renderer failed")
       return
@@ -731,7 +827,8 @@ final class OfflineDVPlaybackModel: ObservableObject {
       acceptRecordedClock(frame.clock, ordinal: frame.ordinal, association: "renderer-confirmed displayed source frame")
       acceptGeometry(frame.pixelBuffer, ordinal: frame.ordinal)
       metadata.offer(frame.bytes, ordinal: frame.ordinal,
-        byteOffset: inspection?.timeline.frame(Int(frame.ordinal)).byteOffset, geometry: appleGeometry, paused: true, presentationConfirmed: true)
+        byteOffset: inspection?.timeline.frame(Int(frame.ordinal)).byteOffset, geometry: appleGeometry,
+        paused: true, presentationConfirmed: true, ordinalIsEstimated: frameCounterIsEstimated)
       return
     }
     // copyDisplayedPixelBuffer is optional (also unavailable offscreen). A sole
@@ -748,7 +845,8 @@ final class OfflineDVPlaybackModel: ObservableObject {
     acceptRecordedClock(frame.clock, ordinal: frame.ordinal, association: "selected source frame; renderer association unavailable")
     acceptGeometry(frame.pixelBuffer, ordinal: frame.ordinal)
     metadata.offer(frame.bytes, ordinal: frame.ordinal,
-        byteOffset: inspection?.timeline.frame(Int(frame.ordinal)).byteOffset, geometry: appleGeometry, paused: true, selectionConfirmed: true)
+        byteOffset: inspection?.timeline.frame(Int(frame.ordinal)).byteOffset, geometry: appleGeometry,
+        paused: true, selectionConfirmed: true, ordinalIsEstimated: frameCounterIsEstimated)
   }
 
   /// Apple's renderer may return a different CVPixelBuffer wrapper for the
@@ -772,7 +870,7 @@ final class OfflineDVPlaybackModel: ObservableObject {
   private func acceptRecordedClock(_ clock: DVTechnicalSpecifications.Row?, ordinal: UInt64, association: String) {
     guard let clock else { metadata.clearRecordedClock(); return }
     let next = DVTechnicalSpecifications.Row(label: clock.label, value: clock.value,
-      evidence: "Frame \(ordinal) · " + association + ". " + clock.evidence)
+      evidence: "\(frameCounterIsEstimated ? "Estimated frame" : "Frame") \(ordinal) · " + association + ". " + clock.evidence)
     metadata.setRecordedClock(next, ordinal: ordinal)
   }
 
@@ -1096,7 +1194,8 @@ private actor RenderReaders {
 
   func nextVideo(viewingMode: DVViewingMode, extremeZebras: Bool) async throws -> DecodedPacket? {
     try Task.checkCancellation()
-    guard let inspection, let videoHandle, videoOrdinal < inspection.timeline.frameCount else { return nil }
+    guard let inspection, let videoHandle,
+      try await inspection.index.waitForFrame(videoOrdinal) else { return nil }
     let frame = inspection.timeline.frame(videoOrdinal)
     let bytes = try autoreleasepool { try inspection.timeline.readFrame(videoOrdinal, from: videoHandle) }
     videoOrdinal += 1
@@ -1124,9 +1223,9 @@ private actor RenderReaders {
       sourceClock: DVTechnicalSpecifications.frameRecordedClock(bytes))
   }
 
-  func nextAudio() throws -> AudioRead {
+  func nextAudio() async throws -> AudioRead {
     guard let inspection, let audioHandle,
-      audioOrdinal < inspection.timeline.frameCount else { return .end }
+      try await inspection.index.waitForFrame(audioOrdinal) else { return .end }
     do {
       try Task.checkCancellation()
       let frame = inspection.timeline.frame(audioOrdinal)
@@ -1200,9 +1299,51 @@ private actor RenderReaders {
   }
 }
 
+/// One scanner publishes immutable validated prefixes. Readers can wait for
+/// lookahead without mistaking the temporary prefix end for end of file.
+private final class RendererFlushCompletion: @unchecked Sendable {
+  private let lock = NSLock()
+  private var remaining = 2
+  private let continuation: CheckedContinuation<Void, Never>
+  init(_ continuation: CheckedContinuation<Void, Never>) { self.continuation = continuation }
+  func finish() {
+    let complete = lock.withLock { remaining -= 1; return remaining == 0 }
+    if complete { continuation.resume() }
+  }
+}
+
+private final class PlaybackIndex: @unchecked Sendable {
+  private let lock = NSLock()
+  private var value: DVPlaybackTimeline
+  private var failure: String?
+  private var scrubbing = false
+  init(_ timeline: DVPlaybackTimeline) { value = timeline }
+  var snapshot: DVPlaybackTimeline { lock.withLock { value } }
+  func update(_ timeline: DVPlaybackTimeline) { lock.withLock { value = timeline } }
+  func stop(reason: String) { lock.withLock { failure = reason } }
+  func setScrubbing(_ active: Bool) { lock.withLock { scrubbing = active } }
+  func yieldToScrubbing() throws {
+    while lock.withLock({ scrubbing }) {
+      try Task.checkCancellation()
+      Thread.sleep(forTimeInterval: 0.002)
+    }
+  }
+  func waitForFrame(_ ordinal: Int) async throws -> Bool {
+    while true {
+      try Task.checkCancellation()
+      let (timeline, error) = lock.withLock { (value, failure) }
+      if let error { throw DVPlaybackTimeline.Failure(reason: error) }
+      if ordinal < timeline.frameCount { return true }
+    if timeline.isComplete || timeline.isPreviewEstimate { return false }
+      try await Task.sleep(for: .milliseconds(5))
+    }
+  }
+}
+
 private struct AssetInspection: Sendable {
   let url: URL
-  let timeline: DVPlaybackTimeline
+  let index: PlaybackIndex
+  var timeline: DVPlaybackTimeline { index.snapshot }
   let sourceFormat: DVInspectionSourceFormat?
   var appleGeometry: DVAppleGeometry? { sourceFormat.map { DVAppleGeometry.inspect(format: $0.value) } }
   var timelineStartSeconds: Double { 0 }
@@ -1217,13 +1358,15 @@ private struct AssetInspection: Sendable {
   var decodedAudioFormat: OfflineDVDecodedAudioFormat? { nil }
   var decodedAudioDescription: String { "Source PCM checked per frame" }
   var videoDescription: String {
+    if timeline.isPreviewEstimate { return "Frame-local playback • whole-file timeline not assessed" }
+    if !timeline.isComplete { return "Ready to play • indexing remaining source frames…" }
     let systems = Set(timeline.runs.map(\.isPAL))
     if systems.count > 1 { return "NTSC / PAL • \(timeline.runs.count) format runs • exact source-frame timeline" }
     return systems.contains(true) ? "720 × 576 • 25 fps • PAL" : "720 × 480 • 29.970 fps • NTSC"
   }
 
   static func load(url: URL) async throws -> AssetInspection {
-    let scan = Task.detached(priority: .userInitiated) { try DVPlaybackTimeline.read(url: url) }
+    let scan = Task.detached(priority: .userInitiated) { try DVPlaybackTimeline.preview(url: url) }
     let timeline = try await withTaskCancellationHandler { try await scan.value } onCancel: { scan.cancel() }
     try Task.checkCancellation()
     // Optional native metadata only. Apple’s raw importer is never authority
@@ -1231,7 +1374,7 @@ private struct AssetInspection: Sendable {
     let asset = AVURLAsset(url: url)
     let track = try? await asset.loadTracks(withMediaType: .video).first
     let format = try? await track?.load(.formatDescriptions).first
-    return Self(url: url, timeline: timeline, sourceFormat: format.map { DVInspectionSourceFormat(value: $0) })
+    return Self(url: url, index: PlaybackIndex(timeline), sourceFormat: format.map { DVInspectionSourceFormat(value: $0) })
   }
 }
 

@@ -183,7 +183,7 @@ public struct DVTechnicalSpecifications: Sendable, Equatable {
     let fileLabels: Set<String> = ["Complete name", "File size", "Duration", "Overall bit rate mode", "Overall bit rate"]
     let fileGeneral = sections.first { $0.title == "General" }?.rows ?? []
     let sampleGeneral = sampledFrame?.sections.first { $0.title == "General" }?.rows ?? []
-    let scope = sampledFrame?.semanticReport.map { "Sampled source frame \($0.frameOrdinal); SHA-256 \($0.frameSHA256). " }
+    let scope = sampledFrame?.semanticReport.map { "Sampled source \(timeline?.isPreviewEstimate == true ? "frame number is a preview estimate" : "frame \($0.frameOrdinal)"); SHA-256 \($0.frameSHA256). " }
       ?? "No validated metadata for the current source selection. "
     func sourceRow(_ row: Row) -> Row {
       Row(label: row.label == "Time code of first frame" ? "Observed timecode" : row.label,
@@ -212,6 +212,28 @@ public struct DVTechnicalSpecifications: Sendable, Equatable {
     let sections = combined.map { section -> Section in
       guard let timeline else { return section }
       let mixed = timeline.runs.count > 1
+      if timeline.isPreviewEstimate {
+        return Section(title: section.title, rows: section.rows.map { row in
+          if row.label == "Duration" {
+            return Row(label: row.label, value: "Preview estimate: " + Self.durationText(timeline.durationSeconds),
+              evidence: "Estimated from file length and the first frame's system. Whole-file system uniformity and exact duration are unassessed; selected frames are validated on demand.")
+          }
+          if section.title == "General", ["Overall bit rate", "Overall bit rate mode"].contains(row.label) {
+            return Row(label: row.label, value: "Unavailable — whole file not assessed", evidence: "Frame-local playback does not assess the full source.")
+          }
+          return row
+        })
+      }
+      if !timeline.isComplete {
+        return Section(title: section.title, rows: section.rows.map { row in
+          if row.label == "Duration" || (section.title == "General" &&
+            ["Overall bit rate", "Overall bit rate mode"].contains(row.label)) {
+            return Row(label: row.label, value: "Indexing — whole-file value not yet established",
+              evidence: "Only the first \(timeline.frameCount) source frames have validated playback coordinates. Later source systems and duration remain unknown.")
+          }
+          return row
+        })
+      }
       let evidence = "Whole-file playback timeline: \(timeline.frameCount) structurally validated frames in \(timeline.runs.count) system runs. Exact sum of each stored frame's cadence; no source timecode interpolation."
       return Section(title: section.title, rows: section.rows.map { row in
         if row.label == "Duration", section.title == "General" {

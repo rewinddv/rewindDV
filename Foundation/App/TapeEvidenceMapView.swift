@@ -43,7 +43,7 @@ final class TapeEvidenceMapModel: ObservableObject {
   @Published private(set) var reviewItemCount: UInt64 = 0
   @Published private(set) var reviewDirectory: URL?
   @Published private(set) var reviewMessage = "Create or open a separate review queue. No tape motion or frame replacement is performed."
-  private var reviewJournal: DVRecoveryReviewJournal?
+  private(set) var reviewJournal: DVRecoveryReviewJournal?
   private var reviewAccess: URL?
   private var evidenceAccess: URL?
   private var task: Task<Void, Never>?

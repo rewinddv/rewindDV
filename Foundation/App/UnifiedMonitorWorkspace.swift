@@ -15,6 +15,7 @@ private struct TechnicalSpecificationRows: View {
   let sections: [DVTechnicalSpecifications.Section]
   let coverage: String
   var metadata: DVPackSemanticReport? = nil
+  var metadataOrdinalIsEstimated = false
   var body: some View {
     ScrollView(.vertical) {
       VStack(alignment: .leading, spacing: 16) {
@@ -37,7 +38,7 @@ private struct TechnicalSpecificationRows: View {
           }
           Divider()
         }
-        if let metadata { DVMetadataInspector(report: metadata) }
+        if let metadata { DVMetadataInspector(report: metadata, ordinalIsEstimated: metadataOrdinalIsEstimated) }
         Text(coverage).font(.caption).foregroundStyle(.secondary)
       }.frame(maxWidth: .infinity, alignment: .leading).padding(.trailing, 5)
     }.frame(height: 510)
@@ -124,11 +125,23 @@ private struct PlaybackTechnicalSpecificationsPanel: View {
         Text("Source values follow the identified frame").font(.caption)
         TechnicalSpecificationRows(sections: current.inspectorSections(apple: metadata.geometry,
           preview: playback.displayAspect == .standard ? "4:3" : "16:9",
-          appleScope: "Apple decoder output for playback frame \(metadata.report?.frameOrdinal.description ?? "unknown"); not whole-file uniformity.")
+          appleScope: "Apple decoder output for the selected source frame; whole-file position \(playback.frameCounterIsEstimated ? "is estimated" : "is indexed").")
             + (playback.sourceFileAudit?.sections ?? [.init(title: "Source error summary", rows: [.init(label: "Source audit", value: playback.sourceFileAuditStatus, evidence: "Background read-only assessment; never blocks playback.")])]),
-          coverage: current.coverage, metadata: metadata.report)
+          coverage: current.coverage, metadata: metadata.report, metadataOrdinalIsEstimated: playback.frameCounterIsEstimated)
           .accessibilityIdentifier("playback-technical-specifications")
       } else { Text(playback.technicalSpecificationsStatus).font(.caption) }
+      if playback.sourceFileAudit == nil {
+        Button("Assess whole file") { playback.assessWholeFile() }
+          .accessibilityIdentifier("playback-assess-whole-file")
+          .disabled(playback.isIndexing || playback.sourceFileAuditStatus.hasPrefix("Assessing"))
+          .help("Read every source frame to assess audio sample counts and error flags.")
+      }
+      if playback.sourceTimeline?.isComplete == false {
+        Button("Build exact timeline") { playback.buildExactTimeline() }
+          .accessibilityIdentifier("playback-build-exact-timeline")
+          .disabled(playback.isIndexing)
+          .help("Optional whole-file analysis for exact duration and mixed NTSC/PAL frame coordinates.")
+      }
     }
   }
 }
@@ -212,11 +225,14 @@ private struct PlaybackTimeline: View {
         duration: max(0.001, playback.durationSeconds),
         onEditingChanged: { editing in
           isScrubbing = editing
+          playback.setScrubbing(editing)
           if !editing { releaseCompletedTarget() }
         })
         .accessibilityLabel("Playback position").disabled(!enabled)
         .transaction { $0.animation = nil; $0.disablesAnimations = true }
-      Text(MonitorCounter.elapsed(seconds: playback.durationSeconds))
+      Text(playback.isIndexing
+        ? "Indexed " + MonitorCounter.elapsed(seconds: playback.durationSeconds)
+        : (playback.frameCounterIsEstimated ? "≈ " : "") + MonitorCounter.elapsed(seconds: playback.durationSeconds))
     }
     .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
     .onChange(of: playback.currentTimeSeconds) { _, _ in
@@ -878,6 +894,7 @@ struct UnifiedMonitorWorkspace: View {
           transportButton("End", "forward.end.fill", .end) {
             playback.seek(to: playback.durationSeconds)
           }
+          .disabled(playback.isIndexing)
         }
       }
       .controlSize(.large)
@@ -1222,11 +1239,12 @@ private struct InstantPlaybackScrubber: View {
   let duration: Double
   let onEditingChanged: (Bool) -> Void
   @Environment(\.isEnabled) private var enabled
+  @State private var dragDuration: Double?
 
   var body: some View {
     GeometryReader { geometry in
       let width = max(1, geometry.size.width - 16)
-      let fraction = min(1, max(0, value / duration))
+      let fraction = min(1, max(0, value / (dragDuration ?? duration)))
       ZStack(alignment: .leading) {
         Capsule().fill(Color.secondary.opacity(0.3)).frame(height: 4)
         Capsule().fill(Color.accentColor).frame(width: width * fraction + 8, height: 4)
@@ -1236,9 +1254,12 @@ private struct InstantPlaybackScrubber: View {
       .contentShape(Rectangle())
       .gesture(DragGesture(minimumDistance: 0).onChanged { event in
         guard enabled else { return }
+        // Background indexing can grow the seekable span during a gesture.
+        // Keep the pointer-to-time scale fixed until this drag finishes.
+        if dragDuration == nil { dragDuration = duration }
         onEditingChanged(true)
-        value = min(1, max(0, (event.location.x - 8) / width)) * duration
-      }.onEnded { _ in onEditingChanged(false) })
+        value = min(1, max(0, (event.location.x - 8) / width)) * (dragDuration ?? duration)
+      }.onEnded { _ in dragDuration = nil; onEditingChanged(false) })
     }
     .frame(height: 24)
     .opacity(enabled ? 1 : 0.5)
