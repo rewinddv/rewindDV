@@ -1,5 +1,4 @@
-rewindDV third-party notices — prospective source snapshot
-DRAFT — NOT PUBLISHED.
+rewindDV third-party notices
 
 rewindDV contains independently authored Apache-2.0 project code, modified
 Apache-2.0 ASFireWire code, and the separately identified BSD/MIT adaptations

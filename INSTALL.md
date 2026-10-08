@@ -2,12 +2,15 @@
 
 Engineering alpha. Ad-hoc signed and not notarized.
 
-rewindDV currently uses an ad-hoc-signed DriverKit extension.
-Installation requires disabling System Integrity Protection (SIP).
-Disabling SIP reduces macOS security.
+The application, included DriverKit extension and CLI are signed ad hoc,
+not with an Apple Developer ID, and are not notarized. Offline playback,
+inspection and supported archive operations require no DriverKit activation
+or SIP change. Activating the included ad-hoc DriverKit extension may require
+disabling System Integrity Protection (SIP), which significantly reduces macOS
+security. Normal SIP-on driver installation is not qualified for this package.
 
 This engineering alpha is intended for experienced users and dedicated/test
-systems. Administrator access and macOS Recovery access are required. Follow
+systems. Driver activation testing may require administrator and macOS Recovery access. Follow
 your organization's device policy. This is experimental software; preserve
 original media and keep backups.
 
@@ -24,7 +27,7 @@ The driver matches FireWire OHCI PCI controller 11c1:5901, as used by the tested
 Apple Thunderbolt-to-FireWire adapter chain. A USB-to-FireWire cable is not a
 substitute. Other controller IDs are unsupported by this build.
 
-Live extension unload/hot replacement and reboot-free removal are unqualified. Use the shutdown/restart procedure in UNINSTALL.md. Normal capture STOP keeps the driver loaded and has bounded receive-retirement evidence.
+Live extension unload/hot replacement and reboot-free removal are unqualified. Use the shutdown/restart procedure in UNINSTALL.md. Normal capture STOP keeps the driver loaded; earlier bounded B190 receive-retirement evidence is separate from this Driver192 package.
 
 Natural end-of-tape, full-length endurance, physical PAL DV capture, HDV playback/capture, active-capture
 disconnect and power loss remain unqualified. Blank video or missing timecode
