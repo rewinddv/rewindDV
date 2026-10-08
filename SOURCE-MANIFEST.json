@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "source_revision": "25dabf97c67ff30f3c8b87a5afbbfe06951b735e",
+  "source_revision": "6f883d7c271f4405fd20c6d4b22290c263147056",
   "files": [
     {
       "path": "ACKNOWLEDGMENTS.md",
@@ -4211,8 +4211,8 @@
     {
       "path": "Foundation/App/Resources/ThirdPartyNotices.txt",
       "mode": "100644",
-      "git_blob": "d32744738ea983e85de86182a1559e7646209b61",
-      "sha256": "473d0c72d5028973dad99f8d6ed770a0d15ae3577a9e6726d64e2cfed28253d6"
+      "git_blob": "08a8cbd9163e1488762348c3b89a10c560981064",
+      "sha256": "2de49a45a5b00dc6d8a78406c06cca1b590e54aec12929717cb3a99d961455e9"
     },
     {
       "path": "Foundation/App/ReviewedRangeModel.swift",

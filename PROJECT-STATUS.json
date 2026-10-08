@@ -3,9 +3,9 @@
   "development": {
     "application_version": "0.0.94",
     "driver_build": 192,
-    "source_revision": "25dabf97c67ff30f3c8b87a5afbbfe06951b735e",
+    "source_revision": "6f883d7c271f4405fd20c6d4b22290c263147056",
     "state": "source-published; integrated IEC metadata and epoch-aware mixed NTSC/PAL archive software validation; Driver192 physical acquisition and complete signed app UI unqualified",
-    "updated_utc": "2026-10-08T21:12:06.073767+00:00",
+    "updated_utc": "2026-10-08T21:19:10.685410+00:00",
     "application_build": 188
   },
   "public_release": {
