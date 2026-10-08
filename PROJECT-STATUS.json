@@ -1,11 +1,11 @@
 {
   "schema_version": 1,
   "development": {
-    "application_version": "0.0.93",
-    "driver_build": 190,
-    "source_revision": "482cf2fcdee763535dd5e69a658886accce20f36",
-    "state": "source-published; frame-local playback and CLI/MCP software-validated; matching Alpha093 ad-hoc engineering download available; inherited bounded B190 capture evidence; live unload unqualified",
-    "updated_utc": "2026-10-07T01:43:16.942915+00:00",
+    "application_version": "0.0.94",
+    "driver_build": 192,
+    "source_revision": "25dabf97c67ff30f3c8b87a5afbbfe06951b735e",
+    "state": "source-published; integrated IEC metadata and epoch-aware mixed NTSC/PAL archive software validation; Driver192 physical acquisition and complete signed app UI unqualified",
+    "updated_utc": "2026-10-08T21:12:06.073767+00:00",
     "application_build": 188
   },
   "public_release": {
@@ -21,23 +21,26 @@
     "application_build": 188
   },
   "qualification": {
-    "public_summary": "Alpha 0.0.93 adds frame-local playback and 66 local CLI/MCP tools validated through offline tests, native builds, socket responsiveness and installed read-only automation. No new physical capture qualification was performed for Alpha 0.0.93. Earlier Alpha 0.0.89 / B190 bounded NTSC capture, STOP and re-entry evidence remains scoped to one development-signed setup; exact public-package installation, full-tape completion and broader hardware remain unqualified.",
+    "public_summary": "Alpha0.0.94 integrates 256 IEC pack classifications/274 layout variants and epoch-aware mixed NTSC/PAL archives, maps and byte-exact segmented exports. Accepted source software tests:527 Swift tests plus14 XCTest cases; native mixed playback and archive/metadata components measured offline. Complete signed app UI and exact Driver192 acquisition remain unqualified. Earlier bounded B190 capture evidence is historical and applies only to its tested development setup.",
     "architecture": "Apple silicon (app arm64, driver arm64e); Intel unsupported",
     "macos_deployment_floor": "26.0",
     "bounded_runtime_macos": [
       "27.0.1"
     ],
-    "hardware_scope": "Sony HVR-M15U, recorded NTSC DV, tested Apple adapter chain, PCI 11c1:5901",
+    "hardware_scope": "Historical bounded B190 evidence only: one Sony HVR-M15U recorded NTSC DV setup; current Driver192 hardware matrix not run",
     "pal_capture": "not physically qualified",
     "hdv_capture": "not physically qualified",
-    "dv_playback": "frame-local open and latest-request scrubbing validated offline; preview coordinates are estimates until explicit exact scan; mixed-format seek inspector association remains unresolved",
+    "dv_playback": "Mixed NTSC/PAL epoch-aware playback/archive paths validated offline; rendered archive/metadata components exercised; full signed app workspace displayed-pixel association remains unqualified",
     "hdv_playback": "not qualified",
-    "full_tape_endurance": "not qualified for the current B190 candidate; bounded job stopped at four minutes",
+    "full_tape_endurance": "not qualified for Driver192 or this exact public package",
     "distribution": "App, driver and CLI are ad-hoc signed with hardened runtime and are not notarized. Driver installation requires SIP disabled; offline playback, Surgery and inspection require no driver activation. Fresh-system installation and exact public-package hardware qualification remain unverified.",
-    "capture": "bounded NTSC DV capture and normal receive retirement passed on one Sony HVR-M15U setup; longest saved DV 238.038 seconds; full-tape completion intentionally omitted",
+    "capture": "No physical acquisition qualification for Driver192. Historical B190 bounded NTSC evidence is separate and does not qualify this package.",
     "hot_unload": "unqualified; use shutdown/restart-based replacement or removal; successful live extension disable is not a prerequisite for normal capture STOP",
     "startup": "stable final generation before capture; no reset observed during these bounded captures; broader startup/reset coverage remains open",
-    "automation": "66 same-user CLI/MCP tools; session-scoped sandbox grants; driver activation and physical recovery require interactive GUI; no new hardware automation qualification"
+    "automation": "66 same-user CLI/MCP tools; session-scoped sandbox grants; driver activation and physical recovery require interactive GUI; no new hardware automation qualification",
+    "iec_metadata": "256 allocations and274 layouts inventoried; software classification and raw preservation tested; complete IEC certification not claimed; VAUX0x61 interpretation unresolved",
+    "mixed_archive": "Source-bound recording epochs and ordered lossless segmented exports validated offline; unknown regions preserved; mixed-system single-file merge and film/container output reject explicitly; HDV remains separate",
+    "signed_app_ui": "Complete signed-application UI and exact signed app-driver negotiation not qualified"
   },
   "links": {
     "source": "https://github.com/rewinddv/rewindDV",

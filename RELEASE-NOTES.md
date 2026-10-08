@@ -1,7 +1,7 @@
 # Development and releases
 
 <!-- project-status:start -->
-**Current development:** Alpha 0.0.93 / Driver B190. App build 188. [Reviewed public source](https://github.com/rewinddv/rewindDV/tree/482cf2fcdee763535dd5e69a658886accce20f36).
+**Current development:** Alpha 0.0.94 / Driver B192. App build 188. [Reviewed public source](https://github.com/rewinddv/rewindDV/tree/25dabf97c67ff30f3c8b87a5afbbfe06951b735e).
 
 **Latest public download:** [Alpha 0.0.93 / Driver B190](https://github.com/rewinddv/rewindDV/releases/tag/alpha-0.0.93) — engineering prerelease, ad-hoc signed and not notarized. Driver installation requires disabling SIP, which reduces macOS security. Offline playback, Surgery and inspection require no driver activation.
 
