@@ -3,26 +3,29 @@
   "development": {
     "application_version": "0.0.94",
     "driver_build": 192,
-    "source_revision": "9cda6d14c9c551e1d1bc7457f26d2fe550b0f9fc",
-    "state": "source-published; integrated IEC metadata and epoch-aware mixed NTSC/PAL archive software validation; Driver192 physical acquisition and complete signed app UI unqualified",
-    "updated_utc": "2026-10-08T21:43:42.214838+00:00",
+    "source_revision": "042b2dd94bff3f2946301bf08548907fa9b438dd",
+    "state": "complete reviewed source published; matching offline-only Alpha0.0.94 app188/CLI57 download available; independent Driver192 source retained; Driver192 acquisition and complete signed app UI unqualified",
+    "updated_utc": "2026-10-08T21:57:59.700185+00:00",
     "application_build": 188
   },
   "public_release": {
-    "application_version": "0.0.93",
-    "driver_build": 190,
-    "tag": "alpha-0.0.93",
-    "source_revision": "482cf2fcdee763535dd5e69a658886accce20f36",
-    "package_name": "rewindDV-Alpha-0.0.93-Driver190-AppBuild188-AdHoc.zip",
-    "package_sha256": "1d72e36932700230d2be98e66dc8718e514761576a9e2c6ae867861cdbff23e8",
+    "application_version": "0.0.94",
+    "driver_build": 192,
+    "driver_build_scope": "source only; no driver in offline download",
+    "application_build": 188,
+    "tag": "alpha-0.0.94",
+    "source_revision": "042b2dd94bff3f2946301bf08548907fa9b438dd",
+    "package_name": "rewindDV-Alpha-0.0.94-AppBuild188-Offline-AdHoc.zip",
+    "package_sha256": "9d1ad7913bb5672154ab466a526d8989dc48ef4ca9a355441da0f0e7a147523e",
     "state": "prerelease",
     "signing": "ad-hoc; hardened runtime; not notarized",
-    "requires_sip_disabled": true,
-    "application_build": 188
+    "requires_sip_disabled": false,
+    "offline_only": true,
+    "driver_included": false
   },
   "qualification": {
     "public_summary": "Alpha0.0.94 integrates 256 IEC pack classifications/274 layout variants and epoch-aware mixed NTSC/PAL archives, maps and byte-exact segmented exports. Accepted source software tests:527 Swift tests plus14 XCTest cases; native mixed playback and archive/metadata components measured offline. Complete signed app UI and exact Driver192 acquisition remain unqualified. Earlier bounded B190 capture evidence is historical and applies only to its tested development setup.",
-    "architecture": "Apple silicon (app arm64, driver arm64e); Intel unsupported",
+    "architecture": "Offline download: app and CLI arm64, no DriverKit extension. Complete source retains Driver192 arm64e; Intel unsupported.",
     "macos_deployment_floor": "26.0",
     "bounded_runtime_macos": [
       "27.0.1"
@@ -33,20 +36,21 @@
     "dv_playback": "Mixed NTSC/PAL epoch-aware playback/archive paths validated offline; rendered archive/metadata components exercised; full signed app workspace displayed-pixel association remains unqualified",
     "hdv_playback": "not qualified",
     "full_tape_endurance": "not qualified for Driver192 or this exact public package",
-    "distribution": "App, driver and CLI are ad-hoc signed with hardened runtime and are not notarized. Driver installation requires SIP disabled; offline playback, Surgery and inspection require no driver activation. Fresh-system installation and exact public-package hardware qualification remain unverified.",
+    "distribution": "Offline-only app and CLI are ad-hoc signed with hardened runtime, not Developer ID signed and not notarized. No DriverKit extension, discovery, activation, deck control or acquisition. Separate offline identity/container/socket. Exact restored native startup notice observed with SIP enabled on macOS27.0.1, without arguments or security changes; downloaded/fresh-system approval and full signed app workflows remain unqualified.",
     "capture": "No physical acquisition qualification for Driver192. Historical B190 bounded NTSC evidence is separate and does not qualify this package.",
     "hot_unload": "unqualified; use shutdown/restart-based replacement or removal; successful live extension disable is not a prerequisite for normal capture STOP",
-    "startup": "stable final generation before capture; no reset observed during these bounded captures; broader startup/reset coverage remains open",
-    "automation": "66 same-user CLI/MCP tools; session-scoped sandbox grants; driver activation and physical recovery require interactive GUI; no new hardware automation qualification",
+    "startup": "Exact restored offline app reaches actual native Alpha0.0.94 startup notice with SIP enabled on macOS27.0.1, no arguments. Full workflow and broader macOS qualification remain open.",
+    "automation": "Offline download exposes57 CLI/MCP tools with separate offline container/socket; all9hardware commands reject locally. Standard source builds retain66 tools. Session-scoped sandbox grants remain required; no physical hardware automation qualification.",
     "iec_metadata": "256 allocations and274 layouts inventoried; software classification and raw preservation tested; complete IEC certification not claimed; VAUX0x61 interpretation unresolved",
     "mixed_archive": "Source-bound recording epochs and ordered lossless segmented exports validated offline; unknown regions preserved; mixed-system single-file merge and film/container output reject explicitly; HDV remains separate",
-    "signed_app_ui": "Complete signed-application UI and exact signed app-driver negotiation not qualified"
+    "signed_app_ui": "Actual restored offline startup notice verified; complete signed-app workflows/displayed-pixel metadata association and signed app-driver negotiation not qualified.",
+    "historical_b190_startup": "stable final generation before capture; no reset observed during these bounded captures; broader startup/reset coverage remains open"
   },
   "links": {
     "source": "https://github.com/rewinddv/rewindDV",
     "releases": "https://github.com/rewinddv/rewindDV/releases",
-    "release": "https://github.com/rewinddv/rewindDV/releases/tag/alpha-0.0.93",
-    "install": "https://github.com/rewinddv/rewindDV/blob/main/INSTALL.md",
+    "release": "https://github.com/rewinddv/rewindDV/releases/tag/alpha-0.0.94",
+    "install": "https://github.com/rewinddv/rewindDV/blob/alpha-0.0.94/Foundation/OFFLINE-DISTRIBUTION.md",
     "issues": "https://github.com/rewinddv/rewindDV/issues",
     "contribute": "https://github.com/rewinddv/rewindDV/blob/main/CONTRIBUTING.md",
     "privacy": "https://github.com/rewinddv/rewindDV/blob/main/PRIVACY.md"
