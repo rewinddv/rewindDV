@@ -9,14 +9,16 @@ struct ReviewedRangeView: View {
 
   private var alignedPlayback: Bool {
     guard let snapshot = review.snapshot, review.source == playback.sourceURL,
-      snapshot.frameCount <= UInt64(Int32.max), playback.durationSeconds.isFinite else { return false }
-    return abs(playback.durationSeconds - Double(snapshot.frameCount) * review.frameDuration) < review.frameDuration * 0.51
+      snapshot.frameCount <= UInt64(Int32.max), !playback.frameCounterIsEstimated, snapshot.isComplete,
+      let duration = review.seconds(atBoundary: snapshot.frameCount), playback.durationSeconds.isFinite else { return false }
+    return abs(playback.durationSeconds - duration) < 0.000_001
   }
   private var canMark: Bool {
     guard alignedPlayback, playback.state == .paused, let snapshot = review.snapshot,
       playback.currentFrameOrdinal >= 0, UInt64(playback.currentFrameOrdinal) < snapshot.frameCount,
-      let decodedTime = playback.latestEnqueuedVideoTimeSeconds else { return false }
-    return abs(decodedTime - Double(playback.currentFrameOrdinal) * review.frameDuration) < 0.000_001
+      let decodedTime = playback.latestEnqueuedVideoTimeSeconds,
+      let expectedTime = review.seconds(atBoundary: UInt64(playback.currentFrameOrdinal)) else { return false }
+    return abs(decodedTime - expectedTime) < 0.000_001
   }
 
   var body: some View {
@@ -50,10 +52,10 @@ struct ReviewedRangeView: View {
           Text("Frames are numbered from 1; the last frame is included. Pause or step to a frame before setting a boundary.")
             .font(.caption).foregroundStyle(.secondary)
           HStack {
-            Button("Show first frame") { if let range = review.range { playback.seek(to: Double(range.first) * review.frameDuration) } }
+            Button("Show first frame") { if let range = review.range, let time = review.seconds(atBoundary: range.first) { playback.seek(to: time) } }
               .disabled(review.range == nil || !alignedPlayback)
               .accessibilityIdentifier("review-show-first")
-            Button("Show last frame") { if let range = review.range { playback.seek(to: Double(range.end - 1) * review.frameDuration) } }
+            Button("Show last frame") { if let range = review.range, let time = review.seconds(atBoundary: range.end - 1) { playback.seek(to: time) } }
               .disabled(review.range == nil || !alignedPlayback)
               .accessibilityIdentifier("review-show-last")
             Button("Use entire file") { review.firstFrameText = "1"; review.lastFrameText = String(snapshot.frameCount) }
@@ -67,6 +69,10 @@ struct ReviewedRangeView: View {
           if !alignedPlayback {
             Text("Playback timing does not match the verified raw frame count. Playhead shortcuts are unavailable; numeric range export remains explicit.")
               .font(.caption).foregroundStyle(.orange)
+          }
+          if review.segmentCount > 1 {
+            Text("This selection exports \(review.segmentCount) separate lossless DV segments plus an ordered source-mapping manifest. No format conversion.")
+              .font(.caption).foregroundStyle(.secondary)
           }
           Toggle("I reviewed this range and approve the listed omissions", isOn: $review.confirmed)
             .toggleStyle(.checkbox).disabled(review.range == nil)
@@ -84,7 +90,7 @@ struct ReviewedRangeView: View {
             NSWorkspace.shared.activateFileViewerSelecting([output])
           }
         }
-        Text("Creates a separate reviewed DV copy and provenance record. No re-encoding, audio resampling, timecode rewriting or automatic blank-frame removal. The full original remains authoritative; export does not repair source damage or loss.")
+        Text("Creates separate reviewed DV segments and a provenance record. No re-encoding, audio resampling, timecode rewriting or automatic blank-frame removal. The full original remains authoritative; export does not repair source damage or loss.")
           .font(.caption).foregroundStyle(.secondary)
       }.frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 6)
         .disabled(review.isBusy)
@@ -103,7 +109,7 @@ struct ReviewedRangeView: View {
     playback.pause()
     let panel = NSOpenPanel()
     panel.title = "Choose reviewed export destination"
-    panel.message = "Creates a new uniquely named folder containing reviewed-range.dv and provenance.json. Existing files and the original are never replaced."
+    panel.message = "Creates a new uniquely named folder containing lossless DV segments and provenance.json. Existing files and the original are never replaced."
     panel.canChooseFiles = false; panel.canChooseDirectories = true
     panel.canCreateDirectories = true; panel.allowsMultipleSelection = false
     guard panel.runModal() == .OK, let parent = panel.url, review.canExport else { return }

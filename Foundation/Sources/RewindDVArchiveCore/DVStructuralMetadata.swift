@@ -147,13 +147,20 @@ extension DVPackSemanticReport {
       }
       if !absoluteOffsetsKnown { pack.sourceByteOffsets = [] }
       pack.catalogEvidence = "Allocation: " + entry.allocation + ". " + entry.evidence
+      if format == "IEC 61834 consumer DV", DVPackCatalog.permitsSDObservation(bytes[0], context: context) {
+        var context = DVIEC61834.Context()
+        context.isPAL = inventory.frameByteCount == 144_000
+        pack.normativeLayout = DVIEC61834.decode(bytes, context: context)?.layout
+      }
+      // Historical component IDs remain a compatibility view, not canonical
+      // source interpretation. The versioned normativeLayout is authoritative.
       if format == "IEC 61834 consumer DV", DVPackCatalog.permitsSDObservation(bytes[0], context: context), entry.hasQualifiedSDLayout {
         pack.rawComponents = entry.components.map { component in
           Field(id: component.id, name: component.name, rawValue: component.extract(bytes)!,
             meaning: "Raw component; PC\(component.byte), mask \(String(format: "0x%02X", component.mask)), shift \(component.shift)",
             status: transmission == "valid" ? "uninterpreted" : transmission == "invalid" ? "invalid" : "unavailable",
             reference: component.reference, confidence: component.confidence,
-            qualifier: component.qualifier, numeric: .init(bitWidth: component.width, unit: "raw code", relation: "raw", rule: component.id))
+            qualifier: "Legacy v2 compatibility view; consult canonical fields and normativeLayout. " + component.qualifier, numeric: .init(bitWidth: component.width, unit: "raw code", relation: "raw", rule: component.id))
         }
       }
       return pack
@@ -162,6 +169,7 @@ extension DVPackSemanticReport {
       frameSHA256: frameSHA256, format: format, formatEvidence: formatEvidence, packs: attached, missingPrincipalPacks: missingPrincipalPacks)
     result.structuralMetadata = structuralMetadata
     result.absoluteOffsetsKnown = absoluteOffsetsKnown
+    result.interpretationVersion = interpretationVersion
     return result
   }
 }

@@ -89,3 +89,24 @@ rewinddv` using the same external scratch/cache paths. With a running app, MCP
 interface without operating tape. See [CLI/MCP](Foundation/CLIAndMCP.md) for
 session-scoped sandbox path grants and attended hardware workflows. A build,
 tool listing or offline pass does not qualify physical capture or recovery.
+
+## Alpha 0.0.94 metadata and archive regressions
+
+The full package suite includes IEC decoder/sequence/property witnesses, legacy
+metadata schemas, epoch validation, mixed NTSC/PAL reviewed-range segment export,
+empty-plan/empty-snapshot rejection, and unknown/damaged-region preservation.
+Run the receive lifecycle script above for Driver192 atomic owner and Blocks
+retirement checks. All fixtures are original synthetic or minimal byte witnesses;
+no private capture or standards document is needed.
+
+```sh
+python3 -B Foundation/Tools/verify-dv-metadata-registry.py
+xcrun swift run --package-path Foundation --scratch-path "$test_root/package" RewindDVInspect iec-field-inventory > "$test_root/iec-inventory.json"
+python3 -B Foundation/Tools/verify-iec-field-inventory.py "$test_root/iec-inventory.json"
+```
+
+The first audit checks the published software geometry only. Historical private
+registry seals/disposition evidence are intentionally excluded. The executable
+IEC inventory audits all256 allocations and274 layouts, not normative correctness.
+Source-bound archive/export tests do not establish physical capture qualification
+or complete signed-application UI qualification. VAUX0x61 remains unresolved.

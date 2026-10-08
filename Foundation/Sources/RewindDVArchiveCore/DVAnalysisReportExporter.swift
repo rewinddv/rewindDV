@@ -5,7 +5,7 @@ import Foundation
 /// Offline, streaming derivatives. Completion is published only after all files
 /// are flushed and reread. Neither report import nor export has transport authority.
 public enum DVAnalysisReportExporter {
-  public static let parserVersion = "rewindDV-analysis-1"
+  public static let parserVersion = "rewindDV-analysis-2"
   public static let xmlNamespace = "https://mediaarea.net/dvrescue"
   public static let upstreamRevision = "5cead7a5dae4ec7ffdf24115c8e3bc6d9c05c033"
   public struct Artifact: Codable, Equatable, Sendable {
@@ -61,13 +61,13 @@ public enum DVAnalysisReportExporter {
       writtenHashes[index].update(data: data); writtenBytes[index] += UInt64(data.count)
     }
     func put(_ index: Int, _ text: String) throws { try putData(index, Data(text.utf8)) }
-    try put(0, "{\"schemaVersion\":1,\"parser\":\"\(parserVersion)\",\"source\":")
+    try put(0, "{\"schemaVersion\":\(snapshot.schemaVersion),\"parser\":\"\(parserVersion)\",\"source\":")
     try putData(0, encode(snapshot))
     try put(0, ",\"mapReceiptSHA256\":\"\(binding.mapReceiptSHA256)\",\"frames\":[\n")
     let headings = ["source_sha256", "frame_ordinal", "source_byte_offset", "frame_bytes", "frame_sha256",
       "presentation_numerator", "presentation_denominator", "source_timecode", "recorded_date_YY_MM_DD",
       "video_sta_blocks", "active_audio_error_samples", "active_audio_samples_examined", "audio_coverage",
-      "invalid_metadata_values", "conflicting_metadata_values", "map_issue_codes"]
+      "invalid_metadata_values", "conflicting_metadata_values", "map_issue_codes", "epoch_id", "recording_system"]
     try put(1, csvRow(headings))
     try put(2, "WEBVTT\n\nNOTE Source SHA-256: \(snapshot.sourceSHA256)\nParser: \(parserVersion)\nFile presentation time, not tape timecode. Cues are review observations, not proof of damage.\n\n")
     try put(3, "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<dvrescue xmlns=\"\(xmlNamespace)\" version=\"1.2.1\">\n<creator><program>rewindDV</program><version>\(parserVersion)</version></creator>\n<media ref=\"urn:sha256:\(snapshot.sourceSHA256)\" format=\"DV\" size=\"\(snapshot.sourceByteCount)\">\n")
@@ -87,6 +87,9 @@ public enum DVAnalysisReportExporter {
           DVTapeEvidenceMapExporter.frameIssues(boundary: b, titleTimecode: record.rawSubcode.titleTimecodePacks)
             .map { ($0.code, $0.observedCount) })
         for code in timeline.changes { expectedIssues[code] = 1 }
+        if b.frameOrdinal > 0, try snapshot.frame(b.frameOrdinal - 1).epochID != snapshot.frame(b.frameOrdinal).epochID {
+          expectedIssues[.recordingSystemTransition] = 1
+        }
         for (code, value) in [(DVTapeEvidenceMapExporter.IssueCode.audioErrorSentinels, evidence.audioErrors.count),
           (.invalidMetadata, evidence.summary.invalidMetadataValues), (.conflictingMetadata, evidence.summary.conflictingMetadataValues)] where value > 0 {
           expectedIssues[code] = UInt64(value)
@@ -94,8 +97,10 @@ public enum DVAnalysisReportExporter {
         guard Dictionary(uniqueKeysWithValues: record.issues.map { ($0.code, $0.observedCount) }) == expectedIssues else {
           throw DVIngestError.invalidEvidence("map issue counts disagree with original-frame analysis")
         }
-        let ticks = try numerator(b.frameOrdinal, pal: snapshot.frameByteCount == 144_000)
-        let denominator: UInt64 = snapshot.frameByteCount == 144_000 ? 25 : 30_000
+        let identity = try snapshot.frame(b.frameOrdinal)
+        let legacyPAL = snapshot.schemaVersion == 1 && snapshot.videoSystem == .pal625_50
+        let ticks = legacyPAL ? b.frameOrdinal : identity.startTick
+        let denominator: UInt64 = legacyPAL ? 25 : 30_000
         let video = evidence.blocks.filter { ($0.videoSTA ?? 0) != 0 }
         let item = Frame(sourceSHA256: snapshot.sourceSHA256,
           presentationNumerator: ticks, presentationDenominator: denominator,
@@ -108,14 +113,14 @@ public enum DVAnalysisReportExporter {
           String(b.frameByteCount), b.frameSHA256, String(ticks), String(denominator),
           record.timeline?.point.timecodeLabel ?? "", record.timeline?.point.recordedDate ?? "",
           String(video.count), String(evidence.audioErrors.count), String(q.audioSamplesExamined), q.audioCoverage,
-          String(q.invalidMetadataValues), String(q.conflictingMetadataValues), record.issues.map { $0.code.rawValue }.joined(separator: ";")]))
+          String(q.invalidMetadataValues), String(q.conflictingMetadataValues), record.issues.map { $0.code.rawValue }.joined(separator: ";"), identity.epochID, identity.system.rawValue]))
         if !record.issues.isEmpty {
-          let start = try timestamp(frame: b.frameOrdinal, pal: b.frameByteCount == 144_000, precision: 3)
-          let end = try timestamp(frame: b.frameOrdinal + 1, pal: b.frameByteCount == 144_000, precision: 3)
+          let start = try timestamp(ticks: identity.startTick, denominator: 30_000, precision: 3)
+          let end = try timestamp(ticks: identity.startTick + identity.durationTicks, denominator: 30_000, precision: 3)
           try put(2, "frame-\(b.frameOrdinal)\n\(start) --> \(end)\nFrame \(b.frameOrdinal); original bytes \(b.frameSourceByteOffset)..&lt;\(b.frameSourceByteOffset + UInt64(b.frameByteCount))\n\(record.issues.map { $0.code.rawValue }.joined(separator: ", "))\nFrame SHA-256: \(b.frameSHA256)\n\n")
           cues += 1
         }
-        try put(3, try xmlFrame(record, evidence: evidence))
+        try put(3, try xmlFrame(record, evidence: evidence, snapshot: snapshot))
         count += 1
         if count % 128 == 0 || count == snapshot.frameCount { progress(count, snapshot.frameCount) }
       }
@@ -134,9 +139,9 @@ public enum DVAnalysisReportExporter {
       }
       artifacts.append(Artifact(name: name, bytes: verified.bytes, sha256: verified.sha256))
     }
-    let receipt = Receipt(schemaVersion: 1, completion: "complete", parser: parserVersion,
+    let receipt = Receipt(schemaVersion: Int(snapshot.schemaVersion), completion: "complete", parser: parserVersion,
       source: snapshot, map: binding, artifacts: artifacts, frameCount: count, cueCount: cues,
-      timestampBasis: "zero-based file frame ordinal; exact rational 1001/30000 NTSC or 1/25 PAL; text timestamps rounded to nearest millisecond (VTT) or microsecond (XML); never recorded timecode",
+      timestampBasis: "epoch-integrated file presentation time in exact 1/30000-second ticks; 1001 ticks per NTSC frame, 1200 per PAL frame; text timestamps rounded to nearest millisecond (VTT) or microsecond (XML); never recorded timecode",
       xmlProfile: "DVRescue XSD 1.2.1 subset; pinned upstream \(upstreamRevision); truthful rewindDV creator",
       limitations: [
         "No report establishes pristine content, exact missing-frame count, tape identity or recovery/merge authority.",
@@ -164,10 +169,12 @@ public enum DVAnalysisReportExporter {
     return receipt
   }
 
-  static func xmlFrame(_ record: DVTapeEvidenceMapExporter.FrameRecord, evidence: DVFrameForensics) throws -> String {
+  static func xmlFrame(_ record: DVTapeEvidenceMapExporter.FrameRecord, evidence: DVFrameForensics, snapshot: DVReviewedRangeExporter.Snapshot? = nil) throws -> String {
     let b = record.boundaryEvidence, pal = b.frameByteCount == 144_000
-    let start = try timestamp(frame: b.frameOrdinal, pal: pal, precision: 6)
-    let end = try timestamp(frame: b.frameOrdinal + 1, pal: pal, precision: 6)
+    let start = try snapshot.map { try timestamp(ticks: $0.presentationTick(atBoundary: b.frameOrdinal), denominator: 30_000, precision: 6) }
+      ?? timestamp(frame: b.frameOrdinal, pal: pal, precision: 6)
+    let end = try snapshot.map { try timestamp(ticks: $0.presentationTick(atBoundary: b.frameOrdinal + 1), denominator: 30_000, precision: 6) }
+      ?? timestamp(frame: b.frameOrdinal + 1, pal: pal, precision: 6)
     var text = "<frames count=\"1\" pts=\"\(start)\" end_pts=\"\(end)\" size=\"720x\(pal ? 576 : 480)\" video_rate=\"\(pal ? "25" : "30000/1001")\""
     if let layout = evidence.videoLayout { text += " chroma_subsampling=\"\(layout == .pal420 ? "4:2:0" : "4:1:1")\"" }
     text += " captions=\"\(evidence.semantics.packs.contains { $0.typeHex == "0x65" && $0.id.hasPrefix("vaux") } ? "y" : "n")\">\n"
@@ -196,7 +203,10 @@ public enum DVAnalysisReportExporter {
   }
   static func timestamp(frame: UInt64, pal: Bool, precision: Int) throws -> String {
     guard precision == 3 || precision == 6 else { throw DVIngestError.invalidEvidence("timestamp precision") }
-    let ticks = try numerator(frame, pal: pal), denominator: UInt64 = pal ? 25 : 30_000
+    return try timestamp(ticks: numerator(frame, pal: pal), denominator: pal ? 25 : 30_000, precision: precision)
+  }
+  static func timestamp(ticks: UInt64, denominator: UInt64, precision: Int) throws -> String {
+    guard [3, 6].contains(precision), denominator > 0 else { throw DVIngestError.invalidEvidence("timestamp precision or timebase") }
     let scale: UInt64 = precision == 3 ? 1000 : 1_000_000
     let seconds = ticks / denominator, fraction = ((ticks % denominator) * scale + denominator / 2) / denominator
     let whole = seconds + fraction / scale, remainder = fraction % scale

@@ -6,6 +6,15 @@ import RewindDVArchiveCore
 
 /// Grouping only. No field extraction, application inference or value selection.
 public enum DVMetadataPresentation {
+  /// Existing interpreted checks remain intact. Group the known disputed checks
+  /// per raw/context pack, never across missing frames or distinct observations.
+  public static func unresolvedVAUX61(_ report: DVPackSemanticReport) -> [DVPackSemanticReport.Pack] {
+    report.packs.filter { pack in
+      pack.typeHex == "0x61" && pack.fields.contains {
+        ["PC2_FIXED6", "PC2_FIXED3"].contains($0.id) && $0.status == "invalid"
+      }
+    }
+  }
   /// Presentation-only provenance. Labels/IDs used by consumers stay unchanged.
   /// A format constant or calculated value must never acquire a fictitious pack ID.
   public static func inspectorLabel(_ label: String, section: String) -> String {

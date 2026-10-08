@@ -36,7 +36,7 @@ void InterruptDispatcher::HandleSnapshot(const InterruptSnapshot& snap, Controll
         // Poll the master first so the producer timeline is published before the
         // secondary slices anchor to it.
         const uint32_t recvEvent = events.receive;
-        std::array<std::shared_ptr<ASFW::Isoch::IsochReceiveContext>,
+        std::array<IsochService::ReceiveOwner,
                    IsochService::kMaxStreamsPerDirection> receiveOwners{};
         for (uint32_t index = 0; index < receiveOwners.size(); ++index) {
             if ((recvEvent & (1u << index)) != 0) {

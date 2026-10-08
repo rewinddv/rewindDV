@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
 #include "FoundationReceiveWire.hpp"
+#include "../../ASFWDriver/Common/AtomicSharedOwner.hpp"
 #include "../../ASFWDriver/Async/FireWireBusImpl.hpp"
 #include <DriverKit/IOLib.h>
 #include <DriverKit/IOMemoryDescriptor.h>
@@ -36,7 +37,8 @@ public:
 private:
     struct Session;
     mutable IOLock* lock_{};
-    std::shared_ptr<Session> session_;
+    using SessionOwner = ASFW::Common::AtomicSharedOwner<Session>;
+    SessionOwner session_;
     uint64_t nextEpoch_{1};
 };
 } // namespace RewindDV::Foundation::Receive

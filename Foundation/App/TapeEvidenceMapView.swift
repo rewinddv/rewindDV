@@ -5,6 +5,11 @@ import CoreImage
 
 @MainActor
 final class TapeEvidenceMapModel: ObservableObject {
+  let visualReview = DVArchiveVisualReviewModel()
+  func buildFilmstrip(first: UInt64, end: UInt64) {
+    guard !busy, let reader, let originalSource else { return }
+    visualReview.build(map: reader, source: originalSource, first: first, end: end)
+  }
   @Published private(set) var busy = false
   @Published private(set) var receipt: DVTapeEvidenceMapExporter.Receipt?
   @Published private(set) var directory: URL?
@@ -278,6 +283,7 @@ final class TapeEvidenceMapModel: ObservableObject {
   func connectSource(_ url: URL) {
     guard !busy, let reader else { return }
     let selected = selectedRecord
+    visualReview.reset()
     clearSelection(); originalSource = nil
     if let sourceAccess { sourceAccess.stopAccessingSecurityScopedResource() }
     sourceAccess = url.startAccessingSecurityScopedResource() ? url : nil
@@ -332,6 +338,7 @@ final class TapeEvidenceMapModel: ObservableObject {
   }
 
   private func releaseDirectory() {
+    visualReview.reset()
     generation = UUID(); sourceProgress = nil
     scenePlan = nil; sceneDirectory = nil; sceneProgress = nil
     sceneMessage = "Propose recording-marker and format boundaries from verified original bytes. All cuts require review."
@@ -599,6 +606,20 @@ struct TapeEvidenceMapView: View {
         }
         if let receipt = map.receipt {
           fact("Source frames covered", receipt.frameLedgerRecordCount.formatted())
+          ArchiveDisclosure("Recording-system epochs (\(receipt.sourceSnapshot.recordingEpochs.count))") {
+            ForEach(receipt.sourceSnapshot.recordingEpochs, id: \.id) { epoch in
+              Button("\(epoch.system.rawValue) · frames \(epoch.firstFrame)..<\(epoch.endFrameExclusive) · bytes \(epoch.byteOffset)..<\(epoch.byteEndExclusive)") {
+                map.loadPage(epoch.firstFrame / DVTapeEvidenceLedgerReader.recordsPerPage, selecting: epoch.firstFrame)
+              }.disabled(map.busy).font(.caption.monospacedDigit())
+            }
+            ForEach(Array((receipt.sourceSnapshot.unknownRegions ?? []).enumerated()), id: \.offset) { _, region in
+              Text("Unindexed bytes \(region.byteOffset)..<\(region.byteEndExclusive): \(region.reason)").font(.caption).foregroundStyle(.orange)
+            }
+          }
+          DVArchiveVisualReviewView(visual: map.visualReview, canBuild: map.canExportReports,
+            build: { map.buildFilmstrip(first: $0, end: $1) },
+            select: { map.loadPage($0 / DVTapeEvidenceLedgerReader.recordsPerPage, selecting: $0) },
+            frameCount: receipt.sourceSnapshot.frameCount)
           fact("Source SHA-256", receipt.sourceSnapshot.sourceSHA256)
           fact("Uncovered bytes", receipt.uncoveredSourceByteCount.formatted())
           fact("Transport evidence", receipt.acquisitionReport.rawValue.replacingOccurrences(of: "_", with: " "))

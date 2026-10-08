@@ -169,3 +169,43 @@ private func withTimelineFile(_ data: Data, _ body: (URL) throws -> Void) throws
     #expect(original.sections[0].rows.first?.value == "incorrect uniform estimate")
   }
 }
+
+@Test func mixedDVTimelineDoesNotInventMetadataOrContinuousTimecode() throws {
+  func recordedFrame(pal: Bool, timecode: [UInt8]?) -> Data {
+    var bytes = timelineFrame(pal: pal)
+    for at in stride(from: 0, to: bytes.count, by: 80) {
+      if bytes[at] >> 5 == 0 {
+        for index in 4...7 { bytes[at + index] = 0 } // consumer application IDs
+      }
+      if bytes[at] >> 5 == 1, let timecode {
+        bytes.replaceSubrange((at + 6)..<(at + 11), with: timecode)
+      }
+    }
+    return bytes
+  }
+  // Repeated labels, a jump, and a frame with no principal metadata adjacent
+  // to both system boundaries are independent of the stored frame timeline.
+  let label: [UInt8] = [0x13, 0x02, 0x00, 0x00, 0x00]
+  let frames = [recordedFrame(pal: false, timecode: label),
+    recordedFrame(pal: true, timecode: label),
+    recordedFrame(pal: true, timecode: nil),
+    recordedFrame(pal: false, timecode: [0x13, 0x29, 0x59, 0x59, 0x23]),
+    recordedFrame(pal: true, timecode: nil)]
+  try withTimelineFile(frames.reduce(into: Data()) { $0.append($1) }) { url in
+    var visited: [(Int, UInt64, String?)] = []
+    let timeline = try DVPlaybackTimeline.read(url: url) { bytes, ordinal, offset in
+      visited.append((ordinal, offset, MonitorSourceTimecode.display(nativeDVFrame: bytes)))
+      if ordinal == 2 || ordinal == 4 {
+        #expect(DVTechnicalSpecifications.frameRecordedClock(bytes).value.hasPrefix("Unavailable"))
+      }
+    }
+    #expect(timeline.frameCount == 5 && timeline.runs.count == 4 && timeline.isComplete)
+    #expect(visited.map { $0.0 } == [0, 1, 2, 3, 4])
+    #expect(visited.map { $0.1 } == [0, 120000, 264000, 408000, 528000])
+    #expect(visited.map { $0.2 } == ["00:00:00:02", "00:00:00:02", nil, "23:59:59:29", nil])
+    #expect(timeline.durationTicks == 2 * 1001 + 3 * 1200)
+    for i in [4, 0, 2, 3, 1, 4, 2] {
+      #expect(timeline.frame(at: timeline.frame(i).seconds).ordinal == i)
+    }
+  }
+}

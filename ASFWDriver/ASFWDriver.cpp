@@ -1495,7 +1495,7 @@ kern_return_t ASFWDriver::StartIsochReceive(uint8_t channel, uint32_t wireFormat
         return kIOReturnNotReady;
     }
 
-    if (auto* ir = ctx.isoch.ReceiveContext();
+    if (const auto ir = ctx.isoch.CopyReceiveContext();
         ir && ir->GetState() != ASFW::Isoch::IRPolicy::State::Stopped) {
         ASFW_LOG(Controller, "[Isoch] IR already running; StartIsochReceive is idempotent");
         return kIOReturnSuccess;

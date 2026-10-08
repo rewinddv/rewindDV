@@ -271,3 +271,23 @@ func reviewedRangeInspectionValidatesUniformNativeDV(pal: Bool) throws {
     #expect(try FileManager.default.contentsOfDirectory(atPath: realDestination.path).isEmpty)
   }
 }
+
+@Test func reviewedRangeMixedGeometryIndexesBothSystemsWithoutAssertingSourceDamage() throws {
+  try withReviewedTemporaryDirectory { root in
+    let source = root.appendingPathComponent("mixed.dv")
+    let ntsc = reviewedFrame(pal: false), pal = reviewedFrame(pal: true)
+    // Each complete ordered frame is validated independently. Their sum is
+    // not divisible by either system's size, which is not an incomplete tail.
+    _ = try DVMetadataInventory.inspect(frame: ntsc, ordinal: 0, byteOffset: 0)
+    _ = try DVMetadataInventory.inspect(frame: pal, ordinal: 1, byteOffset: 120_000)
+    let bytes = ntsc + pal
+    try bytes.write(to: source)
+    let snapshot = try DVReviewedRangeExporter.inspect(source: source)
+    #expect(snapshot.schemaVersion == 2)
+    #expect(snapshot.frameByteCount == nil && snapshot.videoSystem == nil)
+    #expect(snapshot.frameCount == 2 && snapshot.isComplete)
+    #expect(snapshot.recordingEpochs.map(\.system) == [.ntsc525_60, .pal625_50])
+    #expect(try snapshot.frame(1).byteOffset == 120_000)
+    #expect(try Data(contentsOf: source) == bytes)
+  }
+}

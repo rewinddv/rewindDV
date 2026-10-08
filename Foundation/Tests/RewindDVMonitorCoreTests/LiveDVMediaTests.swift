@@ -98,7 +98,7 @@ private func mediaFixture(pal: Bool = false, rate: Int = 0, nonlinear: Bool = fa
 @Test func liveAspectIsExplicitAndNeverRewritesFrame() throws {
   var frame = mediaFixture()
   #expect(LiveDVMedia(frame: frame)?.widescreen == nil)
-  frame[3 * 80 + 3] = 0x61; frame[3 * 80 + 5] = 2
+  frame[3 * 80 + 3] = 0x61; frame[3 * 80 + 5] = 2; frame[3 * 80 + 6] = 0
   #expect(LiveDVMedia(frame: frame)?.widescreen == true)
   frame[3 * 80 + 5] = 1
   let original = frame
@@ -108,7 +108,7 @@ private func mediaFixture(pal: Bool = false, rate: Int = 0, nonlinear: Bool = fa
   frame[3 * 80 + 5] = 7
   #expect(LiveDVMedia(frame: frame)?.widescreen == nil)
   frame[3 * 80 + 5] = 2
-  frame[4 * 80 + 3] = 0x61; frame[4 * 80 + 5] = 0
+  frame[4 * 80 + 3] = 0x61; frame[4 * 80 + 5] = 0; frame[4 * 80 + 6] = 0
   #expect(LiveDVMedia(frame: frame)?.widescreen == nil)
   #expect(LiveDisplayAspect.source.ratio(widescreen: nil) == 4.0 / 3.0)
   #expect(LiveDisplayAspect.anamorphic.ratio(widescreen: false) == 16.0 / 9.0)

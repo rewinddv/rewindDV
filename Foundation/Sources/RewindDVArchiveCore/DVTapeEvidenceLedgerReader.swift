@@ -97,7 +97,7 @@ public actor DVTapeEvidenceLedgerReader {
     let marker = try Self.readRegularFile(
       directoryFD: directoryFD,
       name: DVTapeEvidenceMapExporter.completionMarkerName,
-      maximumByteCount: 1_048_576)
+      maximumByteCount: 67_108_864)
     let receipt: DVTapeEvidenceMapExporter.Receipt
     do { receipt = try JSONDecoder().decode(DVTapeEvidenceMapExporter.Receipt.self, from: marker.data) }
     catch { throw DVIngestError.invalidEvidence("tape evidence completion marker JSON is invalid") }
@@ -256,7 +256,7 @@ public actor DVTapeEvidenceLedgerReader {
     let marker = try Self.readRegularFile(
       directoryFD: directoryFD,
       name: DVTapeEvidenceMapExporter.completionMarkerName,
-      maximumByteCount: 1_048_576)
+      maximumByteCount: 67_108_864)
     guard UInt64(marker.data.count) == binding.mapReceiptByteCount,
       Self.hex(SHA256.hash(data: marker.data)) == binding.mapReceiptSHA256 else {
       throw DVIngestError.invalidEvidence("tape evidence completion marker changed")
@@ -346,25 +346,17 @@ public actor DVTapeEvidenceLedgerReader {
 
   private static func validate(_ receipt: DVTapeEvidenceMapExporter.Receipt) throws {
     let snapshot = receipt.sourceSnapshot
-    // Imported JSON can contain any signed Int. Validate before converting to
-    // UInt64 so malformed evidence is rejected instead of trapping the process.
-    guard snapshot.frameByteCount == 120_000 || snapshot.frameByteCount == 144_000 else {
-      throw DVIngestError.invalidEvidence("tape evidence frame size is invalid")
-    }
-    let expectedSourceBytes = try multiply(
-      snapshot.frameCount, UInt64(snapshot.frameByteCount), "tape evidence source size")
-    guard receipt.schemaVersion == 1, receipt.completionState == "complete",
+    try snapshot.validate()
+    guard [1, 2].contains(receipt.schemaVersion), receipt.schemaVersion == snapshot.schemaVersion, receipt.completionState == "complete",
       receipt.frameLedgerFile == DVTapeEvidenceMapExporter.frameLedgerFileName,
       receipt.frameLedgerRecordCount == snapshot.frameCount,
       receipt.coveredFirstFrameOrdinal == 0,
       receipt.coveredEndFrameOrdinalExclusive == snapshot.frameCount,
       receipt.coveredSourceByteOffset == 0,
-      receipt.coveredSourceByteEndExclusive == snapshot.sourceByteCount,
-      receipt.uncoveredSourceByteCount == 0,
-      snapshot.schemaVersion == 1, snapshot.frameCount > 0,
-      snapshot.sourceByteCount == expectedSourceBytes,
+      receipt.coveredSourceByteEndExclusive == snapshot.verifiedByteCount,
+      receipt.uncoveredSourceByteCount == snapshot.sourceByteCount - snapshot.verifiedByteCount,
       isSHA256(snapshot.sourceSHA256), isSHA256(receipt.frameLedgerSHA256),
-      receipt.frameLedgerByteCount > 0 else {
+      (receipt.frameLedgerByteCount > 0 || snapshot.frameCount == 0) else {
       throw DVIngestError.invalidEvidence("tape evidence completion marker fields are invalid")
     }
     let issueCodes = receipt.issueCounts.map(\.code)
@@ -380,16 +372,20 @@ public actor DVTapeEvidenceLedgerReader {
   ) throws {
     let boundary = record.boundaryEvidence
     let snapshot = receipt.sourceSnapshot
-    let offset = try multiply(ordinal, UInt64(snapshot.frameByteCount), "tape evidence frame offset")
-    let end = try add(offset, UInt64(snapshot.frameByteCount), "tape evidence frame end")
+    let identity = try snapshot.frame(ordinal)
+    let offset = identity.byteOffset
+    let end = try add(offset, UInt64(identity.byteCount), "tape evidence frame end")
+    guard snapshot.schemaVersion == 1 ? record.sourceFrameIdentity == nil : record.sourceFrameIdentity == identity else {
+      throw DVIngestError.invalidEvidence("frame-to-epoch binding differs from source snapshot")
+    }
     guard record.schemaVersion == 1,
       boundary.schemaVersion == 1,
       boundary.frameOrdinal == ordinal,
       boundary.frameSourceByteOffset == offset,
-      boundary.frameByteCount == snapshot.frameByteCount,
-      boundary.videoSystem == snapshot.videoSystem,
+      boundary.frameByteCount == identity.byteCount,
+      boundary.videoSystem == identity.system,
       isSHA256(boundary.frameSHA256), end <= snapshot.sourceByteCount,
-      record.metadataExtentCount == (snapshot.frameByteCount == 120_000 ? 1_500 : 1_800),
+      record.metadataExtentCount == (identity.byteCount == 120_000 ? 1_500 : 1_800),
       record.rawSubcode.extentByteCount == 80 else {
       throw DVIngestError.invalidEvidence("tape evidence frame identity, bounds, or schema mismatch")
     }
@@ -405,7 +401,7 @@ public actor DVTapeEvidenceLedgerReader {
       }
     }
     if let quality = record.quality {
-      let sequences = snapshot.frameByteCount / 12_000
+      let sequences = identity.byteCount / 12_000
       guard quality.version == 1, quality.videoStatusBySequence.count == sequences,
         quality.audioErrorsBySequence.count == sequences,
         quality.videoStatusBySequence.allSatisfy({ (0...135).contains($0) }),

@@ -4,7 +4,8 @@ import Testing
 @testable import RewindDVArchiveCore
 
 // Numeric partitions independently established from pinned BSD/MIT implementations
-// and public patent EP1668434A1. PC byte:low bit:width:aggregate, in numeric order.
+// and public patent EP1668434A1; the additive 68 row is a provisional user-research
+// coordinate oracle. PC byte:low bit:width:aggregate, in numeric order.
 // Public-source locators and coalescing rules are retained with the review receipt.
 // No field IDs, descriptive registry inventory, or old oracle rows are used here.
 private let independentlySourcedPartitions = """
@@ -30,6 +31,7 @@ private let independentlySourcedPartitions = """
 64 1:0:4:0 1:4:4:0 2:0:4:0 2:4:4:0 3:0:4:0 3:4:4:0 4:0:4:0 4:4:4:0
 65 1:0:8:0 2:0:8:0 3:0:8:0 4:0:8:0
 66 1:0:4:0 1:4:4:0 2:0:8:0 3:0:8:0 4:0:8:0
+68 1:0:8:0 2:0:1:0 2:1:3:0 2:4:4:0 3:0:8:0 4:0:8:0
 70 1:0:6:0 1:6:2:0 2:0:4:0 2:4:4:0 3:0:5:0 3:5:3:0 4:0:7:0 4:7:1:0
 71 1:0:5:0 1:5:1:0 1:6:2:0 2:0:6:0 2:6:1:0 2:7:1:0 3:0:8:0 4:0:4:0 4:4:3:0 4:7:1:0
 7F 1:0:8:0 2:0:8:0 3:0:8:0 4:0:7:0 4:7:1:0
@@ -39,7 +41,7 @@ private let independentlySourcedPartitions = """
   #expect(DVPackCatalog.entries.count == 256)
   #expect(Set(DVPackCatalog.entries.map(\.header)).count == 256)
   for h in UInt8.min...UInt8.max { #expect(DVPackCatalog.entry(h).header == h) }
-  #expect(DVPackCatalog.components.count == 210)
+  #expect(DVPackCatalog.components.count == 216)
   #expect(DVPackCatalog.components.filter(\.aggregate).count == 2)
   struct Coordinate: Hashable {
     let pack: UInt8; let byte: Int; let low: Int; let width: Int; let aggregate: Bool
@@ -73,14 +75,14 @@ private let independentlySourcedPartitions = """
       #expect(c.extract([pack ^ 0xff, 0, 0, 0, 0]) == nil)
     }
   }
-  #expect(expectedCoordinates.count == 210)
+  #expect(expectedCoordinates.count == 216)
   #expect(Set(DVPackCatalog.components.map {
     Coordinate(pack: $0.pack, byte: $0.byte, low: $0.shift, width: $0.width, aggregate: $0.aggregate)
   }) == expectedCoordinates)
-  #expect(Set(DVPackCatalog.components.map(\.id)).count == 210)
+  #expect(Set(DVPackCatalog.components.map(\.id)).count == 216)
   // Supplementary compatibility checksum, NOT the independent layout oracle.
   // Protects the preexisting report ID-to-coordinate schema against ID swaps.
-  let identityRows = DVPackCatalog.components.map {
+  let identityRows = DVPackCatalog.components.filter { $0.pack != 0x68 }.map {
     "\($0.id)|\($0.pack)|\($0.byte)|\($0.mask)|\($0.shift)|\($0.width)|\($0.aggregate)"
   }.sorted().joined(separator: "\n")
   #expect(SHA256.hash(data: Data(identityRows.utf8)).map { String(format: "%02x", $0) }.joined()
@@ -93,8 +95,8 @@ private let independentlySourcedPartitions = """
       #expect(coverage == 255)
     }
   }
-  for h in UInt8(0xa0)...0xef { #expect(DVPackCatalog.entry(h).evidence.localizedCaseInsensitiveContains("reserved")); #expect(DVPackCatalog.entry(h).confidence == .conflictingEvidence) }
-  #expect(DVPackCatalog.entry(0xff).evidence.contains("conflicts"))
+  for h in UInt8(0xa0)...0xef { #expect(DVPackCatalog.entry(h).allocation == "unassigned"); #expect(DVPackCatalog.entry(h).confidence == .normativeConfirmed) }
+  #expect(DVPackCatalog.entry(0xff).evidence.contains("discrepancy"))
   #expect(DVPackCatalog.components.filter { $0.pack == 0x51 }.allSatisfy { $0.qualifier.contains("Consumer layout") && $0.qualifier.contains("professional") })
   #expect(DVPackCatalog.entry(0xf1).allocation != DVPackCatalog.entry(0x25).allocation)
 }
@@ -121,8 +123,9 @@ private func corpusReport(_ pack: [UInt8], offset: Int = 253, tfInvalid: Bool = 
     #expect(pack.locations?.first?.frameByteOffset == nil)
     #expect(pack.rawComponents == nil)
     if h == 0x56 || h == 0x66 {
-      #expect(pack.fields.count == 4)
-      #expect(pack.fields.allSatisfy { $0.confidence == .conflictingEvidence && $0.status == "uninterpreted" })
+      #expect(pack.fields.first { $0.id == "DATA28" }?.status == "uninterpreted")
+      #expect(pack.fields.allSatisfy { $0.confidence == .normativeConfirmed })
+      #expect(pack.normativeLayout?.count == 2)
     }
     if h == 0xff { #expect(pack.status.contains("non-FF payload")) }
     #expect(report.packs.reduce(0) { $0+$1.observationCount } == 660)
@@ -132,7 +135,7 @@ private func corpusReport(_ pack: [UInt8], offset: Int = 253, tfInvalid: Bool = 
   #expect(camera.fields.allSatisfy { $0.status == "invalid" && $0.confidence != .unknown })
   #expect(camera.rawComponents?.allSatisfy { $0.status == "invalid" && $0.confidence != .unknown } == true)
   let misplaced = try corpusReport([0x70,8,0,0,4], offset: 86)
-  #expect(misplaced.packs.first { $0.typeHex == "0x70" }?.fields.isEmpty == true)
+  #expect(misplaced.packs.first { $0.typeHex == "0x70" }?.fields.isEmpty == false) // subcode common optional area is allowed
 }
 
 @Test func corpusV2ShutterEveryRawValueAndCameraExceptions() throws {
@@ -174,9 +177,13 @@ private func corpusReport(_ pack: [UInt8], offset: Int = 253, tfInvalid: Bool = 
         let fields = DVCorpusSemantics.enrich([], pack: p, isPAL: pal)
         let speed = try #require(fields.first { $0.id == id })
         #expect(speed.rawValue == raw)
-        #expect(speed.numeric?.relation == (raw == limit ? "unknown" : raw == limit - 1 ? "greaterThan" : "exact"))
+        let disputed = !vertical && (30...61).contains(raw)
+        #expect(speed.numeric?.relation == (raw == limit ? "unknown" : raw == limit - 1 ? "greaterThan" : disputed ? "disputed" : "exact"))
+        #expect(speed.status == (raw == limit ? "unavailable" : disputed ? "uninterpreted" : "interpreted"))
+        if disputed { #expect(speed.confidence == .conflictingEvidence) }
         let expected = raw == limit ? "No information" : raw == limit - 1
           ? (vertical ? "> 29 lines/field" : "> 122 pixels/field")
+          : disputed ? "Disputed ordinary-range code \(raw); no speed selected"
           : (vertical ? "\(raw) lines/field" : "\(raw * 2) pixels/field")
         #expect(speed.meaning == expected)
         let dir = try #require(fields.first { $0.id == (vertical ? "VPD" : "HPD") })
@@ -218,7 +225,7 @@ private func corpusReport(_ pack: [UInt8], offset: Int = 253, tfInvalid: Bool = 
   let invalid = try corpusReport(pack, tfInvalid: true)
   #expect(invalid.packs.first { $0.typeHex == "0x71" }?.fields.allSatisfy { $0.status == "invalid" } == true)
   let misplaced = try corpusReport(pack, offset: 86)
-  #expect(misplaced.packs.first { $0.typeHex == "0x71" }?.fields.isEmpty == true)
+  #expect(misplaced.packs.first { $0.typeHex == "0x71" }?.fields.isEmpty == false)
 }
 
 @Test func corpusV2SpeedTextBinaryAndConsumerLetterbox() throws {
@@ -301,7 +308,7 @@ private func corpusReport(_ pack: [UInt8], offset: Int = 253, tfInvalid: Bool = 
     let report = try corpusReport([h,255,255,255,255], offset: offset)
     let pack = try #require(report.packs.first { $0.typeHex == String(format: "0x%02X", h) })
     #expect(pack.fields.count == 8)
-    #expect(pack.fields.allSatisfy { $0.rawValue == 15 && $0.status == "interpreted" })
+    #expect(pack.fields.allSatisfy { $0.rawValue == 15 && $0.status == "uninterpreted" })
   }
   for h: UInt8 in [0x08,0x56,0x66] {
     let fields = DVCorpusSemantics.enrich([], pack: [h,255,255,255,255], isPAL: false)
@@ -313,7 +320,7 @@ private func corpusReport(_ pack: [UInt8], offset: Int = 253, tfInvalid: Bool = 
   let report = DVPackSemanticReport.inspect(try DVMetadataInventory.inspect(frame: frame, ordinal: 0, byteOffset: 0))
   let iris = report.packs.flatMap(\.fields).filter { $0.id == "IRIS" }
   #expect(iris.count == 2)
-  #expect(iris.allSatisfy { $0.status == "conflicting" && $0.confidence == .mostLikely })
+  #expect(iris.allSatisfy { $0.status == "conflicting" && $0.confidence == .normativeConfirmed })
   #expect(Set(iris.map(\.rawValue)) == [0,8])
 }
 
@@ -335,12 +342,9 @@ private func corpusReport(_ pack: [UInt8], offset: Int = 253, tfInvalid: Bool = 
   #expect(components.allSatisfy { $0.confidence == .normativeConfirmed && $0.reference.contains("IEC 61834-4:1998") && $0.qualifier.contains("MIC was not acquired") })
   let report = try corpusReport([0x01, 0x03, 0x02, 0x01, 0xff], offset: 86)
   let pack = try #require(report.packs.first { $0.typeHex == "0x01" })
-  let field = try #require(pack.fields.first { $0.id == "ATN_OR_LENGTH" })
-  #expect(field.rawValue == 33025)
-  #expect(field.status == "uninterpreted" && field.confidence == .provisional)
-  #expect(field.meaning.contains("10 µm"))
-  #expect(field.qualifier?.contains("MIC was not acquired") == true)
-  #expect(pack.rawComponents?.count == 5)
+  #expect(pack.fields.isEmpty) // MIC was not acquired; tape occurrence is not promoted.
+  #expect(pack.rawHex == "01 03 02 01 FF")
+  #expect(pack.rawComponents == nil)
   let tag = DVCorpusSemantics.enrich([], pack: [0x0b, 3, 2, 1, 255], isPAL: false)
   #expect(tag.first { $0.id == "ATN_OR_LENGTH" }?.reference.contains("PRIMARY_STANDARD") == false)
   let invalid = try corpusReport([0x01,3,2,1,255], offset: 86, tfInvalid: true)
@@ -366,11 +370,11 @@ private func corpusReport(_ pack: [UInt8], offset: Int = 253, tfInvalid: Bool = 
     let report = try corpusReport([0x63,0xff,seconds,0x15,0x12])
     let value = try #require(report.packs.first { $0.typeHex == "0x63" }?.fields.first { $0.id == "REC_SECONDS" })
     #expect(value.rawValue == seconds)
-    #expect(value.qualifier?.contains("AAFS 2007 C49") == true)
+    #expect(value.reference.contains("PRIMARY_STANDARD: IEC 61834-4:1998 §9.4"))
     #expect(value.status == (seconds == 0x6a ? "invalid" : seconds == 0x7f ? "unavailable" : "interpreted"))
   }
-  #expect(DVPackCatalog.entry(0x70).name == "Camera exposure and focus")
-  #expect(DVPackCatalog.entry(0x71).name == "Camera motion and zoom")
+  #expect(DVPackCatalog.entry(0x70).name == "Consumer Camera 1")
+  #expect(DVPackCatalog.entry(0x71).name == "Consumer Camera 2")
   #expect(DVPackCatalog.entry(0x72).name.lowercased().contains("reserved"))
-  #expect(DVPackCatalog.entry(0x7f).name == "Shutter code")
+  #expect(DVPackCatalog.entry(0x7f).name == "Shutter")
 }

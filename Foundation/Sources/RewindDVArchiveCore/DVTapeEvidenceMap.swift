@@ -39,6 +39,7 @@ public enum DVTapeEvidenceMapExporter {
     case timecodeTransition = "recorded_timecode_transition"
     case recordedDateTransition = "recorded_date_transition"
     case formatTransition = "recorded_format_transition"
+    case recordingSystemTransition = "recording_system_transition"
   }
 
   public struct RawPackValue: Codable, Equatable, Sendable {
@@ -100,6 +101,7 @@ public enum DVTapeEvidenceMapExporter {
     /// Optional addition: old immutable maps remain readable, but unassessed.
     public var quality: DVFrameForensics.Summary? = nil
     public var timeline: DVFrameTimelineEvidence? = nil
+    public var sourceFrameIdentity: DVSourceFrameIdentity? = nil
 
     private enum CodingKeys: String, CodingKey {
       case schemaVersion = "schema_version"
@@ -110,6 +112,7 @@ public enum DVTapeEvidenceMapExporter {
       case repairAuthority = "repair_authority"
       case quality
       case timeline
+      case sourceFrameIdentity = "source_frame_identity"
     }
   }
 
@@ -249,7 +252,7 @@ public enum DVTapeEvidenceMapExporter {
     beforeCommit: () throws -> Void
   ) throws -> Receipt {
     try Task.checkCancellation()
-    let snapshot = try DVReviewedRangeExporter.inspect(source: source)
+    let snapshot = try DVReviewedRangeExporter.inspect(source: source, preserveUnknownRegions: true)
     let report = try archiveVerification.map { try readVerification($0, snapshot: snapshot) }
 
     let sourceReader = try RegularInput(source, maximumByteCount: nil)
@@ -260,7 +263,7 @@ public enum DVTapeEvidenceMapExporter {
     let directory = try EvidenceDirectory.create(destination)
     defer { directory.close() }
     let intent = Intent(
-      schemaVersion: 1,
+      schemaVersion: snapshot.schemaVersion,
       state: "incomplete_until_map_json_is_published",
       sourceSnapshot: snapshot,
       archiveVerificationSHA256: report?.provenance.verificationFileSHA256,
@@ -282,9 +285,11 @@ public enum DVTapeEvidenceMapExporter {
     var previousTimeline: DVFrameTimelineEvidence.Point?
     for ordinal in 0..<snapshot.frameCount {
       try Task.checkCancellation()
-      let frame = try sourceReader.readExactly(snapshot.frameByteCount)
+      let identity = try snapshot.frame(ordinal)
+      let frame = try sourceReader.readExactly(identity.byteCount)
+      try DVRecordingEpoch.validateFrame(frame, offset: identity.byteOffset)
       sourceHash.update(data: frame)
-      let byteOffset = try multiply(ordinal, UInt64(snapshot.frameByteCount), "tape map frame offset")
+      let byteOffset = identity.byteOffset
       let inventory = try DVMetadataInventory.inspect(
         frame: frame, ordinal: ordinal, byteOffset: byteOffset)
       let boundary = try DVBoundaryEvidence.inspect(
@@ -297,6 +302,10 @@ public enum DVTapeEvidenceMapExporter {
       let timeline = DVFrameTimelineEvidence(point: point, changes: changes)
       previousTimeline = point
       var issues = frameIssues(boundary: boundary, titleTimecode: subcode.titleTimecodePacks)
+      if ordinal > 0, try snapshot.frame(ordinal - 1).epochID != identity.epochID {
+        issues.append(FrameIssue(code: .recordingSystemTransition, observedCount: 1,
+          evidenceMeaning: "Verified DIF recording-system transition; independent of recording start, audio change, picture cut and host packet loss"))
+      }
       for code in changes {
         issues.append(FrameIssue(code: code, observedCount: 1,
           evidenceMeaning: "Recorded label or format transition between adjacent source ordinals, including becoming known/unknown; not a missing-frame count or transport defect"))
@@ -314,7 +323,7 @@ public enum DVTapeEvidenceMapExporter {
           try add(existing.frames, 1, "issue frame count"),
           try add(existing.observations, issue.observedCount, "issue observation count"))
       }
-      let record = FrameRecord(
+      var record = FrameRecord(
         schemaVersion: 1,
         boundaryEvidence: boundary,
         metadataExtentCount: inventory.extents.count,
@@ -322,10 +331,16 @@ public enum DVTapeEvidenceMapExporter {
         issues: issues,
         repairAuthority:
           "descriptive_observation_only; no_delete_repair_alignment_or_merge_authority", quality: quality, timeline: timeline)
+      if snapshot.schemaVersion == 2 { record.sourceFrameIdentity = identity }
       let line = try encode(record) + Data([10])
       try ledger.write(contentsOf: line)
       ledgerHash.update(data: line)
       ledgerBytes = try add(ledgerBytes, UInt64(line.count), "frame ledger byte count")
+    }
+    var remaining = snapshot.sourceByteCount - snapshot.verifiedByteCount
+    while remaining > 0 {
+      let bytes = try sourceReader.readExactly(Int(min(remaining, 1_048_576)))
+      sourceHash.update(data: bytes); remaining -= UInt64(bytes.count)
     }
     guard try sourceReader.isAtEOF() else {
       throw DVIngestError.invalidEvidence("tape map source grew during scan")
@@ -373,14 +388,14 @@ public enum DVTapeEvidenceMapExporter {
       acquisition = .unknownNoVerificationReport
     }
     let receipt = Receipt(
-      schemaVersion: 1,
+      schemaVersion: snapshot.schemaVersion,
       completionState: "complete",
       sourceSnapshot: snapshot,
       coveredFirstFrameOrdinal: 0,
       coveredEndFrameOrdinalExclusive: snapshot.frameCount,
       coveredSourceByteOffset: 0,
-      coveredSourceByteEndExclusive: snapshot.sourceByteCount,
-      uncoveredSourceByteCount: 0,
+      coveredSourceByteEndExclusive: snapshot.verifiedByteCount,
+      uncoveredSourceByteCount: snapshot.sourceByteCount - snapshot.verifiedByteCount,
       frameLedgerFile: frameLedgerFileName,
       frameLedgerSHA256: ledgerSHA,
       frameLedgerByteCount: ledgerBytes,

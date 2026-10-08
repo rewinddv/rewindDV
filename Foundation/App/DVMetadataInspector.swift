@@ -21,6 +21,16 @@ struct DVMetadataInspector: View {
       Text(report.format).font(.caption).textSelection(.enabled)
       Text("Every observed pack is listed by ID and name. Known fields have labels; unknown or unqualified payloads retain labelled raw bytes. Packs absent from this sampled frame are not invented.")
         .font(.caption).foregroundStyle(.secondary)
+      if !DVMetadataPresentation.unresolvedVAUX61(report).isEmpty {
+        DisclosureGroup("Unresolved VAUX 0x61 interpretation") {
+          Text("Recorded PC2 fixed-bit values disagree with current checks. The cause remains unresolved. This alone does not establish media damage or host loss. Original bytes, check statuses and every location are retained below.")
+            .font(.caption)
+          ForEach(DVMetadataPresentation.unresolvedVAUX61(report), id: \.id) { pack in
+            Text("\(pack.rawHex) · \(pack.observationCount) observations in this frame · \(pack.id)")
+              .font(.caption.monospaced())
+          }
+        }.accessibilityIdentifier("metadata-vaux61-unresolved")
+      }
       ForEach(DVMetadataPresentation.groups(report)) { group in
         VStack(alignment: .leading, spacing: 8) {
           Text(group.title).font(.headline)

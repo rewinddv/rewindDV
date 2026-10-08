@@ -28,7 +28,7 @@ private func supplementalFields(_ report: DVPackSemanticReport, _ type: UInt8) -
       #expect(exposure.status == (code < 5 ? "interpreted" : code == 15 ? "unavailable" : "reserved"))
       #expect(fields.first { $0.id == "WB_PRESET" }?.meaning == "Sunlight")
       #expect(fields.first { $0.id == "FOCUS_MODE" }?.meaning == "Manual")
-      #expect(fields.first { $0.id == "AGC" }?.status == "uninterpreted")
+      #expect(fields.first { $0.id == "AGC" }?.status == "interpreted")
     }
     for mode in UInt8(0)...7 {
       for preset in UInt8(0)...31 {
@@ -44,13 +44,13 @@ private func supplementalFields(_ report: DVPackSemanticReport, _ type: UInt8) -
 @Test func cameraLensCandidatesKeepRawCodesAndQualifyUnits() throws {
   let (report, _) = try supplemental([0x71, 0xe5, 0xcb, 0x44, 0xa7])
   let fields = supplementalFields(report, 0x71)
-  #expect(fields.count == 10)
-  #expect(fields.filter { $0.status == "interpreted" && $0.id != "ZOOM_MAGNITUDE" }.allSatisfy { $0.confidence == .mostLikely })
-  #expect(fields.first { $0.id == "ZOOM_MAGNITUDE" }?.confidence == .conflictingEvidence)
+  #expect(fields.count == 9)
+  #expect(fields.filter { $0.status == "interpreted" && $0.id != "ZOOM_MAGNITUDE" }.allSatisfy { $0.confidence == .normativeConfirmed })
+  #expect(fields.first { $0.id == "ZOOM_MAGNITUDE" }?.confidence == .normativeConfirmed)
   #expect(fields.first { $0.id == "ZOOM_MAGNITUDE" }?.meaning == "2.7×")
   let values = Dictionary(uniqueKeysWithValues: fields.map { ($0.id, $0.rawValue) })
   #expect(values == ["VPD": 1, "VP_SPEED": 5, "IS": 1, "HPD": 1, "HP_SPEED": 11,
-    "FOCAL_LENGTH": 0x44, "ZEN": 1, "ZOOM_UNITS": 2, "ZOOM_TENTHS": 7, "ZOOM_MAGNITUDE": 0x27])
+    "FOCAL_LENGTH": 0x44, "ZEN": 1, "CAMERA_FIXED": 3, "ZOOM_MAGNITUDE": 0x27])
 }
 
 @Test func supplementalFormatScopeTransmissionAndUnknownRemainGated() throws {
@@ -60,7 +60,8 @@ private func supplementalFields(_ report: DVPackSemanticReport, _ type: UInt8) -
     let (unsupported, _) = try supplemental(payload, smpte: true, offset: expected)
     #expect(supplementalFields(unsupported, type).isEmpty)
     let (wrong, _) = try supplemental(payload, offset: expected == 483 ? 253 : 483)
-    #expect(supplementalFields(wrong, type).isEmpty)
+    if type != 0x14 { #expect(supplementalFields(wrong, type).isEmpty) }
+    else { #expect(supplementalFields(wrong,type).count == 8) }
     let (invalid, _) = try supplemental(payload, offset: expected, invalid: true)
     let fields = supplementalFields(invalid, type)
     #expect(!fields.isEmpty && fields.allSatisfy { $0.status == "invalid" })
@@ -68,9 +69,9 @@ private func supplementalFields(_ report: DVPackSemanticReport, _ type: UInt8) -
     let emptyFields = supplementalFields(empty, type)
     #expect(!emptyFields.isEmpty)
     if [0x52,0x53,0x62,0x63,0x65].contains(type) {
-      #expect(emptyFields.allSatisfy { $0.status == "unavailable" })
+      #expect(emptyFields.filter { $0.id.hasPrefix("REC_") || $0.id.hasPrefix("CC_") }.allSatisfy { $0.status == "unavailable" })
     } else if type == 0x14 {
-      #expect(emptyFields.allSatisfy { $0.rawValue == 15 && $0.status == "interpreted" })
+      #expect(emptyFields.allSatisfy { $0.rawValue == 15 && $0.status == "uninterpreted" })
     } else {
       #expect(emptyFields.contains { $0.status != "unavailable" })
     }
@@ -95,7 +96,7 @@ private func supplementalFields(_ report: DVPackSemanticReport, _ type: UInt8) -
   let (report, _) = try supplemental([0x14, 0x21, 0x43, 0x65, 0x87], offset: 86)
   let fields = supplementalFields(report, 0x14)
   #expect(fields.map(\.rawValue) == [1, 2, 3, 4, 5, 6, 7, 8])
-  #expect(fields.allSatisfy { $0.meaning.contains("encoding unspecified") })
+  #expect(fields.allSatisfy { $0.status == "uninterpreted" && $0.qualifier?.contains("SMPTE/EBU") == true })
 }
 
 @Test func recordingClockComponentsRespectBCDCalendarAndSystem() throws {
@@ -106,7 +107,7 @@ private func supplementalFields(_ report: DVPackSemanticReport, _ type: UInt8) -
       let (report, _) = try supplemental([type, 0xff, day | 0xc0, month | 0xe0, year], offset: offset)
       let fields = supplementalFields(report, type)
       #expect(fields.first { $0.id == "REC_DAY" }?.status == (valid ? "interpreted" : "invalid"))
-      #expect(fields.first { $0.id == "REC_TIMEZONE" }?.status == "unavailable")
+      #expect(fields.first { $0.id == "ZONE_CODE" }?.status == "unavailable")
     }
   }
   for type: UInt8 in [0x53, 0x63] {
@@ -143,9 +144,10 @@ private func supplementalFields(_ report: DVPackSemanticReport, _ type: UInt8) -
     #expect(fields.first { $0.id == "TC_MINUTES" }?.meaning == "58")
     #expect(fields.first { $0.id == "TC_SECONDS" }?.meaning == "59")
     #expect(fields.first { $0.id == "TC_FRAMES" }?.meaning == "24")
-    #expect(fields.first { $0.id == "CF" }?.confidence == .conflictingEvidence)
-    #expect(fields.first { $0.id == "CF" }?.rawValue == 1)
-    #expect(fields.contains { $0.id == "DF" } == !pal)
+    #expect(fields.first { $0.id == "S2" }?.confidence == .normativeConfirmed)
+    #expect(fields.first { $0.id == "S2" }?.rawValue == 1)
+    #expect(fields.first { $0.id == "S1" }?.status == "uninterpreted")
+    #expect(!fields.contains { $0.id == "DF" || $0.id == "CF" })
     #expect(!fields.contains { $0.id == "PC" || $0.id.hasPrefix("BGF") })
     #expect(fields.filter { $0.id.hasPrefix("PC") }.allSatisfy { $0.status == "uninterpreted" })
     let (invalid, _) = try supplemental([0x13, 0xe4, 0xd9, 0xd8, 0xe3], pal: pal, offset: 86, invalid: true)

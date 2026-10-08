@@ -2,6 +2,21 @@
 set -eu
 cd "$(dirname "$0")/../../.."
 receive_test_dir=$(mktemp -d /tmp/rewinddv-receive-lifecycle.XXXXXX)
+xcrun --sdk macosx clang++ -std=c++23 -O2 -I. -pthread \
+  Foundation/DriverPolicy/Tests/AtomicSharedOwnerTests.cpp \
+  -o "$receive_test_dir/atomic-owner-tests"
+"$receive_test_dir/atomic-owner-tests"
+driverkit_sdk=$(xcrun --sdk driverkit --show-sdk-path)
+xcrun --sdk macosx clang++ -std=c++23 -O2 -fblocks -pthread -I. \
+  -nostdinc++ -isystem "$driverkit_sdk/System/DriverKit/usr/include/c++/v1" \
+  Foundation/DriverPolicy/Tests/AtomicSharedOwnerBlockTests.cpp \
+  -o "$receive_test_dir/atomic-owner-block-tests"
+"$receive_test_dir/atomic-owner-block-tests"
+xcrun --sdk driverkit clang++ -std=c++23 -O2 -target arm64e-apple-driverkit27.0 -I. -S \
+  Foundation/DriverPolicy/Tests/AtomicSharedOwnerCodegen.cpp \
+  -o "$receive_test_dir/atomic-owner-driverkit.s"
+ruby -e 's = File.read(ARGV.fetch(0)); abort "DriverKit owner retain/release must be atomic" unless s.match?(/ldadd\w*\s/) && s.match?(/ldaddal\s/); puts "PASS: real DriverKit SDK owner retain/release use atomic instructions"' \
+  "$receive_test_dir/atomic-owner-driverkit.s"
 xcrun --sdk macosx clang++ -std=c++23 -O2 \
   Foundation/DriverPolicy/Tests/DMASafeCopyTests.cpp \
   -o "$receive_test_dir/dma-copy-tests"

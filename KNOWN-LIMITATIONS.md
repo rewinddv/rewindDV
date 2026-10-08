@@ -1,13 +1,12 @@
 # Known limitations
 
-Current Alpha 0.0.93 playback opens without automatic whole-file indexing.
-Preview duration and frame ordinals are estimates until an explicit exact scan.
-A mixed NTSC/PAL seek can reach its position while inspector metadata remains
-unassociated with the displayed source frame; this is unresolved. CLI/MCP
-external path grants are session-scoped and may need renewal after restart.
-Physical supervised recovery and driver activation remain interactive.
-Alpha 0.0.93 software validation does not extend earlier hardware qualification.
+Alpha 0.0.94 / application build 188 / independent Driver B192 includes the integrated IEC pack classifier, interpretation provenance and epoch-aware mixed NTSC/PAL archive model. Software inventory covers all 256 pack IDs and 274 layout variants, including reserved, unassigned and opaque cases; this is not complete semantic support or IEC certification. Raw pack bytes, conflicting observations and unknown regions remain preserved. VAUX 0x61 fixed-bit interpretation remains unresolved.
 
+Source-bound epochs carry physical ordinals, byte extents and rational cadence through acquisition maps, metadata reports, review ranges and filmstrip/contact-sheet consumers. Lossless reviewed-range exports split at recording-system boundaries and preserve ordered source bytes. Mixed-system single-file merge and film/container output reject with a segmented-export alternative. HDV uses a separate representation and gains no physical qualification from DV archive tests.
+
+The accepted source passed 527 Swift Testing tests and 14 XCTest cases, receive ownership/lifecycle and storage tests, and an unsigned Release app/driver build. Native mixed playback and all-frame archive/export validation were measured offline. Rendered archive/metadata components were exercised in an isolated host; the full signed application UI, exact signed app-driver negotiation, Driver192 physical acquisition, PAL/HDV capture and full-tape endurance remain unqualified. Publication tests and artifact provenance report the exact public-source reruns separately.
+
+CLI/MCP external path grants are session-scoped. Physical recovery and driver activation remain interactive.
 
 See [current development and latest public download](README.md) for independent
 lifecycle identities. Current bounded development evidence is summarized in
@@ -15,7 +14,7 @@ lifecycle identities. Current bounded development evidence is summarized in
 historical; neither establishes full-tape endurance nor qualifies the downloadable
 artifact.
 
-Normal capture STOP has bounded positive receive-retirement evidence in current
+Normal capture STOP has bounded positive receive-retirement evidence in earlier
 B190 development. Live DriverKit extension disable/unload, hot replacement and
 reboot-free removal remain unqualified. Follow the shutdown/restart maintenance
 procedure; never use global extension disable as a capture-session STOP.
@@ -76,6 +75,6 @@ observations remain distinct. Unknown metadata is not silently repaired or
 selected by majority. Performance superiority has not been established.
 
 An ad-hoc engineering alpha is available from this repository’s [releases](https://github.com/rewinddv/rewindDV/releases). It is
-not notarized and requires disabling SIP, which reduces macOS security. The
+not notarized. Activating its ad-hoc DriverKit extension may require disabling SIP, which reduces macOS security; ordinary offline operations require no driver activation. The
 repackaged artifact has not been installed or newly physically qualified.
 See [INSTALLATION-PLAN](INSTALLATION-PLAN.md) for artifact-specific instructions.

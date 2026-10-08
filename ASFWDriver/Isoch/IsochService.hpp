@@ -14,6 +14,7 @@
 #endif
 
 #include "../Common/DriverKitOwnership.hpp"
+#include "../Common/AtomicSharedOwner.hpp"
 #include "IsochReceiveContext.hpp"
 #include "Transmit/IsochTransmitContext.hpp"
 
@@ -27,6 +28,7 @@ class HardwareInterface;
 
 class IsochService {
   public:
+    using ReceiveOwner = ASFW::Common::AtomicSharedOwner<ASFW::Isoch::IsochReceiveContext>;
     using TimingLossCallback = std::function<void(uint64_t guid)>;
     using TxPreparationCallback = std::function<void(uint64_t generation)>;
     using ZtsAnchorReadyCallback = std::function<void(uint64_t generation)>;
@@ -135,7 +137,7 @@ class IsochService {
                                    HardwareInterface& hardware);
 
     ASFW::Isoch::IsochReceiveContext* ReceiveContext() const { return CopyReceiveContext().get(); }
-    [[nodiscard]] std::shared_ptr<ASFW::Isoch::IsochReceiveContext>
+    [[nodiscard]] ReceiveOwner
     CopyReceiveContext(uint32_t streamIndex = 0) const noexcept;
     ASFW::Isoch::IsochTransmitContext* TransmitContext() const {
         return isochTransmitContext_.get();
@@ -155,7 +157,7 @@ class IsochService {
 
   private:
     void StoreReceiveContext(uint32_t index,
-        std::shared_ptr<ASFW::Isoch::IsochReceiveContext> context) noexcept;
+        ReceiveOwner context) noexcept;
     mutable IOLock* receiveOwnersLock_{nullptr};
     kern_return_t ClaimDuplexGuid(uint64_t guid);
     void OnReceiveTimingLossDetected() noexcept;
@@ -164,12 +166,12 @@ class IsochService {
     // Stream 0 (master) capture/playback contexts — own the clock/ZTS/replay
     // role. Their lifecycle and callbacks are unchanged from the single-stream
     // design; secondary streams layer on top without touching them.
-    std::shared_ptr<ASFW::Isoch::IsochReceiveContext> isochReceiveContext_;
+    ReceiveOwner isochReceiveContext_;
     std::unique_ptr<ASFW::Isoch::IsochTransmitContext> isochTransmitContext_;
 
     // Secondary streams [1 .. kMaxStreamsPerDirection). Index i here maps to
     // stream (i + 1); each runs on its own OHCI context (contextIndex == stream).
-    std::shared_ptr<ASFW::Isoch::IsochReceiveContext>
+    ReceiveOwner
         secondaryReceiveContexts_[kMaxStreamsPerDirection - 1];
     std::unique_ptr<ASFW::Isoch::IsochTransmitContext>
         secondaryTransmitContexts_[kMaxStreamsPerDirection - 1];

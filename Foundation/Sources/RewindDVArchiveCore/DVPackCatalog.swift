@@ -4,6 +4,7 @@ import Foundation
 /// Raw pack geometry and stable report identities. Numeric coordinates remain
 /// distinct from generated presentation and qualified semantic decoding.
 public enum DVPackCatalog {
+  static let reconciliationReference = "INFERENCE: user-supplied DV pack research reconciliation, 2026-10-07; corroboration with existing EP1668434A1 layout fragments where available; complete IEC images and metadata-recovery package not available for inspection; not final-IEC qualification"
   public struct Entry: Sendable, Equatable {
     public let header: UInt8
     public let group: String
@@ -32,64 +33,44 @@ public enum DVPackCatalog {
     }
   }
   public static func entry(_ header: UInt8) -> Entry { entries[Int(header)] }
+  /// Compatibility profile gate. MIC-only and MPEG fields are never promoted
+  /// from ordinary SD DIF observations, even if their bytes happen to match.
   public static func permitsSDObservation(_ type: UInt8, context: String) -> Bool {
-    switch type {
-    case 0x00...0x4f: return context == "subcode-frame"
-    case 0x50...0x5f: return context.hasPrefix("aaux-") || ([0x52, 0x53].contains(type) && context == "subcode-frame")
-    case 0x60...0x8f: return context == "vaux-frame" || ([0x62, 0x63].contains(type) && context == "subcode-frame")
-    default: return false // MPEG/HDV carriage and maker payloads are not SD decoders.
-    }
+    guard context == "subcode-frame" || context == "vaux-frame" || context.hasPrefix("aaux-") else { return false }
+    guard entry(type).allocation == "named" || type >= 0xf0 else { return false }
+    if [0x00,0x01,0x02,0x03,0x04,0x05,0x1f,0x42,0x7b].contains(type) { return false }
+    if [0x5a,0x5b,0x5e,0x5f].contains(type) { return context != "vaux-frame" }
+    if (0x90...0x9f).contains(type) { return false }
+    if type == 0x13 { return context == "subcode-frame" }
+    if (0x6a...0x7f).contains(type) || (0x88...0x8f).contains(type) { return !context.hasPrefix("aaux-") }
+    if (0x80...0x83).contains(type) { return context == "vaux-frame" }
+    // Main-area source, recording and caption families retain their area gate.
+    if (0x50...0x56).contains(type) { return context.hasPrefix("aaux-") || ([0x52,0x53].contains(type) && context == "subcode-frame") }
+    if (0x60...0x67).contains(type) { return context == "vaux-frame" || ([0x62,0x63].contains(type) && context == "subcode-frame") }
+    return true // common optional areas; raw position remains separately recorded
   }
   public static let entries: [Entry] = (0...255).map { value in
-    let header = UInt8(value)
-    let allocation: String
-    let confidence: DVMetadataConfidence
-    switch header {
-    case 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F, 0x20, 0x21, 0x22, 0x23, 0x24, 0x28, 0x29, 0x2A, 0x2B, 0x2E, 0x2F, 0x30, 0x31, 0x32, 0x33, 0x34, 0x38, 0x39, 0x3A, 0x3B, 0x3E, 0x3F, 0x40, 0x41, 0x42, 0x43, 0x44, 0x48, 0x49, 0x4A, 0x4B, 0x4E, 0x4F, 0x50, 0x51, 0x52, 0x53, 0x54, 0x55, 0x56, 0x58, 0x59, 0x5A, 0x5B, 0x5E, 0x5F, 0x60, 0x61, 0x62, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69, 0x6A, 0x6B, 0x6C, 0x6D, 0x6E, 0x6F, 0x70, 0x71, 0x73, 0x74, 0x75, 0x76, 0x77, 0x78, 0x79, 0x7B, 0x7C, 0x7D, 0x7E, 0x7F, 0x80, 0x81, 0x82, 0x83, 0x88, 0x89, 0x8A, 0x8B, 0x8E, 0x8F, 0x90, 0x91, 0x92, 0x93, 0x94, 0x95, 0x98, 0x99, 0x9A, 0x9B, 0x9E, 0x9F:
-      allocation = "named"; confidence = .implementationCorroborated
-    case 0x25, 0x26, 0x27, 0x2C, 0x2D, 0x35, 0x36, 0x37, 0x3C, 0x3D, 0x45, 0x46, 0x47, 0x4C, 0x4D, 0x57, 0x5C, 0x5D, 0x72, 0x7A, 0x84, 0x85, 0x86, 0x87, 0x8C, 0x8D, 0x96, 0x97, 0x9C, 0x9D:
-      allocation = "reserved"; confidence = .implementationCorroborated
-    case 0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5, 0xA6, 0xA7, 0xA8, 0xA9, 0xAA, 0xAB, 0xAC, 0xAD, 0xAE, 0xAF, 0xB0, 0xB1, 0xB2, 0xB3, 0xB4, 0xB5, 0xB6, 0xB7, 0xB8, 0xB9, 0xBA, 0xBB, 0xBC, 0xBD, 0xBE, 0xBF, 0xC0, 0xC1, 0xC2, 0xC3, 0xC4, 0xC5, 0xC6, 0xC7, 0xC8, 0xC9, 0xCA, 0xCB, 0xCC, 0xCD, 0xCE, 0xCF, 0xD0, 0xD1, 0xD2, 0xD3, 0xD4, 0xD5, 0xD6, 0xD7, 0xD8, 0xD9, 0xDA, 0xDB, 0xDC, 0xDD, 0xDE, 0xDF, 0xE0, 0xE1, 0xE2, 0xE3, 0xE4, 0xE5, 0xE6, 0xE7, 0xE8, 0xE9, 0xEA, 0xEB, 0xEC, 0xED, 0xEE, 0xEF:
-      allocation = "edition-dependent"; confidence = .conflictingEvidence
-    case 0xF0:
-      allocation = "maker-code"; confidence = .implementationCorroborated
-    case 0xF1, 0xF2, 0xF3, 0xF4, 0xF5, 0xF6, 0xF7, 0xF8, 0xF9, 0xFA, 0xFB, 0xFC, 0xFD, 0xFE:
-      allocation = "maker-defined"; confidence = .implementationCorroborated
-    case 0xFF:
-      allocation = "no-information / edition conflict"; confidence = .conflictingEvidence
-    default: preconditionFailure("Exhaustive header domain")
+    let h = UInt8(value), low = Int(h & 15), group = Int(h >> 4)
+    let reserved: Set<UInt8> = [0x25,0x26,0x27,0x2c,0x2d,0x35,0x36,0x37,0x3c,0x3d,0x45,0x46,0x47,0x4c,0x4d,0x57,0x5c,0x5d,0x72,0x7a,0x84,0x85,0x86,0x87,0x8c,0x8d,0x96,0x9c,0x9d]
+    let allocation = reserved.contains(h) ? "reserved" : (0xa0...0xef).contains(h) ? "unassigned" : h == 0xf0 ? "maker-code" : h >= 0xf1 ? "maker-defined" : "named"
+    let groups = ["Control","Title","Chapter","Part","Programme","AAUX","VAUX","Camera","Line","MPEG"]
+    let family = group < groups.count ? groups[group] : group == 15 ? "Soft mode":"Unassigned"
+    var names: [String] = []
+    switch group {
+    case 0: names = ["Cassette ID","Tape length","Timer date","Timer start/stop","Playback/record start time","Playback/record start track","Tag number / Genre","Topic/page header","Text header","Text","Tag time","Tag track","Teletext information","Key","Zone end time","Zone end control"]
+    case 1: names = ["Total time","Remaining time","Chapter total","Timecode","Binary group","Cassette number","Catalogue ID","ISRC","Text header","Text","Start time","Start track","Reel ID low","Reel ID high","End time","End track"]
+    case 2,3,4: names = ["Total time","Remaining time",group == 2 ? "Chapter number":group == 3 ? "Part number":"Recording date/time","Timecode","Binary group","Reserved","Reserved","Reserved","Text header","Text","Start time","Start track","Reserved","Reserved","End time","End track"]
+    case 5,6: names = ["Source","Source control","Recording date","Recording time","Binary group","Closed caption","Transparent data",group == 5 ? "Reserved":"Teletext","Text header","Text","Start time","Start track",group == 5 ? "Reserved":"Marine/mountain",group == 5 ? "Reserved":"Longitude/latitude","End time","End track"]
+    case 7: names = ["Consumer Camera 1","Consumer Camera 2","Reserved","Lens","Gain","Pedestal","Gamma","Detail","Text header","Text","Reserved","Preset","Flare","Shading","Knee","Shutter"]
+    case 8: names = ["Header","Y","Cr","Cb","Reserved","Reserved","Reserved","Reserved","Text header","Text","Start time","Start track","Reserved","Reserved","End time","End track"]
+    case 9: names = ["Source","Source control","Recording date","Recording time","Binary group","Stream","Reserved","Extended track number","Text header","Text","Service start time","Service start track","Reserved","Reserved","Service end time","Service end track"]
+    default: break
     }
-    let name: String
-    switch header {
-    case 0x13: name = "Timecode"
-    case 0x14, 0x54, 0x64: name = "User bits"
-    case 0x50: name = "Audio layout"
-    case 0x51: name = "Audio recording flags"
-    case 0x52, 0x62: name = "Recording date"
-    case 0x53, 0x63: name = "Recording clock"
-    case 0x60: name = "Video layout"
-    case 0x61: name = "Video recording flags"
-    case 0x65: name = "Caption bytes"
-    case 0x70: name = "Camera exposure and focus"
-    case 0x71: name = "Camera motion and zoom"
-    case 0x7f: name = "Shutter code"
-    case 0xff: name = "Unassigned payload / edition conflict"
-    default: name = String(format: "DV pack 0x%02X", header) + (allocation == "reserved" ? " (reserved)" : allocation == "edition-dependent" ? " (reserved / amendment ambiguous)" : "")
-    }
-    var evidence = "Header assignment only; a decoder also needs a supported format, location and valid transmission."
-    if (0xa0...0xef).contains(header) {
-      evidence += " The base edition labels this range reserved; the amendment leaves its treatment ambiguous. No vendor interpretation is assigned."
-    } else if header == 0xff {
-      evidence += " Base no-information usage conflicts with the amendment allocation. Preserve payload bytes; do not infer manufacturer ownership."
-    } else if (0x90...0x9f).contains(header) {
-      evidence += " MPEG allocation does not establish a layout for an SD-DIF observation."
-    } else if header == 0x04 {
-      evidence += " MIC preroll context is unavailable; title timecode masks are not reused for this header."
-    } else if header == 0x7b {
-      evidence += " Preset/shutter identity is unresolved; no additional field geometry is asserted."
-    }
-    return Entry(header: header, group: String(format: "Header family %X", header >> 4),
-      name: name, allocation: allocation, evidence: evidence, confidence: confidence)
+    let name = group == 7 ? ["Consumer Camera 1","Consumer Camera 2","Reserved","Lens","Gain","Pedestal","Gamma","Detail","Camera Text Header","Camera Text","Reserved","Camera Preset","Flare","Shading","Knee","Shutter"][low] : names.isEmpty ? (h == 0xf0 ? "Maker code":h >= 0xf1 ? "Manufacturer option":"Unassigned") : family + " " + names[low]
+    var evidence = "PRIMARY_STANDARD: IEC 61834-4:1998/AMD1:2010, replacement Table 1; " + DVIEC61834.reference(h)
+    if (0xa0...0xef).contains(h) { evidence = "PRIMARY_STANDARD: amended Table 1 leaves A0–EF unassigned; no payload semantics assigned." }
+    if h == 0xff { evidence += "; amended allocation is OPTION; unchanged base §12.16 defines all-FF NO INFO. Payload interpretation retains this discrepancy." }
+    return Entry(header:h,group:family,name:name,allocation:allocation,evidence:evidence,confidence:.normativeConfirmed)
   }
 
   // Coordinates and stable report IDs are compatibility facts, sorted by
@@ -317,7 +298,15 @@ public enum DVPackCatalog {
     Geometry(pack: 0x7F, byte: 4, mask: 0x7F, shift: 0, width: 7, aggregate: false, id: "7F.consumer_high_raw", confidence: .implementationCorroborated, reference: "JohnstonJ/video-tools b6a12951, DV pack layouts; Manufacturer reference EP1668434A1; candidate geometry"),
     Geometry(pack: 0x7F, byte: 4, mask: 0x80, shift: 7, width: 1, aggregate: false, id: "7F.fixed_high_bit_raw", confidence: .implementationCorroborated, reference: "JohnstonJ/video-tools b6a12951, DV pack layouts; Manufacturer reference EP1668434A1; candidate geometry"),
   ]
-  public static let components: [Component] = geometry.map { g in
+  private static let reconciliationGeometry: [Geometry] = [
+    Geometry(pack: 0x68, byte: 1, mask: 0xFF, shift: 0, width: 8, aggregate: false, id: "68.tdp_low_raw", confidence: .provisional, reference: reconciliationReference),
+    Geometry(pack: 0x68, byte: 2, mask: 0x01, shift: 0, width: 1, aggregate: false, id: "68.tdp_high_raw", confidence: .provisional, reference: reconciliationReference),
+    Geometry(pack: 0x68, byte: 2, mask: 0x0E, shift: 1, width: 3, aggregate: false, id: "68.option_raw", confidence: .provisional, reference: reconciliationReference),
+    Geometry(pack: 0x68, byte: 2, mask: 0xF0, shift: 4, width: 4, aggregate: false, id: "68.text_type_raw", confidence: .provisional, reference: reconciliationReference),
+    Geometry(pack: 0x68, byte: 3, mask: 0xFF, shift: 0, width: 8, aggregate: false, id: "68.text_code_raw", confidence: .provisional, reference: reconciliationReference),
+    Geometry(pack: 0x68, byte: 4, mask: 0xFF, shift: 0, width: 8, aggregate: false, id: "68.pc4_uninterpreted_raw", confidence: .provisional, reference: reconciliationReference),
+  ]
+  public static let components: [Component] = (geometry + reconciliationGeometry).map { g in
     var qualification = "Bit location only; physical meaning requires a separately qualified rule."
     switch g.confidence {
     case .provisional: qualification += " Candidate layout; the applicable final standard was not verified."

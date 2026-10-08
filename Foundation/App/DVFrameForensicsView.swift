@@ -105,6 +105,9 @@ struct DVFrameForensicsView: View {
           Text("Sample indices are zero based within this frame. Masks identify contributing bits for packed 12-bit samples. This is not an audible-defect duration or packet-loss count.").font(.caption).foregroundStyle(.secondary)
         }
         ArchiveDisclosure("All source-bound metadata packs and interpretations") {
+          if !DVMetadataPresentation.unresolvedVAUX61(evidence.semantics).isEmpty {
+            Text("Unresolved VAUX 0x61 interpretation: recorded PC2 fixed-bit values disagree with current checks. This alone does not establish media damage or host loss. Every raw observation and check remains below.").font(.caption)
+          }
           Toggle("Invalid or conflicting metadata only", isOn: $metadataWarningsOnly).toggleStyle(.checkbox)
           ScrollView {
             LazyVStack(alignment: .leading, spacing: 10) {
@@ -159,7 +162,9 @@ struct DVFrameForensicsView: View {
         })
       }
     }.frame(width: 540, height: CGFloat(pal ? 576 : 480) * 0.75)
-      .accessibilityLabel("Decoded frame \(identity.frameOrdinal), raw raster proportions. Use DIF block controls for keyboard inspection.")
+      .accessibilityLabel(image == nil
+        ? "Picture unavailable for verified frame \(identity.frameOrdinal). Original DIF bytes remain inspectable."
+        : "Decoded frame \(identity.frameOrdinal), raw raster proportions. Use DIF block controls for keyboard inspection.")
   }
   private var blockMap: some View {
     GeometryReader { geometry in

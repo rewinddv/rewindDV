@@ -74,9 +74,10 @@ public struct DVPackSemanticReport: Codable, Equatable, Sendable {
     public var rawComponents: [Field]? = nil
     public var locations: [DVMetadataLocation]? = nil
     public var catalogEvidence: String? = nil
+    public var normativeLayout: [DVIEC61834.LayoutField]? = nil
 
     private enum CodingKeys: String, CodingKey {
-      case id, name, status, fields, rawComponents, locations, catalogEvidence
+      case id, name, status, fields, rawComponents, locations, catalogEvidence, normativeLayout
       case typeHex = "type_hex"
       case rawHex = "raw_hex"
       case sourceByteOffsets = "source_byte_offsets"
@@ -94,9 +95,14 @@ public struct DVPackSemanticReport: Codable, Equatable, Sendable {
   public let missingPrincipalPacks: [String]
   public var structuralMetadata: [DVStructuralMetadata]? = nil
   public var absoluteOffsetsKnown: Bool? = nil
+  public var sequences: [DVIECSequences.Sequence]? = nil
+  /// Decoder revision is separate from the report's wire schema. Absence in a
+  /// historical report means unknown; decoding never upgrades old evidence.
+  public var interpretationVersion: Int? = nil
 
   private enum CodingKeys: String, CodingKey {
-    case packs, format, structuralMetadata, absoluteOffsetsKnown
+    case packs, format, structuralMetadata, absoluteOffsetsKnown, sequences
+    case interpretationVersion
     case schemaVersion = "schema_version"
     case frameOrdinal = "frame_ordinal"
     case frameByteOffset = "frame_byte_offset"
@@ -112,7 +118,7 @@ public struct DVPackSemanticReport: Codable, Equatable, Sendable {
     var decoded = observations.map { decode($0, format: assessment.format, isPAL: isPAL) }
     decoded = flagConflicts(decoded)
     var report = Self(
-      schemaVersion: 2,
+      schemaVersion: 3,
       frameOrdinal: inventory.frameOrdinal,
       frameByteOffset: absoluteOffsetsKnown ? inventory.frameByteOffset : nil,
       frameSHA256: inventory.frameSHA256,
@@ -121,8 +127,11 @@ public struct DVPackSemanticReport: Codable, Equatable, Sendable {
       packs: decoded,
       missingPrincipalPacks: missingPrincipalPacks(observations))
     report.absoluteOffsetsKnown = absoluteOffsetsKnown
+    report.interpretationVersion = DVIEC61834.interpretationVersion
     report.structuralMetadata = DVStructuralMetadata.inspect(inventory, absoluteOffsetsKnown: absoluteOffsetsKnown, consumerQualified: assessment.format == .iec61834)
     report = report.attachingLocations(inventory, absoluteOffsetsKnown: absoluteOffsetsKnown)
+    let sequences = DVIECSequences.inspect(report,isPAL:isPAL)
+    report.sequences = sequences.isEmpty ? nil:sequences
     return report
   }
 }
@@ -309,7 +318,7 @@ private extension DVPackSemanticReport {
             ? (format == .iec61834 && observation.transmission == .valid
               ? "No-information candidate; all five bytes FF. Base No Info / amendment OPTION discrepancy retained."
               : "No-information bytes retained; surrounding format/transmission is not qualified.")
-            : "0xFF header with non-FF payload — damaged/ambiguous observation; all five original bytes retained.",
+            : "0xFF header with non-FF payload — OPTION/no-information ambiguity; all five original bytes retained.",
           fields: [])
       }
       let sentinelConforms = observation.raw.count == 5 && observation.raw.allSatisfy { $0 == 0xff }
@@ -345,9 +354,13 @@ private extension DVPackSemanticReport {
         status: "Format identity is unsupported or conflicting; raw pack retained without field interpretation.",
         fields: [])
     }
-    var fields = decodeFields(observation.raw, format: format, isPAL: isPAL)
+    var fields: [Field]
     if format == .iec61834 {
-      fields = DVCorpusSemantics.enrich(fields, pack: observation.raw, isPAL: isPAL)
+      var context = DVIEC61834.Context()
+      context.isPAL = isPAL
+      fields = DVIEC61834.decode(observation.raw, context: context)?.fields ?? []
+    } else {
+      fields = decodeFields(observation.raw, format: format, isPAL: isPAL)
     }
     guard !fields.isEmpty else {
       return Pack(id: id, typeHex: typeHex, name: "\(baseName) — \(observation.contextName)",
@@ -367,7 +380,9 @@ private extension DVPackSemanticReport {
       return Pack(id: id, typeHex: typeHex, name: "\(baseName) — \(observation.contextName)",
         rawHex: rawHex, sourceByteOffsets: observation.offsets, status: state, fields: fields)
     }
-    let fixedMismatch = fixedLayoutMismatch(observation.raw, format: format)
+    let fixedMismatch = format == .iec61834
+      ? fields.contains { $0.id.contains("FIXED") && $0.status == "invalid" }
+      : fixedLayoutMismatch(observation.raw, format: format)
     return Pack(id: id, typeHex: typeHex, name: "\(baseName) — \(observation.contextName)",
       rawHex: rawHex, sourceByteOffsets: observation.offsets,
       status: fixedMismatch

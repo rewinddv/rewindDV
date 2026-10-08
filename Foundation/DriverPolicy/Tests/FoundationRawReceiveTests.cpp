@@ -293,6 +293,36 @@ int main() {
     {
         Fixture f;
         assert(f.Start() == kIOReturnSuccess);
+        const auto epoch = f.session.epoch;
+        assert(f.service.Stop(10, epoch) == kIOReturnSuccess);
+        std::atomic<bool> begin{false};
+        std::atomic<unsigned> retainedStops{0};
+        std::array<std::thread, 8> clients;
+        for (auto& client : clients) {
+            client = std::thread([&] {
+                while (!begin.load(std::memory_order_acquire)) {}
+                for (unsigned i = 0; i < 10000; ++i) {
+                    const auto result = f.service.Stop(10, epoch);
+                    assert(result == kIOReturnSuccess || result == kIOReturnNotReady);
+                    if (result == kIOReturnSuccess) retainedStops.fetch_add(1);
+                }
+            });
+        }
+        begin.store(true, std::memory_order_release);
+        while (retainedStops.load() < 100) {}
+        // Retire the service root and the late discovery callback while other
+        // clients independently destroy retained session owners outside lock_.
+        assert(f.service.ReleaseOwner(10) == kIOReturnSuccess);
+        f.bus.Complete(1);
+        for (auto& client : clients) client.join();
+        assert(f.bus.pending.empty() && !f.isoch.CopyReceiveContext());
+        const auto token = Policy::TryAcquireActivity(Policy::ActivityKind::kInspector);
+        assert(token != 0); // Final session destruction released its activity.
+        Policy::ReleaseActivity(token);
+    }
+    {
+        Fixture f;
+        assert(f.Start() == kIOReturnSuccess);
         f.bus.Complete(1);
         f.registry->InvalidateLiveMappingsForBusReset();
         f.bus.Complete(0xc0020078);
@@ -644,7 +674,7 @@ int main() {
         // Whole-tape -> whole-tape reuses the DMA context but must replace the
         // consumer/session and reset every completion, anchor and terminal link.
         Fixture f;
-        std::shared_ptr<ASFW::Isoch::IsochReceiveContext> reused;
+        ASFW::Driver::IsochService::ReceiveOwner reused;
         uint64_t previousEpoch = 0;
         for (unsigned run = 0; run < 3; ++run) {
             f.Active();

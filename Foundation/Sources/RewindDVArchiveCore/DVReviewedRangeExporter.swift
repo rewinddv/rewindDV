@@ -15,11 +15,17 @@ public enum DVReviewedRangeExporter {
     public let schemaVersion: UInt16
     public let sourceSHA256: String
     public let frameCount: UInt64
-    public let frameByteCount: Int
+    public let frameByteCount: Int?
     public let sourceByteCount: UInt64
-    public let videoSystem: DVBoundaryEvidence.VideoSystem
+    public let videoSystem: DVBoundaryEvidence.VideoSystem?
+    public var epochs: [DVRecordingEpoch]? = nil
+    public var unknownRegions: [DVUnknownSourceRegion]? = nil
+    public var interpretationVersion: Int? = nil
 
     private enum CodingKeys: String, CodingKey {
+      case epochs
+      case unknownRegions = "unknown_regions"
+      case interpretationVersion = "interpretation_version"
       case schemaVersion = "schema_version"
       case sourceSHA256 = "source_sha256"
       case frameCount = "frame_count"
@@ -34,12 +40,12 @@ public enum DVReviewedRangeExporter {
   public struct Receipt: Codable, Equatable, Sendable {
     public let schemaVersion: UInt16
     public let completionState: String
-    public let outputFile: String
+    public let outputFile: String?
     public let sourceSHA256: String
     public let sourceByteCount: UInt64
     public let sourceFrameCount: UInt64
-    public let sourceFrameByteCount: Int
-    public let sourceVideoSystem: DVBoundaryEvidence.VideoSystem
+    public let sourceFrameByteCount: Int?
+    public let sourceVideoSystem: DVBoundaryEvidence.VideoSystem?
     public let firstSourceFrameOrdinal: UInt64
     public let endSourceFrameOrdinalExclusive: UInt64
     public let exportedFrameCount: UInt64
@@ -58,7 +64,12 @@ public enum DVReviewedRangeExporter {
     public let acquisitionLoss: String
     public let archivalQualification: String
 
+    public var segments: [Segment]? = nil
+    public var sourceSnapshot: Snapshot? = nil
+
     private enum CodingKeys: String, CodingKey {
+      case segments
+      case sourceSnapshot = "source_snapshot"
       case schemaVersion = "schema_version"
       case completionState = "completion_state"
       case outputFile = "output_file"
@@ -87,62 +98,80 @@ public enum DVReviewedRangeExporter {
     }
   }
 
+  public struct Segment: Codable, Equatable, Sendable {
+    public let file: String
+    public let epochID: String
+    public let system: DVBoundaryEvidence.VideoSystem
+    public let firstSourceFrame: UInt64
+    public let endSourceFrameExclusive: UInt64
+    public let sourceByteOffset: UInt64
+    public let sourceByteEndExclusive: UInt64
+    public let bytes: UInt64
+    public let sha256: String
+  }
+
   /// Fully scans a regular DV25 file in frame-sized memory, validates every
-  /// frame through the native metadata inventory, and independently rereads
+  /// frame through ordered DIF structure checks, and independently rereads
   /// the file before returning its identity snapshot.
-  public static func inspect(source: URL) throws -> Snapshot {
+  public static func inspect(source: URL, preserveUnknownRegions: Bool = false) throws -> Snapshot {
     try Task.checkCancellation()
     let reader = try RegularSource(source)
     defer { reader.close() }
-    guard reader.byteCount > 0 else {
-      throw DVIngestError.invalidEvidence("reviewed range source is empty")
-    }
-
-    let prefix = try reader.readExactly(80)
-    let frameByteCount = prefix[3] & 0x80 == 0 ? 120_000 : 144_000
-    guard reader.byteCount % UInt64(frameByteCount) == 0 else {
-      throw DVIngestError.invalidEvidence("reviewed range source ends with an incomplete DV25 frame")
-    }
-    let frameCount = reader.byteCount / UInt64(frameByteCount)
-    let videoSystem: DVBoundaryEvidence.VideoSystem =
-      frameByteCount == 120_000 ? .ntsc525_60 : .pal625_50
-    var digest = SHA256()
-
-    for ordinal in 0..<frameCount {
+    guard reader.byteCount > 0 else { throw DVIngestError.invalidEvidence("reviewed range source is empty") }
+    var epochs: [DVRecordingEpoch] = [], unknown: [DVUnknownSourceRegion] = []
+    var offset: UInt64 = 0, ordinal: UInt64 = 0, tick: UInt64 = 0
+    while offset < reader.byteCount {
       try Task.checkCancellation()
-      let frame: Data
-      if ordinal == 0 {
-        var first = prefix
-        first.append(try reader.readExactly(frameByteCount - prefix.count))
-        frame = first
-      } else {
-        frame = try reader.readExactly(frameByteCount)
+      do {
+        guard reader.byteCount - offset >= 80 else {
+          throw DVIngestError.invalidEvidence("incomplete DIF header at byte \(offset)")
+        }
+        let prefix = try reader.readExactly(80)
+        let pal = prefix[3] & 0x80 != 0, size = pal ? 144_000 : 120_000
+        guard prefix[0] >> 5 == 0, prefix[1] >> 4 == 0, prefix[2] == 0 else {
+          throw DVIngestError.invalidEvidence("unknown DIF boundary at byte \(offset)")
+        }
+        guard UInt64(size) <= reader.byteCount - offset else {
+          throw DVIngestError.invalidEvidence("incomplete \(pal ? "PAL" : "NTSC") DIF frame at byte \(offset)")
+        }
+        var frame = prefix
+        frame.append(try reader.readExactly(size - 80))
+        try DVRecordingEpoch.validateFrame(frame, offset: offset)
+        let system: DVBoundaryEvidence.VideoSystem = pal ? .pal625_50 : .ntsc525_60
+        if epochs.last?.system != system {
+          guard epochs.count < 100_000 else { throw DVIngestError.invalidEvidence("epoch inventory exceeds the 100000-transition resource budget") }
+          epochs.append(DVRecordingEpoch(first: ordinal, offset: offset, tick: tick, pal: pal))
+        }
+        ordinal += 1; offset += UInt64(size); tick += pal ? 1200 : 1001
+        epochs[epochs.count - 1].endFrameExclusive = ordinal
+        epochs[epochs.count - 1].byteEndExclusive = offset
+      } catch is CancellationError { throw CancellationError() }
+      catch {
+        guard preserveUnknownRegions else { throw error }
+        unknown.append(DVUnknownSourceRegion(byteOffset: offset, byteEndExclusive: reader.byteCount,
+          reason: error.localizedDescription + "; remaining extent unindexed; no resynchronization inferred", frameCount: nil))
+        break
       }
-      _ = try DVMetadataInventory.inspect(
-        frame: frame,
-        ordinal: ordinal,
-        byteOffset: try multiplied(ordinal, UInt64(frameByteCount), "frame source offset"))
-      try validateCanonicalOrder(frame, sequenceCount: frameByteCount == 120_000 ? 10 : 12)
-      digest.update(data: frame)
     }
-    guard try reader.isAtEOF() else {
-      throw DVIngestError.invalidEvidence("reviewed range source grew during inspection")
-    }
-    let firstSHA = hex(digest.finalize())
     try reader.requireStableAndCurrentPath(source)
     try reader.rewind()
-    let reread = try reader.hashToEOF()
+    let first = try reader.hashToEOF()
     try reader.requireStableAndCurrentPath(source)
-    guard reread.bytes == reader.byteCount, reread.sha256 == firstSHA else {
-      throw DVIngestError.invalidEvidence("reviewed range source changed during inspection")
+    try reader.rewind()
+    let second = try reader.hashToEOF()
+    try reader.requireStableAndCurrentPath(source)
+    guard first == second, first.bytes == reader.byteCount else {
+      throw DVIngestError.invalidEvidence("reviewed source changed during inspection")
     }
-    return Snapshot(
-      schemaVersion: 1,
-      sourceSHA256: firstSHA,
-      frameCount: frameCount,
-      frameByteCount: frameByteCount,
-      sourceByteCount: reader.byteCount,
-      videoSystem: videoSystem)
+    // Uniform complete sources retain the immutable schema-1 wire contract.
+    // Schema 2 omits those global fields entirely rather than overloading them.
+    let uniform = epochs.count == 1 && unknown.isEmpty
+    var result = Snapshot(schemaVersion: uniform ? 1 : 2, sourceSHA256: first.sha256,
+      frameCount: ordinal, frameByteCount: uniform ? epochs[0].frameByteCount : nil,
+      sourceByteCount: reader.byteCount, videoSystem: uniform ? epochs[0].system : nil)
+    if !uniform { result.epochs = epochs; result.unknownRegions = unknown; result.interpretationVersion = DVIEC61834.interpretationVersion }
+    try result.validate()
+    return result
   }
 
   /// Exports a nonempty half-open frame range into a newly-created directory.
@@ -168,74 +197,82 @@ public enum DVReviewedRangeExporter {
     let destinationDirectory = try DestinationDirectory.create(destination)
     defer { destinationDirectory.close() }
     let intent = ExportIntent(
-      schemaVersion: 1,
+      schemaVersion: snapshot.schemaVersion,
       state: "incomplete_until_provenance_json_is_published",
       sourceSnapshot: snapshot,
       firstSourceFrameOrdinal: first,
       endSourceFrameOrdinalExclusive: endExclusive,
-      intendedOutputFile: outputFileName,
+      intendedOutputFile: "verified uniform selection: reviewed-range.dv; cross-epoch selection: ordered segment-NNNNNN.dv files",
       completionMarker: completionMarkerName)
     try destinationDirectory.writeExclusive(
       named: intentFileName, data: try encode(intent) + Data([10]), synchronize: true)
     try destinationDirectory.synchronize()
 
-    let partialName = outputFileName + ".partial"
-    let output = try destinationDirectory.makeExclusiveWriter(named: partialName)
-    var outputClosed = false
-    defer { if !outputClosed { try? output.close() } }
-    var sourceDigest = SHA256()
-    var outputDigest = SHA256()
-    var outputBytes: UInt64 = 0
-
+    let selectedEpochs = snapshot.recordingEpochs.filter { $0.firstFrame < endExclusive && $0.endFrameExclusive > first }
+    let split = selectedEpochs.count > 1
+    var segments: [Segment] = []
+    var sourceDigest = SHA256(), outputDigest = SHA256(), segmentDigest = SHA256()
+    var outputBytes: UInt64 = 0, segmentBytes: UInt64 = 0
+    var output: FileHandle?
+    defer { try? output?.close() }
     for ordinal in 0..<snapshot.frameCount {
       try Task.checkCancellation()
-      let frame = try sourceReader.readExactly(snapshot.frameByteCount)
+      let identity = try snapshot.frame(ordinal)
+      let frame = try sourceReader.readExactly(identity.byteCount)
+      try DVRecordingEpoch.validateFrame(frame, offset: identity.byteOffset)
       sourceDigest.update(data: frame)
       if ordinal >= first && ordinal < endExclusive {
-        try output.write(contentsOf: frame)
-        outputDigest.update(data: frame)
-        outputBytes = try added(outputBytes, UInt64(frame.count), "reviewed output byte count")
+        let epoch = selectedEpochs[segments.count]
+        let name = split ? String(format: "segment-%06d.dv", segments.count + 1) : outputFileName
+        if output == nil { output = try destinationDirectory.makeExclusiveWriter(named: name + ".partial") }
+        try output!.write(contentsOf: frame)
+        outputDigest.update(data: frame); segmentDigest.update(data: frame)
+        outputBytes += UInt64(frame.count); segmentBytes += UInt64(frame.count)
+        let end = min(endExclusive, epoch.endFrameExclusive)
+        if ordinal + 1 == end {
+          try output!.synchronize(); try output!.close(); output = nil
+          let digest = hex(segmentDigest.finalize())
+          let reread = try destinationDirectory.hashRegularFile(named: name + ".partial")
+          guard reread.bytes == segmentBytes, reread.sha256 == digest else {
+            throw DVIngestError.invalidEvidence("lossless segment reread mismatch")
+          }
+          let start = max(first, epoch.firstFrame)
+          segments.append(Segment(file: name, epochID: epoch.id, system: epoch.system,
+            firstSourceFrame: start, endSourceFrameExclusive: end,
+            sourceByteOffset: try snapshot.byteOffset(atBoundary: start),
+            sourceByteEndExclusive: try snapshot.byteOffset(atBoundary: end), bytes: segmentBytes, sha256: digest))
+          segmentDigest = SHA256(); segmentBytes = 0
+        }
       }
     }
-    guard try sourceReader.isAtEOF() else {
-      throw DVIngestError.invalidEvidence("reviewed range source grew during export")
+    // Unknown bytes remain part of master identity, even when no ordinal can
+    // safely be assigned to them. They are never included in a verified range.
+    var remaining = snapshot.sourceByteCount - snapshot.verifiedByteCount
+    while remaining > 0 {
+      let bytes = try sourceReader.readExactly(Int(min(remaining, 1_048_576)))
+      sourceDigest.update(data: bytes); remaining -= UInt64(bytes.count)
     }
-    let sourceSHA = hex(sourceDigest.finalize())
-    let expectedOutputSHA = hex(outputDigest.finalize())
-    try sourceReader.requireStableAndCurrentPath(source)
-    guard sourceSHA == snapshot.sourceSHA256 else {
+    guard try sourceReader.isAtEOF(), hex(sourceDigest.finalize()) == snapshot.sourceSHA256 else {
       throw DVIngestError.invalidEvidence("reviewed range source no longer matches snapshot")
     }
-    try output.synchronize()
-    try output.close()
-    outputClosed = true
-
+    try sourceReader.requireStableAndCurrentPath(source)
     try sourceReader.rewind()
     let sourceReread = try sourceReader.hashToEOF()
     try sourceReader.requireStableAndCurrentPath(source)
-    guard sourceReread.bytes == snapshot.sourceByteCount,
-      sourceReread.sha256 == snapshot.sourceSHA256 else {
+    guard sourceReread.bytes == snapshot.sourceByteCount, sourceReread.sha256 == snapshot.sourceSHA256 else {
       throw DVIngestError.invalidEvidence("reviewed range source changed during export reread")
     }
-    let outputReread = try destinationDirectory.hashRegularFile(named: partialName)
-    // Output reread can be long. Bind the source descriptor and pathname once
-    // more immediately before the non-cancellable publication phase.
-    try sourceReader.requireStableAndCurrentPath(source)
-    guard outputReread.bytes == outputBytes, outputReread.sha256 == expectedOutputSHA else {
-      throw DVIngestError.invalidEvidence("reviewed range output reread mismatch")
+    let sourceByteOffset = try snapshot.byteOffset(atBoundary: first)
+    let sourceByteEnd = try snapshot.byteOffset(atBoundary: endExclusive)
+    guard segments.count == selectedEpochs.count, outputBytes == sourceByteEnd - sourceByteOffset else {
+      throw DVIngestError.invalidEvidence("export does not cover exactly the selected frame sequence")
     }
-    let expectedOutputBytes = try multiplied(
-      endExclusive - first, UInt64(snapshot.frameByteCount), "expected reviewed output byte count")
-    guard outputBytes == expectedOutputBytes else {
-      throw DVIngestError.invalidEvidence("reviewed range output byte count does not match frame range")
-    }
+    let expectedOutputSHA = hex(outputDigest.finalize())
 
-    let sourceByteOffset = try multiplied(first, UInt64(snapshot.frameByteCount), "range byte offset")
-    let sourceByteEnd = try multiplied(endExclusive, UInt64(snapshot.frameByteCount), "range byte end")
-    let receipt = Receipt(
-      schemaVersion: 1,
+    var receipt = Receipt(
+      schemaVersion: snapshot.schemaVersion,
       completionState: "complete",
-      outputFile: outputFileName,
+      outputFile: split ? nil : outputFileName,
       sourceSHA256: snapshot.sourceSHA256,
       sourceByteCount: snapshot.sourceByteCount,
       sourceFrameCount: snapshot.frameCount,
@@ -250,7 +287,7 @@ public enum DVReviewedRangeExporter {
       outputSHA256: expectedOutputSHA,
       omittedLeadingFrameCount: first,
       omittedTrailingFrameCount: snapshot.frameCount - endExclusive,
-      ordinalMapping: "output frame n maps to source frame first_source_frame_ordinal + n; complete source frame bytes copied unchanged",
+      ordinalMapping: "frame n in the ordered concatenation of output segments maps to source frame first_source_frame_ordinal + n; complete source frame bytes copied unchanged",
       derivativeClassification: "reviewed_range_derivative_not_unmodified_master",
       bytesReencoded: false,
       audioResampled: false,
@@ -258,6 +295,8 @@ public enum DVReviewedRangeExporter {
       captureQuality: "unknown_not_established_by_raw_dv_scan",
       acquisitionLoss: "unknown_not_established_by_raw_dv_scan",
       archivalQualification: "not_established; this derivative does not replace or qualify an unmodified source master")
+
+    if snapshot.schemaVersion == 2 || split { receipt.segments = segments; receipt.sourceSnapshot = snapshot }
 
     // This is the final cancellation boundary. Once commit begins, completion
     // is driven to a terminal success or durability error without observing a
@@ -267,8 +306,10 @@ public enum DVReviewedRangeExporter {
     let markerBytes = try encode(receipt) + Data([10])
     let markerSHA = hex(SHA256.hash(data: markerBytes))
     try destinationDirectory.writeExclusive(named: markerPartial, data: markerBytes, synchronize: true)
-    try destinationDirectory.promoteExclusive(from: partialName, to: outputFileName,
-      expectedBytes: outputBytes, expectedSHA256: expectedOutputSHA)
+    for segment in segments {
+      try destinationDirectory.promoteExclusive(from: segment.file + ".partial", to: segment.file,
+        expectedBytes: segment.bytes, expectedSHA256: segment.sha256)
+    }
     try destinationDirectory.synchronize()
     // The completion marker is deliberately the final published entry.
     try destinationDirectory.promoteExclusive(from: markerPartial, to: completionMarkerName,
@@ -304,17 +345,9 @@ public enum DVReviewedRangeExporter {
   }
 
   private static func validate(snapshot: Snapshot, first: UInt64, endExclusive: UInt64) throws {
-    guard snapshot.schemaVersion == 1,
-      snapshot.frameByteCount == 120_000 || snapshot.frameByteCount == 144_000,
-      snapshot.videoSystem == (snapshot.frameByteCount == 120_000 ? .ntsc525_60 : .pal625_50),
-      snapshot.frameCount > 0,
-      first < endExclusive,
-      endExclusive <= snapshot.frameCount,
-      snapshot.sourceSHA256.count == 64,
-      snapshot.sourceSHA256.utf8.allSatisfy({ (48...57).contains($0) || (97...102).contains($0) }),
-      try multiplied(snapshot.frameCount, UInt64(snapshot.frameByteCount), "snapshot byte count")
-        == snapshot.sourceByteCount else {
-      throw DVIngestError.invalidEvidence("reviewed range snapshot or requested frame bounds are invalid")
+    try snapshot.validate()
+    guard first < endExclusive, endExclusive <= snapshot.frameCount else {
+      throw DVIngestError.invalidEvidence("reviewed range bounds are outside verified source frames")
     }
   }
 

@@ -27,7 +27,7 @@ private func inventoryFrame(pal: Bool) -> Data {
   #expect(value.extents.count == (pal ? 1800 : 1500))
   #expect(value.nonzeroVideoStatusBlocks == (pal ? 12 : 10))
   #expect(value.audioSampleRate == .known48000Hz)
-  #expect(value.packs.contains { $0.typeHex == "0xE1" && $0.label.contains("reserved") && $0.label.contains("amendment ambiguous") })
+  #expect(value.packs.contains { $0.typeHex == "0xE1" && $0.label.contains("Unassigned") })
   for extent in value.extents {
     let offset = Int(extent.sourceByteOffset - value.frameByteOffset)
     #expect(extent.bytes == data.subdata(in: offset..<(offset + extent.bytes.count)))

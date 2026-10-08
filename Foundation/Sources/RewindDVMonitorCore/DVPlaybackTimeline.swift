@@ -1,5 +1,8 @@
 // Copyright 2026 Rewind Digital, LLC. SPDX-License-Identifier: Apache-2.0
 import Foundation
+#if canImport(RewindDVArchiveCore)
+import RewindDVArchiveCore
+#endif
 
 /// Read-only playback coordinates. Runs retain format changes, never picture
 /// bytes. Both systems have exact integer cadence in a 30,000 Hz timeline.
@@ -182,26 +185,7 @@ public struct DVPlaybackTimeline: Sendable {
   /// Ordered DIF identity checks protect positional sample/audio reads. Damaged
   /// picture/audio contents are retained; a broken boundary is not guessed past.
   public static func validate(_ frame: Data, at offset: UInt64) throws {
-    let valid = frame.withUnsafeBytes { (p: UnsafeRawBufferPointer) -> Bool in
-      guard p.count == 120_000 || p.count == 144_000,
-        (p[3] & 0x80 != 0) == (p.count == 144_000) else { return false }
-      for i in 0..<(p.count / 80) {
-        let local = i % 150, sequence = i / 150, at = i * 80
-        let section: Int, number: Int
-        if local == 0 { section = 0; number = 0 }
-        else if local < 3 { section = 1; number = local - 1 }
-        else if local < 6 { section = 2; number = local - 3 }
-        else if (local - 6) % 16 == 0 { section = 3; number = (local - 6) / 16 }
-        else { section = 4; number = local - 7 - (local - 6) / 16 }
-        guard Int(p[at] >> 5) == section, Int(p[at + 1] >> 4) == sequence,
-          Int(p[at + 2]) == number,
-          section != 0 || (p[at + 3] & 0x80 != 0) == (p.count == 144_000)
-        else { return false }
-      }
-      return true
-    }
-    guard valid else {
-      throw Failure(reason: "Incomplete or unordered DV frame at byte \(offset). Original bytes are unchanged; no frame boundary was guessed.")
-    }
+    do { try DVRecordingEpoch.validateFrame(frame, offset: offset) }
+    catch { throw Failure(reason: error.localizedDescription) }
   }
 }

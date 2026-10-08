@@ -15,6 +15,10 @@ struct MetadataSummary: Encodable {
 }
 
 do {
+  if CommandLine.arguments == [CommandLine.arguments[0], "iec-field-inventory"] {
+    let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+    try FileHandle.standardOutput.write(contentsOf: encoder.encode(IECInventory.make()) + Data([10])); exit(0)
+  }
   if CommandLine.arguments.count == 3 && CommandLine.arguments[1] == "whole-tape-job" {
     let summary = try WholeTapeJobJournal.readSummary(from: URL(fileURLWithPath: CommandLine.arguments[2]))
     let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys]

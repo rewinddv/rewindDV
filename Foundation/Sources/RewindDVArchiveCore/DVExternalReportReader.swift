@@ -165,7 +165,7 @@ public enum DVExternalReportReader {
         if let raw = attributes["pos"] {
           guard let pos = UInt64(raw), pos <= UInt64(Int64.max) else { fail(parser, "invalid external byte offset"); return }
           if let expected, media["ref"] == "urn:sha256:" + expected.sourceSHA256,
-            (n >= expected.frameCount || pos != n * UInt64(expected.frameByteCount)) {
+            (n >= expected.frameCount || pos != (try? expected.frame(n).byteOffset)) {
             fail(parser, "external frame coordinates disagree with claimed source"); return
           }
         }

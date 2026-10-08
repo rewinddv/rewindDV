@@ -15,7 +15,7 @@ namespace ASFW::Driver {
 IsochService::IsochService() : receiveOwnersLock_(IOLockAlloc()) {}
 IsochService::~IsochService() { if (receiveOwnersLock_) IOLockFree(receiveOwnersLock_); }
 
-std::shared_ptr<ASFW::Isoch::IsochReceiveContext>
+IsochService::ReceiveOwner
 IsochService::CopyReceiveContext(uint32_t index) const noexcept {
     if (!receiveOwnersLock_ || index >= kMaxStreamsPerDirection) return {};
     IOLockLock(receiveOwnersLock_);
@@ -25,7 +25,7 @@ IsochService::CopyReceiveContext(uint32_t index) const noexcept {
 }
 
 void IsochService::StoreReceiveContext(uint32_t index,
-    std::shared_ptr<ASFW::Isoch::IsochReceiveContext> context) noexcept {
+    ReceiveOwner context) noexcept {
     if (!receiveOwnersLock_ || index >= kMaxStreamsPerDirection) return;
     IOLockLock(receiveOwnersLock_);
     auto old = std::exchange(index == 0 ? isochReceiveContext_ : secondaryReceiveContexts_[index - 1],
@@ -70,7 +70,7 @@ IsochService::PrepareReceive(uint8_t channel, HardwareInterface& hardware,
             return kIOReturnNoMemory;
         }
 
-        receiveContext = IsochReceiveContext::Create(&hardware, isochMem);
+        receiveContext = ReceiveOwner(IsochReceiveContext::Create(&hardware, isochMem));
         if (!receiveContext) {
             ASFW_LOG(Isoch, "IsochService: Failed to create IR context");
             return kIOReturnNoMemory;
@@ -123,7 +123,7 @@ kern_return_t IsochService::PrepareReceiveStream(
             return kIOReturnNoMemory;
         }
 
-        slot = IsochReceiveContext::Create(&hardware, isochMem);
+        slot = ReceiveOwner(IsochReceiveContext::Create(&hardware, isochMem));
         if (!slot) {
             ASFW_LOG(Isoch, "IsochService: Failed to create secondary IR context (stream %u)",
                      streamIndex);
@@ -495,7 +495,7 @@ kern_return_t IsochService::ReleaseQuiescedReceiveContexts() noexcept {
     if (!ReceiveContextsQuiesced()) return kIOReturnBusy;
     // Destruction must precede HardwareInterface destruction. Rebuilding a
     // provider creates fresh contexts and fresh DMA mappings.
-    const std::shared_ptr<ASFW::Isoch::IsochReceiveContext> empty;
+    const ReceiveOwner empty;
     for (uint32_t index = 0; index < kMaxStreamsPerDirection; ++index)
         StoreReceiveContext(index, empty);
     for (auto& consumer : receiveConsumers_) consumer = nullptr;

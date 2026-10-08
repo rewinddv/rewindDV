@@ -48,7 +48,7 @@ public struct LiveDVMedia: Sendable {
               let consumer = applications.allSatisfy { $0 == 0 }
               let professional = applications.allSatisfy { $0 == 1 }
               if (consumer || professional), p[base + 6] & 128 == 0,
-                let value = DVPackSemanticReport.displayWidescreen(code: flag, consumer: consumer) {
+                let value = DVPackSemanticReport.displayWidescreen(code: flag, consumer: consumer, broadcastSystem: p[at + 3] & 3) {
                 aspects.insert(value)
               } else { invalidAspect = true }
             }

@@ -18,12 +18,7 @@ public actor DVVerifiedFrameSource {
 
   public init(url: URL, snapshot: DVReviewedRangeExporter.Snapshot,
     progress: @Sendable (UInt64, UInt64) -> Void = { _, _ in }) throws {
-    guard snapshot.schemaVersion == 1, [120_000, 144_000].contains(snapshot.frameByteCount),
-      snapshot.sourceByteCount <= UInt64(Int64.max), snapshot.frameCount > 0,
-      snapshot.sourceByteCount / UInt64(snapshot.frameByteCount) == snapshot.frameCount,
-      snapshot.sourceByteCount % UInt64(snapshot.frameByteCount) == 0 else {
-      throw DVIngestError.invalidEvidence("invalid source snapshot")
-    }
+    try snapshot.validate()
     let opened = Darwin.open(url.path, O_RDONLY | O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC)
     guard opened >= 0 else { throw DVIngestError.fileOperation("open original DV", errno) }
     var keep = false
@@ -63,8 +58,10 @@ public actor DVVerifiedFrameSource {
     try Task.checkCancellation()
     try Self.check(fd, url: url, original: status)
     let b = record.boundaryEvidence
-    guard b.frameOrdinal < snapshot.frameCount, b.frameByteCount == snapshot.frameByteCount,
-      b.frameSourceByteOffset == b.frameOrdinal * UInt64(snapshot.frameByteCount) else {
+    let identity = try snapshot.frame(b.frameOrdinal)
+    guard b.frameByteCount == identity.byteCount, b.videoSystem == identity.system,
+      b.frameSourceByteOffset == identity.byteOffset,
+      record.sourceFrameIdentity == nil || record.sourceFrameIdentity == identity else {
       throw DVIngestError.invalidEvidence("frame is outside verified source")
     }
     let bytes = try Self.read(fd, offset: b.frameSourceByteOffset, count: b.frameByteCount)

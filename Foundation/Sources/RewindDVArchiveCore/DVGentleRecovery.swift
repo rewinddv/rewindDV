@@ -52,11 +52,8 @@ public enum DVGentleRecovery {
     }
     func validate() throws {
       try budget.validate()
-      guard version == 1, source.schemaVersion == 1, hash(mapSHA256), hash(source.sourceSHA256), source.frameCount > 0,
-        [120_000, 144_000].contains(source.frameByteCount),
-        source.frameByteCount == (source.videoSystem == .ntsc525_60 ? 120_000 : 144_000),
-        source.sourceByteCount / UInt64(source.frameByteCount) == source.frameCount,
-        source.sourceByteCount % UInt64(source.frameByteCount) == 0,
+      try source.validate()
+      guard version == 1, hash(mapSHA256), source.frameCount > 0,
         !tapeLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, tapeLabel.utf8.count <= 256,
         !targets.isEmpty, targets.count <= 64 else { throw failure("invalid source-bound recovery plan") }
       var end: UInt64 = 0

@@ -6,7 +6,7 @@ import RewindDVArchiveCore
 @testable import RewindDVMonitorCore
 
 private func techFixture(pal: Bool = false, smpte: Bool = false,
-  audioCode: UInt8 = 0, aspect: UInt8 = 0, invalidVAUX: Bool = false,
+  audioCode: UInt8 = 0, aspect: UInt8 = 0, broadcastSystem: UInt8 = 0, invalidVAUX: Bool = false,
   camera: [UInt8]? = nil) throws -> DVMetadataInventory {
   var bytes = Data()
   for sequence in 0..<(pal ? 12 : 10) {
@@ -23,7 +23,7 @@ private func techFixture(pal: Bool = false, smpte: Bool = false,
       }
       if section == 2 {
         b.replaceSubrange(3..<8, with: [0x60, 0xff, 0xff, pal ? 0xe0 : 0xc0, 0xff])
-        b.replaceSubrange(8..<13, with: [0x61, 0, 0xc0 | aspect, 0xf0, 0xff])
+        b.replaceSubrange(8..<13, with: [0x61, 0, 0xc8 | aspect, 0xf0 | broadcastSystem, 0xff])
         b.replaceSubrange(13..<18, with: [0x62, 0xff, 0xe8, 0xc2, 0x02])
         b.replaceSubrange(18..<23, with: [0x63, 0xff, 0x80, 0x89, 0xd3])
         if let camera { b.replaceSubrange(23..<28, with: camera) }
@@ -142,8 +142,8 @@ private func frameBytes(_ inventory: DVMetadataInventory) -> Data {
     #expect(rows.first { $0.label == "Horizontal pan speed code" }?.value.hasPrefix("> 122 pixels/field") == true)
     #expect(rows.first { $0.label == "Horizontal pan direction code" }?.value.hasPrefix("Against raster scanning") == true)
     let zoom = try #require(rows.first { $0.label == "Electronic zoom magnitude" })
-    #expect(zoom.value == "≥ 8× — " + DVMetadataConfidence.conflictingEvidence.label)
-    #expect(zoom.evidence.contains("code 126 >4×") && zoom.evidence.contains("final IEC layout unresolved"))
+    #expect(zoom.value == "≥ 8× — " + DVMetadataConfidence.normativeConfirmed.label)
+    #expect(zoom.evidence.contains("PRIMARY_STANDARD") && zoom.evidence.contains("§10.2"))
     #expect(zoom.evidence.contains("71 1E 7E FF 7E") && zoom.evidence.contains("SHA-256"))
   }
   let professional = try techFixture(smpte: true, camera: [0x71, 30, 62, 0xff, 126])
@@ -250,13 +250,13 @@ private func geometryFixture(pal: Bool = false, apertureWidth: Double? = 704,
   for pal in [false, true] {
     let specs = DVTechnicalSpecifications.make(path: "/fixture.dv", byteCount: pal ? 144_000 : 120_000,
       inventory: try techFixture(pal: pal, camera: [0x70, 0xc0, 0x40, 0x64, 0x80]))
-    #expect(value(specs, "Recorded camera settings", "Exposure mode") == "Manual — Implementation corroborated")
-    #expect(value(specs, "Recorded camera settings", "White-balance preset") == "Sunlight — Implementation corroborated")
-    #expect(value(specs, "Recorded camera settings", "Gain code")?.hasPrefix("Uninterpreted") == true)
+    #expect(value(specs, "Recorded camera settings", "Exposure mode") == "Manual — Confirmed")
+    #expect(value(specs, "Recorded camera settings", "White-balance preset") == "Sunlight — Confirmed")
+    #expect(value(specs, "Recorded camera settings", "Gain code") == "0 — Confirmed")
     let live = specs.liveReport(progress: [])
-    #expect(value(live, "Recorded camera settings", "Exposure mode") == "Manual — Implementation corroborated")
+    #expect(value(live, "Recorded camera settings", "Exposure mode") == "Manual — Confirmed")
     let row = try #require(specs.sections.first { $0.title == "Recorded camera settings" }?.rows.first)
-    #expect(row.evidence.contains("6ce8766") && row.evidence.contains("SHA-256") && row.evidence.contains("70 C0 40 64 80"))
+    #expect(row.evidence.contains("PRIMARY_STANDARD") && row.evidence.contains("SHA-256") && row.evidence.contains("70 C0 40 64 80"))
   }
   let invalid = DVTechnicalSpecifications.make(path: "/fixture.dv", byteCount: 120_000,
     inventory: try techFixture(invalidVAUX: true, camera: [0x70, 0xc0, 0x40, 0x64, 0x80]))
@@ -297,11 +297,11 @@ private func geometryFixture(pal: Bool = false, apertureWidth: Double? = 704,
   #expect(value(specs, "Video", "Tape-reported display aspect ratio") == "4:3 — letterboxed")
   #expect(value(specs.liveReport(progress: []), "Video", "Tape-reported display aspect ratio") == "4:3 — letterboxed")
   let row = try #require(specs.sections.first { $0.title == "Video" }?.rows.first { $0.label == "Tape-reported display aspect ratio" })
-  #expect(!row.isWarning && row.evidence.contains("MANUFACTURER_REFERENCE: Sony EP0719057A2"))
-  #expect(row.evidence.contains("Fig. 22B") && row.evidence.contains("Consumer DV only"))
+  #expect(!row.isWarning && row.evidence.contains("PRIMARY_STANDARD: IEC 61834-4:1998 §9.2"))
+  #expect(row.evidence.contains("stored raster dimensions"))
   let disp = try #require(specs.semanticReport?.packs.first { $0.typeHex == "0x61" }?.fields.first { $0.id == "DISP" })
   #expect(disp.rawValue == 1 && disp.status == "interpreted")
-  #expect(disp.confidence == .independentlyCorroborated)
+  #expect(disp.confidence == .normativeConfirmed)
 }
 
 @Test(arguments: [UInt8(1), 3, 4, 5, 6, 7]) func smpteUnmappedAspectIsNotConsumerMeaning(code: UInt8) throws {
@@ -373,7 +373,7 @@ private func geometryFixture(pal: Bool = false, apertureWidth: Double? = 704,
 
 @Test func technicalDetailsReuseQualifiedSemanticsAndRetainEvidence() throws {
   let specs = DVTechnicalSpecifications.make(path: "/fixture.dv", byteCount: 120_000, inventory: try techFixture())
-  #expect(value(specs, "Audio source details", "Audio lock") == "Audio/video lock: unlocked — Implementation corroborated")
+  #expect(value(specs, "Audio source details", "Audio lock") == "Unlocked — Confirmed")
   #expect(value(specs, "Audio recording details", "Metadata") == "Missing pack 0x51")
   let field = try #require(specs.sections.first { $0.title == "Audio source details" }?.rows.first)
   #expect(field.evidence.contains("SHA-256"))
@@ -703,4 +703,66 @@ private func withClockIssue(_ source: Data, kind: Int) -> Data {
   #expect(value(report, "Video", "Height") == "576 pixels")
   #expect(value(report, "Video", "Chroma subsampling") == "Unknown / conflicting")
   #expect(value(report, "Video", "Tape-reported display aspect ratio")?.contains("4:3") == false)
+}
+
+@Test func iecBroadcastAspectUsesItsOwnCodebook() throws {
+  for code in UInt8(0)...7 {
+    let specs = DVTechnicalSpecifications.make(path: "broadcast.dv", byteCount: 120000,
+      inventory: try techFixture(aspect: code, broadcastSystem: 1))
+    let aspect = try #require(value(specs,"Video","Tape-reported display aspect ratio"))
+    #expect(code == 7 ? aspect == "16:9" : aspect.hasPrefix("4:3"))
+    #expect(DVPackSemanticReport.displayWidescreen(code: code,consumer:true,broadcastSystem:1) == (code == 7))
+  }
+  for system in UInt8(2)...3 {
+    #expect(DVPackSemanticReport.displayWidescreen(code: 2,consumer:true,broadcastSystem:system) == nil)
+  }
+}
+
+// Independently authored AAUX control witnesses: PC2 bits 5...3 carry REC_M.
+// Half 1 is marked invalid (111); half 2 is original audio (001). They are
+// separate audio contexts, not contradictory repetitions of the same field.
+@Test func technicalAAUXRecordingModesPreserveIndependentSequenceHalves() throws {
+  var bytes = frameBytes(try techFixture())
+  for at in stride(from: 0, to: bytes.count, by: 80)
+    where bytes[at] >> 5 == 3 && bytes[at + 2] == 1 {
+    let halfOne = bytes[at + 1] >> 4 < 5
+    bytes.replaceSubrange((at + 3)..<(at + 8), with: [0x51, 0x03, halfOne ? 0xff : 0xcf, 0xa0, 0xff])
+  }
+  let report = DVTechnicalSpecifications.make(path: "synthetic.dv", byteCount: UInt64(bytes.count),
+    inventory: try DVMetadataInventory.inspect(frame: bytes, ordinal: 42, byteOffset: 600_000))
+  let rows = try #require(report.sections.first { $0.title == "Audio recording details" }?.rows)
+  let first = try #require(rows.first { $0.label == "Recording mode — AAUX sequence half 1" })
+  let second = try #require(rows.first { $0.label == "Recording mode — AAUX sequence half 2" })
+  #expect(first.value == "Invalid: Recording marked invalid")
+  #expect(!second.value.hasPrefix("Conflicting") && !second.value.hasPrefix("Invalid"))
+  #expect(first.evidence.contains("51 03 FF A0 FF") && !first.evidence.contains("51 03 CF A0 FF"))
+  #expect(second.evidence.contains("51 03 CF A0 FF") && !second.evidence.contains("51 03 FF A0 FF"))
+  #expect(first.evidence.contains("frame 42") && first.evidence.contains("source byte"))
+  #expect(!rows.contains { $0.value.contains("damage") })
+}
+
+@Test func technicalAAUXMissingHalfDoesNotBorrowOtherHalf() throws {
+  var bytes = frameBytes(try techFixture())
+  for at in stride(from: 0, to: bytes.count, by: 80)
+    where bytes[at] >> 5 == 3 && bytes[at + 2] == 1 && bytes[at + 1] >> 4 < 5 {
+    bytes.replaceSubrange((at + 3)..<(at + 8), with: [0x51, 0x03, 0xff, 0xa0, 0xff])
+  }
+  let report = DVTechnicalSpecifications.make(path: "synthetic.dv", byteCount: UInt64(bytes.count),
+    inventory: try DVMetadataInventory.inspect(frame: bytes, ordinal: 0, byteOffset: 0))
+  let rows = try #require(report.sections.first { $0.title == "Audio recording details" }?.rows)
+  #expect(rows.first { $0.label == "Recording mode — AAUX sequence half 1" }?.value == "Invalid: Recording marked invalid")
+  #expect(rows.first { $0.label == "Metadata — AAUX sequence half 2" }?.value == "Missing pack 0x51")
+}
+
+@Test func technicalAAUXWithinHalfConflictsRemainConflicts() throws {
+  var bytes = frameBytes(try techFixture())
+  for at in stride(from: 0, to: bytes.count, by: 80)
+    where bytes[at] >> 5 == 3 && bytes[at + 2] == 1 {
+    bytes.replaceSubrange((at + 3)..<(at + 8), with: [0x51, 0x03, bytes[at + 1] >> 4 == 0 ? 0xff : 0xcf, 0xa0, 0xff])
+  }
+  let report = DVTechnicalSpecifications.make(path: "synthetic.dv", byteCount: UInt64(bytes.count),
+    inventory: try DVMetadataInventory.inspect(frame: bytes, ordinal: 0, byteOffset: 0))
+  let rows = try #require(report.sections.first { $0.title == "Audio recording details" }?.rows)
+  #expect(rows.first { $0.label == "Recording mode — AAUX sequence half 1" }?.value == "Conflicting values — no selection")
+  #expect(rows.first { $0.label == "Recording mode — AAUX sequence half 2" }?.value.hasPrefix("Conflicting") == false)
 }

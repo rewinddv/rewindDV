@@ -322,10 +322,9 @@ public actor DVRecoveryReviewJournal {
     summary: String
   ) throws -> Item {
     let snapshot = binding.mapReceipt.sourceSnapshot
-    let start = try multiply(firstFrameOrdinal, UInt64(snapshot.frameByteCount),
-      "review range byte start")
-    let end = try multiply(endFrameOrdinalExclusive, UInt64(snapshot.frameByteCount),
-      "review range byte end")
+    try snapshot.validate()
+    let start = try snapshot.byteOffset(atBoundary: firstFrameOrdinal)
+    let end = try snapshot.byteOffset(atBoundary: endFrameOrdinalExclusive)
     let draft = Item(
       id: "", sourceSHA256: snapshot.sourceSHA256,
       mapReceiptSHA256: binding.mapReceiptSHA256,
@@ -615,10 +614,9 @@ public actor DVRecoveryReviewJournal {
     binding: DVTapeEvidenceLedgerReader.Binding
   ) throws {
     let snapshot = binding.mapReceipt.sourceSnapshot
-    let start = try multiply(item.firstFrameOrdinal, UInt64(snapshot.frameByteCount),
-      "review item byte start")
-    let end = try multiply(item.endFrameOrdinalExclusive, UInt64(snapshot.frameByteCount),
-      "review item byte end")
+    try snapshot.validate()
+    let start = try snapshot.byteOffset(atBoundary: item.firstFrameOrdinal)
+    let end = try snapshot.byteOffset(atBoundary: item.endFrameOrdinalExclusive)
     let expectedID = try stableID(item)
     guard item.sourceSHA256 == snapshot.sourceSHA256,
       item.mapReceiptSHA256 == binding.mapReceiptSHA256,

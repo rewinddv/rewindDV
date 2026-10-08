@@ -113,11 +113,11 @@ private func fields(_ report: DVPackSemanticReport, pack: String, id: String) ->
   }
 }
 
-@Test func semanticUnmappedTunerCodeIsNotFalselyReserved() throws {
+@Test func semanticTunerCodeUsesVerifiedFinalTable() throws {
   let report = try semantics(semanticFrame(video: [0x60, 0x12, 0x81, 0, 0x12]))
   let tuner = fields(report, pack: "0x60", id: "TUN")
   #expect(!tuner.isEmpty)
-  #expect(tuner.allSatisfy { $0.status == "uninterpreted" })
+  #expect(tuner.allSatisfy { $0.status == "reserved" && $0.confidence == .normativeConfirmed })
   let control = fields(report, pack: "0x61", id: "SS")
   #expect(!control.isEmpty)
   #expect(control.allSatisfy { $0.status == "interpreted" })

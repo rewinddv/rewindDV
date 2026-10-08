@@ -128,6 +128,9 @@ public struct DVFilmFrameEvidence: Codable, Equatable, Sendable {
   public let recordingStart: UInt8?
   public let timecodeFrame: Int?
   public let timecodeDropFrame: Bool?
+  /// Additive provenance for the existing continuity calculation. This profile
+  /// is not the IEC no-BINARY companion interpretation of S1/S2.
+  public var timecodeInterpretation: String? = nil
   public let audioRateHz: Int?
   public let audioQuantizationCode: UInt8?
   public let videoStatusBlocks: Int
@@ -162,6 +165,7 @@ public struct DVFilmFrameEvidence: Codable, Equatable, Sendable {
       fieldOrder: field("FS"), frameChange: field("FC"), interlace: field("IL"),
       fieldTimeDifference: field("SF"), recordingStart: field("REC_S"),
       timecodeFrame: acceptedTC?.0, timecodeDropFrame: acceptedTC?.1,
+      timecodeInterpretation: "INFERENCE: retained implementation uses a SMPTE-style title-timecode continuity profile, PC1 bit6=drop; companion association not established. Not primary IEC flag semantics.",
       audioRateHz: inventory.audioSampleRate.sampleRateHz,
       audioQuantizationCode: quantization.flatMap(UInt8.init(exactly:)),
       videoStatusBlocks: inventory.nonzeroVideoStatusBlocks)

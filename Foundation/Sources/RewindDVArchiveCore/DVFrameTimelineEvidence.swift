@@ -10,6 +10,7 @@ public struct DVFrameTimelineEvidence: Codable, Equatable, Sendable {
     public let timecodeLabel: String?
     public let recordedDate: String?
     public let formatFingerprint: [String]
+    public var timecodeInterpretation: String? = nil
   }
   public let point: Point
   public let changes: [DVTapeEvidenceMapExporter.IssueCode]
@@ -33,12 +34,12 @@ public struct DVFrameTimelineEvidence: Codable, Equatable, Sendable {
     }
     let date = !values.isEmpty && values.count == dates.count && Set(values).count == 1 ? values.first : nil
     let formatFields = report.packs.filter { ["0x50", "0x60", "0x61"].contains($0.typeHex) }.flatMap { pack in
-      pack.fields.filter { ["SMP", "QU", "CHN", "STYPE", "DISP"].contains($0.id) }.map { field in
+      pack.fields.filter { ["SMP", "QU", "CHN", "STYPE", "DISP", "BCS"].contains($0.id) }.map { field in
         "\(pack.id.split(separator: ":").first ?? "unknown")/\(field.id)/\(field.status)/\(field.rawValue)"
       }
     }
     return Point(timecodeFrame: tc, dropFrame: tc == nil ? nil : film.timecodeDropFrame, timecodeLabel: label,
-      recordedDate: date, formatFingerprint: [report.format] + Set(formatFields).sorted())
+      recordedDate: date, formatFingerprint: [report.format] + Set(formatFields).sorted(), timecodeInterpretation:film.timecodeInterpretation)
   }
   public static func changes(from previous: Point?, to current: Point) -> [DVTapeEvidenceMapExporter.IssueCode] {
     guard let previous else { return [] }

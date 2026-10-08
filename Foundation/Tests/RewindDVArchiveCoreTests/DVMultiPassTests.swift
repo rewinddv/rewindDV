@@ -5,7 +5,7 @@ import Testing
 
 private func mergeFrame(_ id: Int, pal: Bool = false, nonlinear: Bool = false, smpte: Bool = false) -> Data {
   var frame = semanticFrame(smpte: smpte, pal: pal,
-    audio: [0x50, nonlinear ? (pal ? 16 : 27) : (pal ? 24 : 20), nonlinear ? 0x20 : 0,
+    audio: [0x50, 0x40 | (nonlinear ? (pal ? 16 : 27) : (pal ? 24 : 20)), nonlinear ? 0x20 : 0,
       pal ? 0xa0 : 0x80, nonlinear ? 0xd1 : 0xc0], video: [0x60,0xff,0xff,pal ? 0xe0 : 0xc0,0xff])
   // Original synthetic frame identities in reserved bytes; no camera identity
   // or timecode semantics are being asserted by this fixture.
@@ -290,5 +290,21 @@ func multiPassIndependentRereadCatchesOutputCorruption(name: String) async throw
       }
     }
     #expect(!FileManager.default.fileExists(atPath: output.appendingPathComponent("merge.json").path))
+  }
+}
+
+@Test func multiPassMalformedEmptyImportedPlanRejectsWithoutCreatingOutput() async throws {
+  let data = Data("{\"version\":\"rewindDV-multipass-1\",\"inputs\":[],\"comparisons\":[],\"candidates\":[],\"reviews\":[]}".utf8)
+  let plan = try JSONDecoder().decode(DVMultiPass.Plan.self, from: data)
+  try await mergeFiles([[mergeFrame(0)], [mergeFrame(0)]]) { inputs, root, _ in
+    for exportDV in [false, true] {
+      for supplied in [[], inputs] {
+        let output = root.appendingPathComponent(UUID().uuidString)
+        await #expect(throws: Error.self) {
+          try await DVMultiPass.publish(plan: plan, inputs: supplied, destination: output, exportDV: exportDV)
+        }
+        #expect(!FileManager.default.fileExists(atPath: output.path))
+      }
+    }
   }
 }

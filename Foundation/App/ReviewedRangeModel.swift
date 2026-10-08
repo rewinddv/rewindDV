@@ -23,7 +23,14 @@ import Combine
     return (first - 1, last)
   }
   var canExport: Bool { snapshot != nil && range != nil && confirmed && !isBusy }
-  var frameDuration: Double { snapshot?.frameByteCount == 144_000 ? 1.0 / 25 : 1001.0 / 30000 }
+  func seconds(atBoundary ordinal: UInt64) -> Double? {
+    guard let tick = try? snapshot?.presentationTick(atBoundary: ordinal) else { return nil }
+    return Double(tick) / 30_000
+  }
+  var segmentCount: Int {
+    guard let snapshot, let range else { return 0 }
+    return snapshot.recordingEpochs.filter { $0.firstFrame < range.end && $0.endFrameExclusive > range.first }.count
+  }
 
   func cancel() {
     guard isBusy else { return }
@@ -45,7 +52,7 @@ import Combine
     task = Task { [weak self] in
       let scan = Task.detached(priority: .utility) {
         defer { withExtendedLifetime(lease) {} }
-        return try DVReviewedRangeExporter.inspect(source: url)
+        return try DVReviewedRangeExporter.inspect(source: url, preserveUnknownRegions: true)
       }
       do {
         let value = try await withTaskCancellationHandler { try await scan.value }
@@ -54,7 +61,7 @@ import Combine
         guard let self, generation == id else { return }
         snapshot = value; firstFrameText = "1"; lastFrameText = String(value.frameCount)
         isBusy = false
-        message = "\(value.frameCount.formatted()) complete source frames. Choose the first and last frames to keep."
+        message = "\(value.frameCount.formatted()) verified source frames across \(value.recordingEpochs.count) recording-system epochs. " + (value.isComplete ? "Choose the first and last frames to keep." : "Remaining source bytes are explicitly unindexed; no frame count is inferred for them.")
       } catch {
         guard let self, generation == id else { return }
         isBusy = false; failed = true; message = error.localizedDescription

@@ -206,9 +206,11 @@ public enum DVMultiPass {
     let bindings = inputs.map(\.binding)
     var total: UInt64 = 0
     for binding in bindings {
-      guard binding.source.frameCount <= maximumTotalFrames - total,
-        binding.source.frameByteCount == first.binding.source.frameByteCount,
-        binding.source.videoSystem == first.binding.source.videoSystem else { throw error("mixed video systems or aggregate frame budget exceeded") }
+      try binding.source.validate()
+      guard binding.source.isComplete, binding.source.frameCount <= maximumTotalFrames - total,
+        Set(binding.source.recordingEpochs.map(\.system)) == Set(first.binding.source.recordingEpochs.map(\.system)) else {
+        throw error("unknown source intervals or aggregate frame budget exceeded")
+      }
       total += binding.source.frameCount
     }
     var indexes: [Index] = []
@@ -313,12 +315,14 @@ public enum DVMultiPass {
     for i in neutral.reviews.indices { neutral.reviews[i].choice = nil; neutral.reviews[i].note = "" }
     try validatedReview(restored, against: neutral); return restored
   }
-  static func provenance(_ ordinal: UInt64, plan: Plan, choices: [UInt64: Candidate], baseHash: String) -> Provenance {
+  static func provenance(_ ordinal: UInt64, plan: Plan, choices: [UInt64: Candidate], baseHash: String) throws -> Provenance {
     let chosen = choices[ordinal], pass = chosen?.donorPass ?? 0, sourceFrame = chosen?.donorFrame ?? ordinal
-    let size = plan.inputs[0].source.frameByteCount
-    return .init(outputFrame: ordinal, outputByteOffset: ordinal * UInt64(size), byteCount: size,
+    let base = try plan.inputs[0].source.frame(ordinal)
+    let selected = try plan.inputs[pass].source.frame(sourceFrame)
+    guard base.byteCount == selected.byteCount, base.system == selected.system else { throw error("donor recording system differs from base frame") }
+    return .init(outputFrame: ordinal, outputByteOffset: base.byteOffset, byteCount: base.byteCount,
       sourcePass: pass, sourceSHA256: plan.inputs[pass].source.sourceSHA256, sourceFrame: sourceFrame,
-      sourceByteOffset: sourceFrame * UInt64(size), frameSHA256: chosen?.donorSHA256 ?? baseHash,
+      sourceByteOffset: selected.byteOffset, frameSHA256: chosen?.donorSHA256 ?? baseHash,
       choice: chosen?.id ?? "original")
   }
   public static func publish(plan: Plan, inputs: [Input], destination: URL, exportDV: Bool,
@@ -329,6 +333,9 @@ public enum DVMultiPass {
     }
     let fresh = try await compare(inputs, progress: progress)
     try validatedReview(plan, against: fresh)
+    guard !exportDV || plan.inputs[0].source.recordingEpochs.count == 1 else {
+      throw error("mixed-system merge output requires segmented publication; export verified source epoch ranges instead")
+    }
     let directory = try DVTapeEvidenceMapExporter.EvidenceDirectory.create(destination)
     defer { directory.close() }
     try directory.writeExclusive(named: "intent.json", data: try encode(["state": "incomplete_until_merge_json"]), synchronize: true)
@@ -350,7 +357,7 @@ public enum DVMultiPass {
         for record in try await inputs[0].map.page(page).records {
           try Task.checkCancellation()
           let ordinal = record.boundaryEvidence.frameOrdinal
-          let p = provenance(ordinal, plan: plan, choices: choices, baseHash: record.boundaryEvidence.frameSHA256)
+          let p = try provenance(ordinal, plan: plan, choices: choices, baseHash: record.boundaryEvidence.frameSHA256)
           let selected = p.sourcePass == 0 ? try await inputs[0].source.frame(record)
             : try await donorCursors[p.sourcePass].read(inputs[p.sourcePass], ordinal: p.sourceFrame)
           guard hash(selected.bytes) == p.frameSHA256, selected.bytes.count == p.byteCount else { throw error("chosen source changed") }
@@ -404,7 +411,7 @@ public enum DVMultiPass {
       for record in try await inputs[0].map.page(page).records {
         try Task.checkCancellation()
         let ordinal = record.boundaryEvidence.frameOrdinal
-        let p = provenance(ordinal, plan: plan, choices: choices, baseHash: record.boundaryEvidence.frameSHA256)
+        let p = try provenance(ordinal, plan: plan, choices: choices, baseHash: record.boundaryEvidence.frameSHA256)
         let line = try encode(p) + Data([10])
         guard let bytes = try media.read(upToCount: p.byteCount), bytes.count == p.byteCount,
           hash(bytes) == p.frameSHA256, try ledger.read(upToCount: line.count) == line else { throw error("frame-by-frame provenance reread failed") }

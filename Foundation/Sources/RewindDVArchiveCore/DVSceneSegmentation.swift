@@ -35,7 +35,8 @@ public enum DVSceneSegmentation {
     public let framesWithIncompleteOrConflictingEvidence: UInt64
     public var boundaries: [Boundary]
     public var segments: [Segment] {
-      let cuts = [UInt64(0)] + boundaries.filter { $0.decision == .accepted }.map(\.frame) + [source.frameCount]
+      let cuts = Set([UInt64(0)] + boundaries.filter { $0.decision == .accepted }.map(\.frame)
+        + source.recordingEpochs.map(\.firstFrame) + [source.frameCount]).sorted()
       return zip(cuts, cuts.dropFirst()).map { Segment(first: $0.0, endExclusive: $0.1) }
     }
     public var pendingCount: Int { boundaries.filter { $0.decision == .pending }.count }
@@ -46,6 +47,10 @@ public enum DVSceneSegmentation {
     public let endExclusive: UInt64
     public let bytes: UInt64
     public let sha256: String
+    public var sourceByteOffset: UInt64? = nil
+    public var sourceByteEndExclusive: UInt64? = nil
+    public var epochID: String? = nil
+    public var recordingSystem: DVBoundaryEvidence.VideoSystem? = nil
   }
   public struct Receipt: Codable, Sendable {
     public let version: String
@@ -156,8 +161,8 @@ public enum DVSceneSegmentation {
   }
 
   static func validate(_ plan: Plan) throws {
-    guard plan.version == algorithm, plan.source.frameCount > 0,
-      [120_000, 144_000].contains(plan.source.frameByteCount), plan.boundaries.count <= 100_000 else {
+    try plan.source.validate()
+    guard plan.version == algorithm, plan.source.frameCount > 0, plan.boundaries.count <= 100_000 else {
       throw DVIngestError.invalidEvidence("unsupported scene plan")
     }
     var previous: UInt64 = 0
@@ -201,6 +206,9 @@ public enum DVSceneSegmentation {
     destination: URL, exportDV: Bool,
     progress: @Sendable (UInt64, UInt64) -> Void = { _, _ in }) async throws -> Receipt {
     try validate(plan)
+    guard !exportDV || plan.source.isComplete else {
+      throw DVIngestError.invalidEvidence("complete scene partition cannot exclude unknown source bytes; use an explicitly reviewed verified frame range")
+    }
     guard plan.mapReceiptSHA256 == map.binding.mapReceiptSHA256,
       plan.source == map.binding.mapReceipt.sourceSnapshot,
       !exportDV || plan.pendingCount == 0 else { throw DVIngestError.invalidEvidence("review every proposed cut before exporting scenes") }
@@ -238,7 +246,11 @@ public enum DVSceneSegmentation {
             try handle!.synchronize(); try handle!.close(); handle = nil
             let digest = hex(hash.finalize()), reread = try directory.hashRegularFile(named: name + ".partial")
             guard reread.bytes == bytes, reread.sha256 == digest else { throw DVIngestError.invalidEvidence("scene reread mismatch") }
-            outputs.append(Output(file: name, first: segment.first, endExclusive: segment.endExclusive, bytes: bytes, sha256: digest))
+            outputs.append(Output(file: name, first: segment.first, endExclusive: segment.endExclusive, bytes: bytes, sha256: digest,
+              sourceByteOffset: try plan.source.byteOffset(atBoundary: segment.first),
+              sourceByteEndExclusive: try plan.source.byteOffset(atBoundary: segment.endExclusive),
+              epochID: try plan.source.frame(segment.first).epochID,
+              recordingSystem: try plan.source.frame(segment.first).system))
             hash = SHA256(); bytes = 0; segmentIndex += 1
           }
           if count % 128 == 0 || count == plan.source.frameCount { progress(count, plan.source.frameCount) }
@@ -250,7 +262,7 @@ public enum DVSceneSegmentation {
     let receipt = Receipt(version: algorithm, state: exportDV ? "complete_verified_partition" : "review_saved_no_media_exported",
       source: plan.source, reviewSHA256: reviewSHA, outputs: outputs,
       concatenatedSHA256: exportDV ? plan.source.sourceSHA256 : nil,
-      policy: "Every master frame retained exactly once in source order when exporting. No re-encode, audio resample, timecode rewrite, master modification or hardware command. Marker cuts are reviewed interpretations, not proven camera takes. Fixed-system DV25 only; mixed NTSC/PAL masters require a future variable-frame map.")
+      policy: "Every master frame retained exactly once in source order when exporting. No re-encode, audio resample, timecode rewrite, master modification or hardware command. Marker cuts are reviewed interpretations, not proven camera takes. Recording-system boundaries split output independently of reviewed scene cuts; concatenating files in manifest order reconstructs the original raw sequence.")
     for output in outputs {
       try Task.checkCancellation()
       try directory.promoteExclusive(from: output.file + ".partial", to: output.file, expectedBytes: output.bytes, expectedSHA256: output.sha256)

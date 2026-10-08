@@ -309,11 +309,22 @@ public struct DVTechnicalSpecifications: Sendable, Equatable {
     let knownFormat = semantic.format == "IEC 61834 consumer DV" || semantic.format == "SMPTE ST 314M-2005 DV"
     let sd = knownFormat && field("0x60", "STYPE") == 0
     let aspect: String
-    switch field("0x61", "DISP") {
-    case 0, 4: aspect = "4:3"
-    case 1 where semantic.format == "IEC 61834 consumer DV": aspect = "4:3 — letterboxed"
-    case 2: aspect = "16:9"
-    default: aspect = unavailable("0x61", "DISP")
+    if semantic.format == "IEC 61834 consumer DV", field("0x61", "BCS") == nil {
+      // DISP is context dependent. Equal raw DISP codes can describe different
+      // aspects when repeated packs disagree about the broadcast system.
+      aspect = unavailable("0x61", "BCS")
+    } else if semantic.format == "IEC 61834 consumer DV", field("0x61", "BCS") == 1,
+       let code = field("0x61", "DISP"), code < 8 {
+      aspect = ["4:3", "4:3 — 14:9 letterbox centre", "4:3 — 14:9 letterbox top",
+        "4:3 — 16:9 letterbox centre", "4:3 — 16:9 letterbox top", "4:3 — wider than 16:9 letterbox",
+        "4:3 — 14:9 full frame centre", "16:9"][Int(code)]
+    } else {
+      switch field("0x61", "DISP") {
+      case 0: aspect = "4:3"
+      case 1 where semantic.format == "IEC 61834 consumer DV": aspect = "4:3 — letterboxed"
+      case 2: aspect = "16:9"
+      default: aspect = unavailable("0x61", "DISP")
+      }
     }
     let scan: String
     switch field("0x61", "IL") {
@@ -426,34 +437,50 @@ public struct DVTechnicalSpecifications: Sendable, Equatable {
     ]
     groups += optional.filter { group in report.packs.contains { $0.typeHex == group.1 } }
     return groups.map { title, type, wanted in
-      let packs = report.packs.filter { $0.typeHex == type }
-      let rows = wanted.compactMap { id, label -> Row? in
-        let fields = packs.flatMap(\.fields).filter { $0.id == id }
-        // Format-specific fields not defined for this syntax are not implied
-        // missing from the tape. Keep a pack-level missing row instead.
-        guard !fields.isEmpty else { return nil }
-        let meanings = Set(fields.map(\.meaning))
-        let statuses = Set(fields.map(\.status))
-        let value: String
-        if fields.contains(where: { $0.meaning.hasPrefix("Conflicting") }) || meanings.count > 1 {
-          value = "Conflicting values — no selection"
-        } else if statuses == ["interpreted"] {
-          value = fields[0].meaning + " — " + fields[0].confidence.label
-        } else {
-          value = statuses.sorted().map { $0.capitalized }.joined(separator: " / ") + ": " + fields[0].meaning
-        }
-        let evidence = report.format + "; frame \(report.frameOrdinal); SHA-256 \(report.frameSHA256). "
-          + Set(fields.map(\.reference)).sorted().joined(separator: "; ") + ". "
-          + Set(fields.compactMap(\.qualifier)).sorted().joined(separator: "; ") + ". "
-          + packs.filter { $0.fields.contains { $0.id == id } }.map {
-            "\($0.rawHex) (\($0.observationCount) occurrences); " + (($0.locations?.prefix(4).map(DVMetadataPresentation.location).joined(separator: "; ")) ?? "absolute byte offsets \($0.sourceByteOffsets.prefix(4).map(String.init).joined(separator: ","))")
-          }.joined(separator: "; ")
-        return Row(label: label, value: value, evidence: evidence)
+      let observed = report.packs.filter { $0.typeHex == type }
+      // AAUX halves describe independent audio contexts. A difference between
+      // halves is not conflicting repetition within one context. Keep the
+      // compact shared row only when both halves have the same observations.
+      let halves = (1...2).map { half in
+        observed.filter { $0.id.hasPrefix("aaux-sequence-half-\(half):") }
       }
-      return Section(title: title, rows: rows.isEmpty
-        ? [Row(label: "Metadata", value: packs.isEmpty ? "Missing pack \(type)" : "Uninterpreted — semantic flags not decoded for this format / transmission",
-               evidence: report.formatEvidence)]
-        : rows.filter { !$0.isWarning } + rows.filter(\.isWarning))
+      func signatures(_ packs: [DVPackSemanticReport.Pack]) -> Set<String> {
+        Set(packs.map { pack in
+          pack.rawHex + pack.fields.map { $0.id + ":" + $0.status + ":" + $0.meaning }.joined(separator: "|")
+        })
+      }
+      let split = ["0x50", "0x51"].contains(type) && signatures(halves[0]) != signatures(halves[1])
+      let scopes = split ? halves.enumerated().map { ($0.element, " — AAUX sequence half \($0.offset + 1)") }
+        : [(observed, "")]
+      let rows = scopes.flatMap { packs, suffix -> [Row] in
+        let scopedRows = wanted.compactMap { id, label -> Row? in
+          let fields = packs.flatMap(\.fields).filter { $0.id == id }
+          // Format-specific fields not defined for this syntax are not implied
+          // missing from the tape. Keep a pack-level missing row instead.
+          guard !fields.isEmpty else { return nil }
+          let meanings = Set(fields.map(\.meaning))
+          let statuses = Set(fields.map(\.status))
+          let value: String
+          if fields.contains(where: { $0.meaning.hasPrefix("Conflicting") }) || meanings.count > 1 {
+            value = "Conflicting values — no selection"
+          } else if statuses == ["interpreted"] {
+            value = fields[0].meaning + " — " + fields[0].confidence.label
+          } else {
+            value = statuses.sorted().map { $0.capitalized }.joined(separator: " / ") + ": " + fields[0].meaning
+          }
+          let evidence = report.format + "; frame \(report.frameOrdinal); SHA-256 \(report.frameSHA256). "
+            + Set(fields.map(\.reference)).sorted().joined(separator: "; ") + ". "
+            + Set(fields.compactMap(\.qualifier)).sorted().joined(separator: "; ") + ". "
+            + packs.filter { $0.fields.contains { $0.id == id } }.map {
+              "\($0.rawHex) (\($0.observationCount) occurrences); " + (($0.locations?.prefix(4).map(DVMetadataPresentation.location).joined(separator: "; ")) ?? "absolute byte offsets \($0.sourceByteOffsets.prefix(4).map(String.init).joined(separator: ","))")
+            }.joined(separator: "; ")
+          return Row(label: label + suffix, value: value, evidence: evidence)
+        }
+        return scopedRows.isEmpty
+          ? [Row(label: "Metadata" + suffix, value: packs.isEmpty ? "Missing pack \(type)" : "Uninterpreted — semantic flags not decoded for this format / transmission",
+                 evidence: "Frame \(report.frameOrdinal); SHA-256 \(report.frameSHA256). " + report.formatEvidence)] : scopedRows
+      }
+      return Section(title: title, rows: rows.filter { !$0.isWarning } + rows.filter(\.isWarning))
     }
   }
 

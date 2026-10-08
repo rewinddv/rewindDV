@@ -83,11 +83,12 @@ public enum DVTapeDefectInspector {
     }
     let boundary = record.boundaryEvidence
     let snapshot = binding.mapReceipt.sourceSnapshot
-    let offset = try multiply(
-      boundary.frameOrdinal, UInt64(snapshot.frameByteCount), "inspector frame offset")
-    let end = try add(offset, UInt64(snapshot.frameByteCount), "inspector frame end")
+    try snapshot.validate()
+    let identity = try snapshot.frame(boundary.frameOrdinal)
+    let offset = identity.byteOffset
+    let end = try add(offset, UInt64(identity.byteCount), "inspector frame end")
     guard record.schemaVersion == 1, boundary.schemaVersion == 1,
-      boundary.frameByteCount == snapshot.frameByteCount,
+      boundary.frameByteCount == identity.byteCount,
       boundary.frameSourceByteOffset == offset,
       boundary.frameOrdinal < snapshot.frameCount,
       end <= snapshot.sourceByteCount,
@@ -102,7 +103,7 @@ public enum DVTapeDefectInspector {
 
     let rawPacks: [RawPackProvenance]
     if let semanticReport {
-      guard [1, 2].contains(semanticReport.schemaVersion),
+      guard [1, 2, 3].contains(semanticReport.schemaVersion),
         semanticReport.absoluteOffsetsKnown != false,
         semanticReport.frameOrdinal == boundary.frameOrdinal,
         semanticReport.frameByteOffset == offset,
@@ -158,7 +159,7 @@ public enum DVTapeDefectInspector {
     let unknown: String
     let suggestion: String
     switch issue.code {
-    case .timecodeTransition, .recordedDateTransition, .formatTransition:
+    case .timecodeTransition, .recordedDateTransition, .formatTransition, .recordingSystemTransition:
       title = issue.code.rawValue.replacingOccurrences(of: "_", with: " ").capitalized
       unknown = "A recorded label change, reset, wrap or missing value is not a transport loss or a proved recording edit. No missing-frame count is inferred."
       suggestion = "Compare this frame with the previous source ordinal and inspect both sets of original packs."

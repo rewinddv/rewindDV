@@ -107,7 +107,10 @@ private:
 };
 }
 
-struct Service::Session : std::enable_shared_from_this<Service::Session> {
+// Each asynchronous step receives a retained owner explicitly. DriverKit libc++
+// shared_from_this/shared_ptr counts are not atomic; never use them for this
+// session or capture a reference to a caller-owned owner variable.
+struct Service::Session {
     IOLock* lock{IOLockAlloc()};
     uint64_t owner{}, epoch{};
     ASFW::Discovery::DeviceRouteToken route{};
@@ -202,7 +205,7 @@ struct Service::Session : std::enable_shared_from_this<Service::Session> {
         sink.SetState(State::Failed, status);
     }
 
-    void BeginCleanup() {
+    void BeginCleanup(SessionOwner self) {
         bool disconnect = false, release = false;
         uint8_t plug = 0xff, channel = 0xff;
         uint32_t bandwidth = 0;
@@ -237,7 +240,6 @@ struct Service::Session : std::enable_shared_from_this<Service::Session> {
                 release = true; channel = managedChannel; bandwidth = managedBandwidth;
             }
         }
-        const auto self = shared_from_this();
         if (disconnect) {
             cmp->DisconnectOPCR({.route = route}, plug, [self](ASFW::CMP::CMPStatus status) {
                 ASFW_LOG(Isoch, "[FoundationRX] disconnect guid=0x%llx gen=%u plug=%u status=%u",
@@ -328,7 +330,7 @@ struct Service::Session : std::enable_shared_from_this<Service::Session> {
         }
     }
 
-    void StartReceiveOnManagedChannel() {
+    void StartReceiveOnManagedChannel(SessionOwner self) {
         bool cleanup = false, mustQuarantine = false;
         {
             Guard guard(lock);
@@ -351,11 +353,10 @@ struct Service::Session : std::enable_shared_from_this<Service::Session> {
             }
         }
         if (mustQuarantine) quarantine();
-        if (cleanup) BeginCleanup();
+        if (cleanup) BeginCleanup(self);
     }
 
-    void ConnectManaged() {
-        const auto self = shared_from_this();
+    void ConnectManaged(SessionOwner self) {
         cmp->ConnectOPCRWithOwnership({.route = route}, managedPlug, managedChannel,
             [self](ASFW::CMP::CMPStatus status, ASFW::CMP::MutationOwnership ownership) {
                 ASFW_LOG(Isoch, "[FoundationRX] connect guid=0x%llx gen=%u plug=%u ch=%u status=%u ownership=%u",
@@ -391,14 +392,13 @@ struct Service::Session : std::enable_shared_from_this<Service::Session> {
                         }
                     }
                 }
-                if (start) self->StartReceiveOnManagedChannel();
-                if (cleanup) self->BeginCleanup();
+                if (start) self->StartReceiveOnManagedChannel(self);
+                if (cleanup) self->BeginCleanup(self);
                 if (mustQuarantine) self->quarantine();
             });
     }
 
-    void AllocateManaged(uint32_t pcr) {
-        const auto self = shared_from_this();
+    void AllocateManaged(SessionOwner self, uint32_t pcr) {
         irm->ReadResourcesSnapshot([self, pcr](ASFW::IRM::AllocationStatus status,
                                                ASFW::IRM::ResourceSnapshot snapshot) {
             ASFW_LOG(Isoch, "[FoundationRX] resources guid=0x%llx gen=%u status=%u observed=%u bw=%u hi=0x%08x lo=0x%08x",
@@ -577,18 +577,17 @@ struct Service::Session : std::enable_shared_from_this<Service::Session> {
                         } else if (self->sink.GetState() == State::Preparing)
                             self->FailLocked(ToIOReturn(allocationStatus));
                     }
-                    if (connect) self->ConnectManaged();
-                    if (cleanup) self->BeginCleanup();
+                    if (connect) self->ConnectManaged(self);
+                    if (cleanup) self->BeginCleanup(self);
                     if (ownership == ASFW::IRM::ResourceOwnership::Uncertain)
                         self->quarantine();
                 });
         });
     }
 
-    void BeginDiscovery() {
+    void BeginDiscovery(SessionOwner self) {
         // Keep CMPClient alive through its internal raw-this completion. The
         // session's terminal state fences the borrowed runtime after Stop.
-        const auto self = shared_from_this();
         cmp->ReadOMPR({.route = route}, [self](bool success, uint32_t value) {
             bool readPlug = false;
             {
@@ -608,10 +607,10 @@ struct Service::Session : std::enable_shared_from_this<Service::Session> {
                 }
                 readPlug = true;
             }
-            if (readPlug) self->ReadPlug(0);
+            if (readPlug) self->ReadPlug(self, 0);
         });
     }
-    void ReadPlug(uint8_t plug) {
+    void ReadPlug(SessionOwner self, uint8_t plug) {
         // Revalidate under the session lock, then issue only this fixed CMP
         // read. CMPClient independently validates the route at submission.
         {
@@ -619,7 +618,6 @@ struct Service::Session : std::enable_shared_from_this<Service::Session> {
             if (sink.GetState() != State::Preparing) return;
             if (!CurrentLocked()) { FailLocked(kIOReturnAborted); return; }
         }
-        const auto self = shared_from_this();
         cmp->ReadOPCR({.route = route}, plug, [self, plug](bool success, uint32_t pcr) {
             bool next = false, managed = false, mustQuarantine = false;
             {
@@ -665,8 +663,8 @@ struct Service::Session : std::enable_shared_from_this<Service::Session> {
             }
             // Never acquire the runtime teardown path while holding our lock.
             if (mustQuarantine) self->quarantine();
-            if (managed) self->AllocateManaged(pcr);
-            if (next) self->ReadPlug(static_cast<uint8_t>(plug + 1));
+            if (managed) self->AllocateManaged(self, pcr);
+            if (next) self->ReadPlug(self, static_cast<uint8_t>(plug + 1));
         });
     }
 };
@@ -694,7 +692,7 @@ kern_return_t Service::Start(uint64_t owner, const DriverPolicy::FoundationRoute
          speedDecision.targetNodeId != route.nodeId)) return kIOReturnNotReady;
     PendingActivity activity{DriverPolicy::ActivityKind::kReceive};
     if (!activity.Token()) return kIOReturnBusy;
-    std::shared_ptr<Session> created;
+    SessionOwner created;
     {
         Guard guard(lock_);
         // The original owner retains terminal status/ack identity until close,
@@ -702,8 +700,8 @@ kern_return_t Service::Start(uint64_t owner, const DriverPolicy::FoundationRoute
         if (session_) return kIOReturnBusy;
         if (!isoch.ReceiveContextsQuiesced() || nextEpoch_ == std::numeric_limits<uint64_t>::max())
             return kIOReturnBusy;
-        created = std::make_shared<Session>();
-        if (!created->lock) return kIOReturnNoResources;
+        created = SessionOwner(std::unique_ptr<Session>(new (std::nothrow) Session));
+        if (!created || !created->lock) return kIOReturnNoResources;
         created->owner = owner;
         created->epoch = nextEpoch_++;
         created->route = route;
@@ -736,13 +734,13 @@ kern_return_t Service::Start(uint64_t owner, const DriverPolicy::FoundationRoute
         output.epoch = created->epoch;
     }
     // Asynchronous read completion needs the default driver queue to run.
-    created->BeginDiscovery();
+    created->BeginDiscovery(created);
     return kIOReturnSuccess;
 }
 
 kern_return_t Service::Stop(uint64_t owner, uint64_t epoch) {
     if (!lock_) return kIOReturnNotReady;
-    std::shared_ptr<Session> target;
+    SessionOwner target;
     kern_return_t result;
     {
         Guard guard(lock_);
@@ -752,12 +750,12 @@ kern_return_t Service::Stop(uint64_t owner, uint64_t epoch) {
         if (target->owner != owner || target->epoch != epoch) return kIOReturnNotPrivileged;
         result = target->StopLocked(State::Stopped);
     }
-    if (result == kIOReturnSuccess) target->BeginCleanup();
+    if (result == kIOReturnSuccess) target->BeginCleanup(target);
     return result;
 }
 kern_return_t Service::StopAll(bool busReset) {
     if (!lock_) return kIOReturnNoResources;
-    std::shared_ptr<Session> target;
+    SessionOwner target;
     kern_return_t result;
     {
         Guard guard(lock_);
@@ -766,12 +764,12 @@ kern_return_t Service::StopAll(bool busReset) {
         Guard sessionGuard(target->lock);
         result = target->StopLocked(busReset ? State::BusReset : State::Stopped);
     }
-    if (result == kIOReturnSuccess) target->BeginCleanup();
+    if (result == kIOReturnSuccess) target->BeginCleanup(target);
     return result;
 }
 kern_return_t Service::ReleaseOwner(uint64_t owner) {
     if (!lock_) return kIOReturnNotReady;
-    std::shared_ptr<Session> target;
+    SessionOwner target;
     kern_return_t result;
     {
         Guard guard(lock_);
@@ -781,7 +779,7 @@ kern_return_t Service::ReleaseOwner(uint64_t owner) {
         result = target->StopLocked(State::Stopped);
         if (result == kIOReturnSuccess) session_.reset();
     }
-    if (result == kIOReturnSuccess) target->BeginCleanup();
+    if (result == kIOReturnSuccess) target->BeginCleanup(target);
     return result;
 }
 kern_return_t Service::Snapshot(uint64_t owner, uint64_t epoch, StatusWire& output) const {

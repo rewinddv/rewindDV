@@ -1,6 +1,8 @@
 // Host execution of the production receive context with fake MMIO/DMA only.
 #include <cassert>
 #include <cstdio>
+#include <array>
+#include <thread>
 #include "Isoch/IsochService.hpp"
 #include "Hardware/HardwareInterface.hpp"
 #include "Hardware/OHCIConstants.hpp"
@@ -34,6 +36,34 @@ struct Fixture {
 
 int main() {
     const auto control = static_cast<Register32>(DMAContextHelpers::IsoRcvContextControlSet(0));
+    {
+        Fixture f;
+        // Whole-tape close followed by manual start reuses the exact context.
+        // IRQ block copies, watchdog copies and short-lived client checks must
+        // not retire that context while the service retains its published root.
+        for (unsigned session = 0; session < 3; ++session) {
+            assert(f.isoch.StartPacketReceive(2, f.hardware, &f.consumer) == kIOReturnSuccess);
+            const auto retained = f.isoch.CopyReceiveContext();
+            std::array<std::thread, 8> workers;
+            for (auto& worker : workers) {
+                worker = std::thread([&f, retained] {
+                    for (unsigned i = 0; i < 10000; ++i) {
+                        const auto observed = f.isoch.CopyReceiveContext();
+                        std::array<IsochService::ReceiveOwner, 4> queued{observed, observed, observed, observed};
+                        assert(observed == retained && observed->GetState() == IRPolicy::State::Running);
+                    }
+                });
+            }
+            for (auto& worker : workers) worker.join();
+            assert(f.consumer.quiesced == session);
+            assert(retained->GetState() == IRPolicy::State::Running);
+            f.hardware.SetTestRegister(control, 0);
+            assert(f.isoch.StopPacketReceive(&f.consumer) == kIOReturnSuccess);
+            assert(f.consumer.quiesced == session + 1);
+        }
+        assert(f.isoch.ReleaseQuiescedReceiveContexts() == kIOReturnSuccess);
+        std::puts("PASS: three receive sessions, 240000 concurrent IRQ/watchdog/client owner-copy cycles; no unsolicited stop");
+    }
     {
         Fixture f;
         f.Start();

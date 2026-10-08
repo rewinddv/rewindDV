@@ -1,18 +1,19 @@
-rewindDV current public source snapshot
-Application Alpha 0.0.93; app build188; independent Driver build190.
-The published build surface is selected from accepted development using a
+rewindDV current reviewed public source snapshot
+Application Alpha 0.0.94; app build188; independent Driver build192.
+The build surface is exported from accepted cumulative development with a
 reviewed allowlist, active project references and literal local-include closure.
-Selected root ASFWDriver dependencies and focused regression tooling are included.
-Private ancestry, qualification logs, research, personal signing resources,
-private footage and development environment identifiers are excluded.
-Public-only transformations: portable signing and generic icon settings;
-reviewed synthetic fixture provenance; public diagnostic provenance metadata;
-public documentation navigation and retained license/modification notices.
-SOURCE-MANIFEST.json pins exact publishable input paths and hashes to a public
-source revision. PROJECT-STATUS.json independently records development, download
-and bounded qualification. Artifact provenance binds each engineering package
-back to its exact public source commit and tree.
+Functional app/decoder/archive/driver sources and applicable original tests match
+the accepted checkpoint. Private Git ancestry is not imported into public history.
+Public transformations retain portable signing, generic icon settings, synthetic
+fixture provenance, diagnostic build provenance and distributable notices.
+The source geometry audit excludes private research registry/disposition inputs;
+its software geometry/coverage checks remain runnable from public source.
+Private evidence, standards documents, capture media, signing resources and local
+identifiers are excluded. SOURCE-MANIFEST.json binds exact publishable inputs to
+public source. PROJECT-STATUS.json independently records source/download status.
+Artifact provenance binds each package to its actual public source commit/tree.
 
-Current source includes frame-local playback and the app-owned native CLI /
-stdio MCP interface. Latest public download and hardware evidence retain their
-independent lifecycle identities in PROJECT-STATUS.json.
+Epoch-aware mixed NTSC/PAL archival, ordered lossless segmented export, raw
+metadata/unknown-region preservation and IEC inventory are software validated.
+VAUX0x61 remains unresolved. Complete IEC certification is not claimed.
+No new physical acquisition or full signed-application qualification is implied.
