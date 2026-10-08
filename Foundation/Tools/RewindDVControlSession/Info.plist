@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleIdentifier</key><string>net.rewinddigital.RewindDV.CLI</string>
+<key>CFBundleExecutable</key><string>RewindDVControlSession</string>
+<key>CFBundleName</key><string>RewindDV Control Session</string>
+<key>CFBundlePackageType</key><string>APPL</string>
+<key>CFBundleVersion</key><string>159</string>
+<key>CFBundleShortVersionString</key><string>0.1.0</string>
+<key>LSMinimumSystemVersion</key><string>26.0</string>
+<key>LSBackgroundOnly</key><true/>
+</dict></plist>
