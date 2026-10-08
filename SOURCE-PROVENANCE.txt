@@ -6,7 +6,8 @@ Decoder/archive/driver sources and applicable original tests match the accepted
 checkpoint. Three app source files and the CLI source add explicitly approved offline-distribution
 guards and local CLI hardware-command filtering: ordinary builds preserve the accepted hardware behavior; the offline
 bundle cannot discover, activate or open a driver. Reduced app entitlements and
-distribution instructions are new public packaging inputs. Correspondence records
+distribution instructions are new public packaging inputs. The offline app has
+its own bundle identity, sandbox container and CLI socket. Correspondence records
 these additions and guards. Private Git ancestry is not imported into public history.
 Public transformations retain portable signing, generic icon settings, synthetic
 fixture provenance, diagnostic build provenance and distributable notices.

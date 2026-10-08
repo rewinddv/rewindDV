@@ -60,6 +60,9 @@ def main():
     if args.offline_only:
         data = plistlib.loads((app/'Contents/Info.plist').read_bytes())
         data['RewindDVOfflineOnly'] = True
+        data['CFBundleIdentifier'] = gate.OFFLINE_APP_ID
+        data['CFBundleName'] = 'rewindDV Offline'
+        data['CFBundleDisplayName'] = 'rewindDV Offline'
         data['RewindDVCandidateRevision'] = 'Public offline-only ad-hoc engineering alpha; source '+args.source+'; no DriverKit activation or physical acquisition'
         (app/'Contents/Info.plist').write_bytes(plistlib.dumps(data, fmt=plistlib.FMT_BINARY))
     signing_items = [

@@ -180,7 +180,8 @@ class OfflineArtifactTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp); stage = root / "stage"; app = fake_app(stage)
             info = app / "Contents/Info.plist"; data = plistlib.loads(info.read_bytes())
-            data["RewindDVOfflineOnly"] = True; info.write_bytes(plistlib.dumps(data))
+            data["RewindDVOfflineOnly"] = True; data["CFBundleIdentifier"] = r.OFFLINE_APP_ID
+            info.write_bytes(plistlib.dumps(data))
             shutil.rmtree(app / r.DEXT)
             candidate = root / "candidate"; candidate.mkdir()
             name = r.release_identity(VERSIONS, "alpha", "alpha-9.8.7", signing="ad-hoc", offline_only=True)
@@ -192,6 +193,9 @@ class OfflineArtifactTests(unittest.TestCase):
             receipt["driver_included"] = True
             with self.assertRaises(r.GateError):
                 r.verify_artifact(candidate, receipt, r.file_sha(candidate / "provenance.json"))
+            data["CFBundleIdentifier"] = r.APP_ID; info.write_bytes(plistlib.dumps(data))
+            with self.assertRaises(r.GateError):
+                r.bundle_versions(lambda p: (stage / p).read_bytes(), VERSIONS, offline_only=True)
 
     def test_offline_package_rejects_unenforced_runtime(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -204,7 +208,8 @@ class OfflineArtifactTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             stage = Path(tmp) / "stage"; app = fake_app(stage)
             info = app / "Contents/Info.plist"; data = plistlib.loads(info.read_bytes())
-            data["RewindDVOfflineOnly"] = True; info.write_bytes(plistlib.dumps(data))
+            data["RewindDVOfflineOnly"] = True; data["CFBundleIdentifier"] = r.OFFLINE_APP_ID
+            info.write_bytes(plistlib.dumps(data))
             output = Path(tmp) / "out"; output.mkdir()
             with self.assertRaises(r.GateError):
                 r.package(stage, output, "offline.zip", VERSIONS, offline_only=True)

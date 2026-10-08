@@ -6,6 +6,9 @@ Developer ID, and are not notarized. This experimental package includes no
 DriverKit extension. It disables driver discovery, activation, deck control and
 physical acquisition. The source independently retains Driver192; it is not a
 packaged hardware feature here. Offline operations require no SIP change.
+The app is labelled rewindDV Offline with bundle identity
+`net.rewinddigital.RewindDV.Offline`. Its sandbox container and CLI socket are
+separate from the hardware-capable app; both app copies can be retained.
 
 Download the ZIP, matching SHA256 sidecar, manifest.json and provenance.json from
 https://github.com/rewinddv/rewindDV/releases/tag/alpha-0.0.94.
@@ -24,7 +27,9 @@ preserved app if you replaced it yourself. No driver activation/removal is neede
 Playback, raw metadata inspection, evidence maps/review and supported archive
 exports remain available. Start the app and accept its alpha notice. The CLI/MCP
 uses the running app; external paths require a GUI sandbox grant for this session.
-Only one app-owned CLI command server runs at a time. The packaged CLI locally excludes hardware commands before connecting, even if another app owns the socket. Its MCP list contains 57 offline tools.
+Only one offline app-owned CLI command server runs at a time. The packaged CLI
+uses the separate offline socket and locally excludes hardware commands before
+connecting. Its MCP list contains 57 offline tools.
 Read CLIAndMCP.md; its general hardware interfaces are unavailable in this build.
 
 Mixed NTSC/PAL archives use source-bound epochs and ordered lossless segmented

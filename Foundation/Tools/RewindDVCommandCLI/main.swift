@@ -117,8 +117,13 @@ private enum CommandError: LocalizedError {
 
 private func socketPath() -> String {
   // The sandbox rewrites the app's user temporary directory into its container.
+  #if REWINDDV_OFFLINE_DISTRIBUTION
+  let container = "net.rewinddigital.RewindDV.Offline"
+  #else
+  let container = "net.rewinddigital.RewindDV"
+  #endif
   return FileManager.default.homeDirectoryForCurrentUser.path
-    + "/Library/Containers/net.rewinddigital.RewindDV/Data/tmp/rewinddv-\(getuid()).sock"
+    + "/Library/Containers/\(container)/Data/tmp/rewinddv-\(getuid()).sock"
 }
 
 private func call(_ command: Command) throws -> [String: Any] {

@@ -25,6 +25,7 @@ PUBLIC_BASE = "926b33495ca111c6aa56fd1ef6b580748877aaaf"
 HISTORICAL = {"alpha-0.0.63", "alpha-0.0.77", "alpha-0.0.81"}
 PROJECT = "Foundation/RewindDV.xcodeproj"
 APP_ID = "net.rewinddigital.RewindDV"
+OFFLINE_APP_ID = APP_ID + ".Offline"
 DRIVER_ID = APP_ID + ".Driver"
 DEXT = "Contents/Library/SystemExtensions/" + DRIVER_ID + ".dext"
 ROOTS = set(".github .gitignore ACKNOWLEDGMENTS.md ASFWDriver ASFireWire-LICENSE.txt ASFireWire-NOTICE.txt BRANDING-AND-FUNDING.md BUILDING.md COMPATIBILITY.md CONTRIBUTING.md Foundation INSTALL.md INSTALLATION-PLAN.md KNOWN-LIMITATIONS.md LICENSE NOTICE PRIVACY.md README.md RELEASE-NOTES.md RELEASING.md SOURCE-PROVENANCE.txt PROJECT-STATUS.json SOURCE-MANIFEST.json TEST-REPORT.md TESTING.md ThirdPartyNotices.txt UNINSTALL.md assets licenses release tests tools".split())
@@ -234,7 +235,7 @@ def tag_guard(tag, source, refs, mode, release_exists=False):
 
 def bundle_versions(read, v, offline_only=False):
     app = plistlib.loads(read("RewindDV.app/Contents/Info.plist"))
-    expected = {"CFBundleIdentifier": APP_ID, "RewindDVAlphaVersion": v["application_version"],
+    expected = {"CFBundleIdentifier": OFFLINE_APP_ID if offline_only else APP_ID, "RewindDVAlphaVersion": v["application_version"],
                 "CFBundleVersion": v["app_bundle_build"], "CFBundleShortVersionString": v["app_bundle_version"]}
     require(all(str(app.get(k)) == value for k, value in expected.items()), "Built app version identity mismatch")
     if offline_only:
