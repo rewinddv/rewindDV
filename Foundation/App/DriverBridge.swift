@@ -40,6 +40,7 @@ struct ControlAttemptReport: Sendable {
 }
 
 enum DriverBridgeError: Error, LocalizedError, Equatable {
+  case offlineDistribution
   case requiredDriverIdentityUnavailable
   case noExactRequiredBuildService
   case ambiguousRequiredBuildServices(Int)
@@ -56,6 +57,8 @@ enum DriverBridgeError: Error, LocalizedError, Equatable {
 
   var errorDescription: String? {
     switch self {
+    case .offlineDistribution:
+      "This offline-only distribution does not open a driver or operate hardware."
     case .requiredDriverIdentityUnavailable:
       "The app has no valid required-driver identity. No driver connection or activation is permitted."
     case .noExactRequiredBuildService:
@@ -1412,6 +1415,9 @@ actor DriverBridge {
   }
 
   private func openExactRequiredBuildConnection() throws -> OpenDriverConnection {
+    guard Bundle.main.object(forInfoDictionaryKey: "RewindDVOfflineOnly") as? Bool != true else {
+      throw DriverBridgeError.offlineDistribution
+    }
     guard let requiredBuildNumber = Self.requiredBuildNumber else {
       throw DriverBridgeError.requiredDriverIdentityUnavailable
     }

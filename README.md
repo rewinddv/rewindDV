@@ -42,11 +42,14 @@ Choose an engineering prerelease from [Releases](https://github.com/rewinddv/rew
 and verify its attached ZIP against its checksum. Read [installation](INSTALL.md)
 and [removal, rollback and security restoration](UNINSTALL.md) before proceeding.
 
-**The current engineering binaries are ad-hoc signed and not notarized.
-Installation requires disabling System Integrity Protection (SIP), which reduces
-macOS security.** They are intended for experienced users and dedicated test
-systems. Developer ID signing, notarization and normal SIP-on distribution remain
-future work. These releases are not a production-readiness claim.
+**Engineering binaries are ad-hoc signed and not notarized.** The new Alpha
+0.0.94 candidate is explicitly offline-only, includes no DriverKit extension,
+and requires no SIP change. Earlier full hardware packages used a SIP-disabled
+test-system workflow, which reduces macOS security; their app startup with SIP
+enabled was not established. Developer ID signing, notarization and normal
+SIP-on DriverKit distribution remain future work. These releases are not a
+production-readiness claim. The latest-download status above identifies what
+has actually been published.
 
 Application version, source revision and driver build are separate identities.
 [Release notes](RELEASE-NOTES.md) record the available releases and withdrawal
@@ -119,3 +122,7 @@ rights are implied. The generic source-build icon is intentional.
 purchasing IEC standards to research tape metadata and expand what rewindDV can
 decode. Support does not buy guaranteed compatibility, recovery, Apple approval
 or a release date; purchased standards are not redistributed.
+
+## Offline-only distribution
+
+The Alpha0.0.94 downloadable candidate uses reduced app entitlements and includes no DriverKit extension. Driver discovery/activation, deck control and physical acquisition are disabled by an explicit bundle distribution flag. The complete source retains independent Driver192; full hardware packages remain a separate qualification/signing task. Playback, metadata inspection, supported archive/export and CLI/MCP remain available without a SIP change. Read [offline distribution instructions](Foundation/OFFLINE-DISTRIBUTION.md). The corresponding full ad-hoc candidate was rejected on a SIP-enabled host because of restricted DriverKit app entitlements; it was not published.

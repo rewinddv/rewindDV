@@ -295,3 +295,7 @@ The Alpha 0.0.93 preparation includes the CLI executable and usage document in
 the sealed archive. A narrowly hash-bound source-history exception recognizes
 two generic volume examples in the already-reviewed CLI usage blob; changed
 content and all other path/credential markers still fail the source gate.
+
+## Offline-only distribution
+
+The Alpha0.0.94 downloadable candidate uses reduced app entitlements and includes no DriverKit extension. Driver discovery/activation, deck control and physical acquisition are disabled by an explicit bundle distribution flag. The complete source retains independent Driver192; full hardware packages remain a separate qualification/signing task. Playback, metadata inspection, supported archive/export and CLI/MCP remain available without a SIP change. Read [offline distribution instructions](Foundation/OFFLINE-DISTRIBUTION.md). The corresponding full ad-hoc candidate was rejected on a SIP-enabled host because of restricted DriverKit app entitlements; it was not published.

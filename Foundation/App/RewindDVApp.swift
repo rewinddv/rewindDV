@@ -274,6 +274,10 @@ final class RewindDVModel: ObservableObject {
   }
 
   func refreshDriver() {
+    guard Bundle.main.object(forInfoDictionaryKey: "RewindDVOfflineOnly") as? Bool != true else {
+      detail = "Offline-only distribution: driver discovery and hardware acquisition are unavailable."
+      return
+    }
     guard !refreshInFlight, !isBusy, !wholeTapeActive, !externalTransportObservationActive,
       !controlLockedOut, !requiresSupervisedStop else { return }
     refreshAttempts += 1
@@ -568,6 +572,10 @@ final class SystemExtensionInstaller: NSObject, ObservableObject,
   var isInFlight: Bool { state == .submitting || state == .pendingApproval }
 
   func submitActivation() {
+    guard Bundle.main.object(forInfoDictionaryKey: "RewindDVOfflineOnly") as? Bool != true else {
+      state = .failed("This offline-only distribution includes no DriverKit extension or activation capability.")
+      return
+    }
     guard !isInFlight else { return }
     guard Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String == "188",
       DriverBuildRequirement.bundled != nil

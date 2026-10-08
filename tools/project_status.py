@@ -36,6 +36,8 @@ def validate_identities(status, alpha, driver, app_build=None):
     check(type(status['development'].get('application_build')) is int, 'Independent app build required')
     check(isinstance(status['qualification'].get('capture'), str) and isinstance(status['qualification'].get('hot_unload'), str), 'Separate capture and hot-unload states required')
     r = status['public_release']
+    if r.get('offline_only', False):
+        check(r.get('driver_included') is False and r.get('requires_sip_disabled') is False, 'Offline package must exclude driver and SIP requirement')
     check(r['tag'] == 'alpha-' + r['application_version'], 'Release tag disagrees with application version')
     check(re.fullmatch(r'[0-9a-f]{64}', r['package_sha256']), 'Exact released package hash required')
     check(status['links']['source'] == 'https://github.com/' + release.REPOSITORY, 'Wrong canonical project')
@@ -73,15 +75,22 @@ def source_app_build(root):
 
 def status_block(status):
     d, r = status['development'], status['public_release']
-    return (START + '\n'
+    if r.get('offline_only', False):
+        download = (f"**Latest public download:** [Alpha {r['application_version']} offline-only / app build {r['application_build']}]"
+                    f"({status['links']['release']}) — engineering prerelease, ad-hoc signed and not notarized. "
+                    "No DriverKit extension is included; driver activation, deck control and physical acquisition are disabled. "
+                    "Offline operations require no SIP change.\n\n")
+    else:
+        download = (f"**Latest public download:** [Alpha {r['application_version']} / Driver B{r['driver_build']}]"
+                    f"({status['links']['release']}) — engineering prerelease, ad-hoc signed and not notarized. "
+                    "Driver installation requires disabling SIP, which reduces macOS security. Offline playback, Surgery and inspection require no driver activation.\n\n")
+    return (START + "\n"
             f"**Current development:** Alpha {d['application_version']} / Driver B{d['driver_build']}. "
             f"App build {d['application_build']}. [Reviewed public source]({status['links']['source']}/tree/{d['source_revision']}).\n\n"
-            f"**Latest public download:** [Alpha {r['application_version']} / Driver B{r['driver_build']}]"
-            f"({status['links']['release']}) — engineering prerelease, ad-hoc signed and not notarized. "
-            'Driver installation requires disabling SIP, which reduces macOS security. Offline playback, Surgery and inspection require no driver activation.\n\n'
-            'Development source and bounded tests do not approve a new download. '
-            'Application versions and driver builds advance independently. '
-            '[Machine-readable status](PROJECT-STATUS.json).\n' + END)
+            + download + "Development source and downloads have separate identities and qualification. "
+            "Application versions and driver builds advance independently. "
+            "[Machine-readable status](PROJECT-STATUS.json).\n" + END)
+
 
 
 def validate_manifest(root, status):
@@ -116,6 +125,9 @@ def validate_release(status, remote, provenance=None):
     check(any(a['name'] == r['package_name'] + '.sha256' for a in remote['assets']), 'Release checksum absent')
     if r['tag'] not in release.HISTORICAL:
         check(provenance is not None, 'New release requires provenance.json')
+        check(provenance.get('offline_only', False) == r.get('offline_only', False), 'Released distribution mode mismatch')
+        if r.get('offline_only', False):
+            check(provenance.get('driver_included') is False, 'Offline provenance includes driver')
         versions = provenance['versions']
         check(versions['application_version'] == r['application_version'], 'Released application mismatch')
         check(str(versions['driver_build']) == str(r['driver_build']), 'Released driver mismatch')

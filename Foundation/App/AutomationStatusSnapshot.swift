@@ -70,8 +70,8 @@ enum RewindDVAutomationStatus {
 enum RewindDVRuntimeOptions {
   /// Safe UI-development mode: the app renders normally but never opens the
   /// driver user client or begins automatic device discovery.
-  static let hardwareDisabled = ProcessInfo.processInfo.arguments.contains(
-    "--ui-automation-no-driver")
+  static let hardwareDisabled = Bundle.main.object(forInfoDictionaryKey: "RewindDVOfflineOnly") as? Bool == true
+    || ProcessInfo.processInfo.arguments.contains("--ui-automation-no-driver")
 }
 
 private actor RewindDVAutomationStatusWriter {

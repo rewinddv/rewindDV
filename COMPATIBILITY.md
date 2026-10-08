@@ -82,3 +82,7 @@ Other decks, HDV capture, PAL DV, other adapter combinations, natural EOT,
 full-length tapes and broader macOS versions are not established by these
 results. Project scope and deployment settings are not a compatibility matrix.
 See [KNOWN-LIMITATIONS](KNOWN-LIMITATIONS.md).
+
+## Offline-only distribution
+
+The Alpha0.0.94 downloadable candidate uses reduced app entitlements and includes no DriverKit extension. Driver discovery/activation, deck control and physical acquisition are disabled by an explicit bundle distribution flag. The complete source retains independent Driver192; full hardware packages remain a separate qualification/signing task. Playback, metadata inspection, supported archive/export and CLI/MCP remain available without a SIP change. Read [offline distribution instructions](Foundation/OFFLINE-DISTRIBUTION.md). The corresponding full ad-hoc candidate was rejected on a SIP-enabled host because of restricted DriverKit app entitlements; it was not published.

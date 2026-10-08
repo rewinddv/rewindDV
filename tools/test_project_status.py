@@ -44,10 +44,21 @@ class StatusTests(unittest.TestCase):
     def test_current_block_labels_both_lifecycles(self):
         block = status.status_block(BASE)
         self.assertIn(f'Current development:** Alpha {ALPHA} / Driver B{DRIVER}', block)
-        self.assertIn(f"Latest public download:** [Alpha {BASE['public_release']['application_version']} / Driver B{BASE['public_release']['driver_build']}]", block)
+        if BASE['public_release'].get('offline_only', False):
+            self.assertIn('offline-only', block); self.assertIn('No DriverKit extension is included', block)
+        else:
+            self.assertIn(f"Latest public download:** [Alpha {BASE['public_release']['application_version']} / Driver B{BASE['public_release']['driver_build']}]", block)
+
+    def test_offline_distribution_cannot_claim_driver_or_sip_requirement(self):
+        data = copy.deepcopy(BASE)
+        data['public_release'].update(offline_only=True, driver_included=False, requires_sip_disabled=False)
+        status.validate_identities(data, ALPHA, DRIVER)
+        for key in ['driver_included', 'requires_sip_disabled']:
+            bad = copy.deepcopy(data); bad['public_release'][key] = True
+            with self.assertRaises(ValueError): status.validate_identities(bad, ALPHA, DRIVER)
 
     def candidate(self):
-        data = copy.deepcopy(BASE); r = data['public_release']
+        data = copy.deepcopy(BASE); r = data['public_release']; r.pop('offline_only', None); r.pop('driver_included', None)
         r.update(application_version='0.0.90', application_build=188, driver_build=190, tag='alpha-0.0.90', package_name='future.zip')
         remote = {'tag_name':r['tag'], 'draft':False, 'prerelease':True, 'assets':[
             {'name':r['package_name'], 'digest':'sha256:' + r['package_sha256']},

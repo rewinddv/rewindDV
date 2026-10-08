@@ -2,8 +2,12 @@ rewindDV current reviewed public source snapshot
 Application Alpha 0.0.94; app build188; independent Driver build192.
 The build surface is exported from accepted cumulative development with a
 reviewed allowlist, active project references and literal local-include closure.
-Functional app/decoder/archive/driver sources and applicable original tests match
-the accepted checkpoint. Private Git ancestry is not imported into public history.
+Decoder/archive/driver sources and applicable original tests match the accepted
+checkpoint. Three app source files and the CLI source add explicitly approved offline-distribution
+guards and local CLI hardware-command filtering: ordinary builds preserve the accepted hardware behavior; the offline
+bundle cannot discover, activate or open a driver. Reduced app entitlements and
+distribution instructions are new public packaging inputs. Correspondence records
+these additions and guards. Private Git ancestry is not imported into public history.
 Public transformations retain portable signing, generic icon settings, synthetic
 fixture provenance, diagnostic build provenance and distributable notices.
 The source geometry audit excludes private research registry/disposition inputs;

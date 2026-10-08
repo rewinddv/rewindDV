@@ -166,6 +166,50 @@ class ArtifactTests(unittest.TestCase):
             r.package(self.stage, self.candidate, "different.zip", VERSIONS)
 
 
+class OfflineArtifactTests(unittest.TestCase):
+    def test_full_package_rejects_ambiguous_offline_marker(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            stage = Path(tmp) / "stage"; app = fake_app(stage)
+            info = app / "Contents/Info.plist"; data = plistlib.loads(info.read_bytes())
+            for marker in (True, 1, "true", False):
+                data["RewindDVOfflineOnly"] = marker; info.write_bytes(plistlib.dumps(data))
+                with self.assertRaises(r.GateError):
+                    r.bundle_versions(lambda p: (stage / p).read_bytes(), VERSIONS)
+
+    def test_offline_identity_and_roundtrip(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); stage = root / "stage"; app = fake_app(stage)
+            info = app / "Contents/Info.plist"; data = plistlib.loads(info.read_bytes())
+            data["RewindDVOfflineOnly"] = True; info.write_bytes(plistlib.dumps(data))
+            shutil.rmtree(app / r.DEXT)
+            candidate = root / "candidate"; candidate.mkdir()
+            name = r.release_identity(VERSIONS, "alpha", "alpha-9.8.7", signing="ad-hoc", offline_only=True)
+            self.assertEqual(name, "rewindDV-Alpha-9.8.7-AppBuild190-Offline-AdHoc.zip")
+            artifact = r.package(stage, candidate, name, VERSIONS, offline_only=True)
+            receipt = {"versions":VERSIONS, "channel":"alpha", "tag":"alpha-9.8.7", "signing":"ad-hoc", "offline_only":True, "driver_included":False, "artifact":artifact}
+            r.write_json(candidate / "provenance.json", receipt)
+            r.verify_artifact(candidate, receipt, r.file_sha(candidate / "provenance.json"))
+            receipt["driver_included"] = True
+            with self.assertRaises(r.GateError):
+                r.verify_artifact(candidate, receipt, r.file_sha(candidate / "provenance.json"))
+
+    def test_offline_package_rejects_unenforced_runtime(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            stage = Path(tmp) / "stage"; app = fake_app(stage)
+            shutil.rmtree(app / r.DEXT)
+            with self.assertRaises(r.GateError):
+                r.bundle_versions(lambda p: (stage / p).read_bytes(), VERSIONS, offline_only=True)
+
+    def test_offline_package_rejects_embedded_driver(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            stage = Path(tmp) / "stage"; app = fake_app(stage)
+            info = app / "Contents/Info.plist"; data = plistlib.loads(info.read_bytes())
+            data["RewindDVOfflineOnly"] = True; info.write_bytes(plistlib.dumps(data))
+            output = Path(tmp) / "out"; output.mkdir()
+            with self.assertRaises(r.GateError):
+                r.package(stage, output, "offline.zip", VERSIONS, offline_only=True)
+
+
 class SourceTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

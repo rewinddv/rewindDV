@@ -25,7 +25,7 @@ private struct Tool {
   }
 }
 
-private let tools: [Tool] = [
+private let allTools: [Tool] = [
   .init(name: "status", summary: "Read app, driver, capture, playback and Surgery status.", required: [], optional: []),
   .init(name: "app.navigate", summary: "Show workspace, archives, device-inspector or diagnostics.", required: ["page"], optional: []),
   .init(name: "archive.verify", summary: "Verify a raw archive folder and report its acquisition state.", required: ["path"], optional: []),
@@ -94,6 +94,20 @@ private let tools: [Tool] = [
   .init(name: "capture.stop", summary: "Request the active capture's normal stop procedure.", required: [], optional: []),
 ]
 
+private let tools: [Tool] = {
+  #if REWINDDV_OFFLINE_DISTRIBUTION
+  // Filter locally before any socket connection, even when another app owns it.
+  let offlinePrefixes = ["playback.", "archive.", "surgery.", "map.",
+                         "recovery.", "forensic_prefix.", "multi_pass."]
+  return allTools.filter { tool in
+    tool.name == "status" || tool.name == "app.navigate"
+      || offlinePrefixes.contains(where: { tool.name.hasPrefix($0) })
+  }
+  #else
+  return allTools
+  #endif
+}()
+
 private enum CommandError: LocalizedError {
   case message(String)
   var errorDescription: String? {
@@ -108,6 +122,9 @@ private func socketPath() -> String {
 }
 
 private func call(_ command: Command) throws -> [String: Any] {
+  guard tools.contains(where: { $0.name == command.name }) else {
+    throw CommandError.message("Command is unavailable in this distribution")
+  }
   let fd = socket(AF_UNIX, SOCK_STREAM, 0)
   guard fd >= 0 else { throw CommandError.message("Cannot create local socket") }
   defer { Darwin.close(fd) }

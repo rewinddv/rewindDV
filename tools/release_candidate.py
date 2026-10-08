@@ -208,12 +208,16 @@ def versions(root, env):
     return versions_from_settings(root, settings)
 
 
-def release_identity(v, channel, tag, signing="unsigned"):
+def release_identity(v, channel, tag, signing="unsigned", offline_only=False):
     require(channel in {"alpha", "beta", "rc", "stable"}, "Unknown release channel")
     expected = ("v" if channel == "stable" else channel + "-") + v["application_version"]
     require(tag == expected and tag not in HISTORICAL, "Tag/version mismatch or historical tag reuse")
     require(signing in {"unsigned", "ad-hoc"}, "Unknown artifact signing state")
+    require(type(offline_only) is bool, "Explicit offline distribution boolean required")
+    require(not offline_only or signing == "ad-hoc", "Offline distribution requires ad-hoc signing")
     suffix = "AdHoc" if signing == "ad-hoc" else "Unsigned"
+    if offline_only:
+        return f"rewindDV-{channel.title()}-{v['application_version']}-AppBuild{v['app_bundle_build']}-Offline-{suffix}.zip"
     return f"rewindDV-{channel.title()}-{v['application_version']}-Driver{v['driver_build']}-AppBuild{v['app_bundle_build']}-{suffix}.zip"
 
 
@@ -228,19 +232,26 @@ def tag_guard(tag, source, refs, mode, release_exists=False):
                 "Published tag must peel to the exact reviewed source")
 
 
-def bundle_versions(read, v):
+def bundle_versions(read, v, offline_only=False):
     app = plistlib.loads(read("RewindDV.app/Contents/Info.plist"))
+    expected = {"CFBundleIdentifier": APP_ID, "RewindDVAlphaVersion": v["application_version"],
+                "CFBundleVersion": v["app_bundle_build"], "CFBundleShortVersionString": v["app_bundle_version"]}
+    require(all(str(app.get(k)) == value for k, value in expected.items()), "Built app version identity mismatch")
+    if offline_only:
+        require(app.get("RewindDVOfflineOnly") is True, "Offline package must enforce offline runtime")
+        return
+    require("RewindDVOfflineOnly" not in app, "Full package must not carry an offline distribution marker")
     driver = plistlib.loads(read("RewindDV.app/" + DEXT + "/Info.plist"))
-    for info, expected in [(app, {"CFBundleIdentifier": APP_ID, "RewindDVAlphaVersion": v["application_version"],
-                                 "CFBundleVersion": v["app_bundle_build"], "CFBundleShortVersionString": v["app_bundle_version"]}),
-                           (driver, {"CFBundleIdentifier": DRIVER_ID, "CFBundleVersion": v["driver_build"],
-                                     "CFBundleShortVersionString": v["driver_bundle_version"]})]:
-        require(all(str(info.get(k)) == val for k, val in expected.items()), "Built bundle version identity mismatch")
+    expected = {"CFBundleIdentifier": DRIVER_ID, "CFBundleVersion": v["driver_build"],
+                "CFBundleShortVersionString": v["driver_bundle_version"]}
+    require(all(str(driver.get(k)) == value for k, value in expected.items()), "Built driver version identity mismatch")
 
 
-def package(stage, output, name, v):
+def package(stage, output, name, v, offline_only=False):
     require(not (output / name).exists(), "Never overwrite a candidate")
-    bundle_versions(lambda path: (stage / path).read_bytes(), v)
+    bundle_versions(lambda path: (stage / path).read_bytes(), v, offline_only)
+    if offline_only:
+        require(not list(stage.rglob("*.dext")), "Offline package must not contain a DriverKit extension")
     manifest = []
     with zipfile.ZipFile(output / name, "x", compression=zipfile.ZIP_STORED) as z:
         for p in sorted(stage.rglob("*")):
@@ -264,9 +275,13 @@ def package(stage, output, name, v):
 
 
 def verify_artifact(candidate, receipt, expected_receipt_hash):
+    if receipt.get("offline_only", False):
+        require(receipt.get("driver_included") is False, "Offline provenance must exclude driver")
+    else:
+        require(receipt.get("driver_included", True) is True, "Full provenance must include driver")
     require(file_sha(candidate / "provenance.json") == expected_receipt_hash, "Reviewed provenance receipt changed")
     a = receipt["artifact"]
-    name = release_identity(receipt["versions"], receipt["channel"], receipt["tag"], signing=receipt.get("signing", "unsigned"))
+    name = release_identity(receipt["versions"], receipt["channel"], receipt["tag"], signing=receipt.get("signing", "unsigned"), offline_only=receipt.get("offline_only", False))
     require(a["name"] == name, "Artifact naming/version mismatch")
     archive = candidate / name
     require(not any(p.is_symlink() for p in candidate.iterdir()), "Candidate symlink refused")
@@ -285,7 +300,9 @@ def verify_artifact(candidate, receipt, expected_receipt_hash):
             require(stat.S_ISREG(info.external_attr >> 16) and stat.S_IMODE(info.external_attr >> 16) == m["mode"], "Package mode changed")
             data = z.read(info)
             require(len(data) == m["bytes"] and sha(data) == m["sha256"], "Package entry changed")
-        bundle_versions(z.read, receipt["versions"])
+        if receipt.get("offline_only", False):
+            require(not any(part.endswith(".dext") for path in z.namelist() for part in Path(path).parts), "Offline archive contains driver code")
+        bundle_versions(z.read, receipt["versions"], receipt.get("offline_only", False))
 
 
 def environment(work):
