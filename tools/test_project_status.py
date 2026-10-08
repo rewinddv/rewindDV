@@ -17,7 +17,7 @@ class StatusTests(unittest.TestCase):
 
     def test_app_only_update_keeps_driver(self):
         data = copy.deepcopy(BASE); data['development']['application_version'] = '0.0.90'
-        status.validate_identities(data, '0.0.90', 190)
+        status.validate_identities(data, '0.0.90', DRIVER)
 
     def test_driver_only_update_keeps_app(self):
         data = copy.deepcopy(BASE); data['development']['driver_build'] = 191
