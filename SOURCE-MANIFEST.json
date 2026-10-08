@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "source_revision": "6f883d7c271f4405fd20c6d4b22290c263147056",
+  "source_revision": "4b4dc6d6c2878fb289ab8e3632782df66008b613",
   "files": [
     {
       "path": "ACKNOWLEDGMENTS.md",
@@ -4007,8 +4007,8 @@
     {
       "path": "Foundation/App/AutomationStatusSnapshot.swift",
       "mode": "100644",
-      "git_blob": "aad28921a94c35fc8913aa47a73cad034202605d",
-      "sha256": "2103c116f30bcb536201ec439f926a32ec76174cade040757bc4ef0b0245a9e4"
+      "git_blob": "7898e298a5fedb9c9d66d31e0c01863998aa882a",
+      "sha256": "deee8f1167a26b5c124a58478e8c723d29caee32a0caa8ac5730e3dea5d78f6c"
     },
     {
       "path": "Foundation/App/CapabilityWire.swift",
@@ -4073,8 +4073,8 @@
     {
       "path": "Foundation/App/DriverBridge.swift",
       "mode": "100644",
-      "git_blob": "e12433d22ba81202f6750c160c1c86a6a7e1a98c",
-      "sha256": "2a8e57c3a510cf42f8ca2cd07b5c5e1a4e7cd9ce7e0711693f212cba55707a3c"
+      "git_blob": "f8aaf9091c31f5787311e100027202ee0bd16d27",
+      "sha256": "2624c5bb138f8af2d029553045ec833a389cb6914b4dfc543552b0176b25eb3c"
     },
     {
       "path": "Foundation/App/DriverReadiness.swift",
@@ -4229,8 +4229,8 @@
     {
       "path": "Foundation/App/RewindDVApp.swift",
       "mode": "100644",
-      "git_blob": "a1e87f1badabdb1c745f1e16b96483ebced1fb26",
-      "sha256": "526af5563ee35f94d6d3467b125ae8e3304ba7b8d55f98773e11a09ff3cfbe2d"
+      "git_blob": "a5ba7ae187fac2f350dc9435f4449ef4ab63be17",
+      "sha256": "d9aea8c636ce2b6c06f3c497ad8221f2171d8cfdc7a12ec44bb5da63d3afdc7b"
     },
     {
       "path": "Foundation/App/RewindDVSection.swift",
@@ -4321,6 +4321,12 @@
       "mode": "100644",
       "git_blob": "8d7867f336a05e84cb23fe4a81ed9f438d05e490",
       "sha256": "27e5a9b80045614dccd3cd6fd4bc7b832782d4bb9f666caa9eac3dcdb03bcef3"
+    },
+    {
+      "path": "Foundation/Config/OfflineApp.entitlements",
+      "mode": "100644",
+      "git_blob": "483a812d0484d0b5566fc290163eae5ebf2a7781",
+      "sha256": "da63c1b6990ef8cb730e86abc24b5ea9991662a5c1076e666892f80e10fcc073"
     },
     {
       "path": "Foundation/DEVELOPMENT.md",
@@ -4585,6 +4591,12 @@
       "mode": "100644",
       "git_blob": "f6a737b99aafb3df5af79bcaee52dbb8949830fd",
       "sha256": "388f5d596743d1c1c738b08aef6490390ea7d0306581e3c70b137af0f4f777f5"
+    },
+    {
+      "path": "Foundation/OFFLINE-DISTRIBUTION.md",
+      "mode": "100644",
+      "git_blob": "a21033f0e462032986da343297b390acd076e603",
+      "sha256": "ee6d1459d3e9de753cc7a844f95faad32e3ca4f550d149c7aba2b70d5d48cf11"
     },
     {
       "path": "Foundation/Package.swift",
@@ -5717,8 +5729,8 @@
     {
       "path": "Foundation/Tools/RewindDVCommandCLI/main.swift",
       "mode": "100644",
-      "git_blob": "222ef224f4271017efdd477de959d6cb3d5f250a",
-      "sha256": "4b52a128fce78fd084fa49b9f5c13fb7a09735b2bceff8e8d5b93e1045a3939a"
+      "git_blob": "6f21e2808307bc14b64148f3dec100723ff21b22",
+      "sha256": "7bda3c7b6dc2873a33785782074d964744ee279f4847db3bc5b543ef7df21d21"
     },
     {
       "path": "Foundation/Tools/RewindDVControlSession/ControlSession.entitlements",
