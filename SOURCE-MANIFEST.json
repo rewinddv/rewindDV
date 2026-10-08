@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "source_revision": "4b4dc6d6c2878fb289ab8e3632782df66008b613",
+  "source_revision": "9cda6d14c9c551e1d1bc7457f26d2fe550b0f9fc",
   "files": [
     {
       "path": "ACKNOWLEDGMENTS.md",
@@ -4595,8 +4595,8 @@
     {
       "path": "Foundation/OFFLINE-DISTRIBUTION.md",
       "mode": "100644",
-      "git_blob": "a21033f0e462032986da343297b390acd076e603",
-      "sha256": "ee6d1459d3e9de753cc7a844f95faad32e3ca4f550d149c7aba2b70d5d48cf11"
+      "git_blob": "72985635b321faf7bf9cf1f070d9d6ea3686b952",
+      "sha256": "c01c191be0fbfe278e3b4ef0dec39a4c535918902e6b79211d2c3b86e97a41cb"
     },
     {
       "path": "Foundation/Package.swift",
@@ -5729,8 +5729,8 @@
     {
       "path": "Foundation/Tools/RewindDVCommandCLI/main.swift",
       "mode": "100644",
-      "git_blob": "6f21e2808307bc14b64148f3dec100723ff21b22",
-      "sha256": "7bda3c7b6dc2873a33785782074d964744ee279f4847db3bc5b543ef7df21d21"
+      "git_blob": "195156f3a81492ba9c06eae50b310a153b93fc43",
+      "sha256": "b98ceffcc4531c4ba3a9da0a32a938ed32362e5b9165db03051b065592a03998"
     },
     {
       "path": "Foundation/Tools/RewindDVControlSession/ControlSession.entitlements",

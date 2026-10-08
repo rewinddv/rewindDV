@@ -20,7 +20,7 @@ application and driver source, engineering downloads, documentation, issues and
 contributions. Visit [rewinddv.com](https://rewinddv.com) for the project website.
 
 <!-- project-status:start -->
-**Current development:** Alpha 0.0.94 / Driver B192. App build 188. [Reviewed public source](https://github.com/rewinddv/rewindDV/tree/4b4dc6d6c2878fb289ab8e3632782df66008b613).
+**Current development:** Alpha 0.0.94 / Driver B192. App build 188. [Reviewed public source](https://github.com/rewinddv/rewindDV/tree/9cda6d14c9c551e1d1bc7457f26d2fe550b0f9fc).
 
 **Latest public download:** [Alpha 0.0.93 / Driver B190](https://github.com/rewinddv/rewindDV/releases/tag/alpha-0.0.93) — engineering prerelease, ad-hoc signed and not notarized. Driver installation requires disabling SIP, which reduces macOS security. Offline playback, Surgery and inspection require no driver activation.
 
