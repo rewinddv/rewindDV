@@ -1,45 +1,56 @@
-# rewindDV distribution and installation
+# Full signed engineering release installation
 
-Read [PROJECT-STATUS.json](PROJECT-STATUS.json) and the release's own instructions
-to identify the actual published download. Source availability does not imply a
-matching hardware-capable binary has been published.
+Use [PROJECT-STATUS.json](PROJECT-STATUS.json) and the matching release’s four
+assets to identify the published package. Verify the ZIP against its `.sha256`
+file and retain `manifest.json` and `provenance.json`. A source commit alone is
+not evidence that a package has been published.
 
-## Alpha 0.0.94 offline-only candidate
+The full package contains `RewindDV.app`, its matching embedded DriverKit
+extension, and the normal `rewinddv-cli`. It uses Developer ID Application
+signing, hardened runtime and Apple notarization. Keep the embedded profiles
+and sealed bundle contents intact. Apple silicon is required; the app deployment
+floor is macOS 26. Broader OS/deck qualification remains open.
 
-Read [offline distribution instructions](Foundation/OFFLINE-DISTRIBUTION.md).
-This separately labelled package uses reduced app entitlements, includes no
-DriverKit extension, and disables discovery, activation, deck control and
-physical acquisition. App and CLI are ad-hoc signed with hardened runtime and
-are not notarized. Offline operations require no SIP change. The offline CLI
-locally excludes hardware commands, even when a different app owns its socket.
+1. Finish any capture and leave the deck stopped. Preserve your previous app
+   and record its driver identity for rollback before replacing anything.
+2. Extract the verified ZIP. Open the app using normal macOS approval. Do not
+   disable SIP, enable system-extension developer mode or bypass Gatekeeper.
+   If macOS rejects it, stop and retain the message and package identity.
+3. Saved-file playback, metadata, Surgery and offline review need no driver
+   activation. Open source files through the native chooser to grant access for
+   the current sandbox session; originals remain read-only.
+4. For the supported FireWire controller, use Diagnostics → Activate Driver…
+   and approve the normal macOS Driver Extensions prompt. If requested, find it
+   in System Settings → General → Login Items & Extensions. Authenticate
+   locally. Follow a requested restart; do not attempt a live unload workaround.
+5. Verify that Diagnostics reports the required driver build and readiness
+   before any separately supervised deck/capture test. The approved PCI match
+   is `0x590111C1` (vendor `11c1`, device `5901`). This grant is not general
+   controller, deck or tape certification.
 
-Keep the previous app for rollback. Open the extracted app without replacing
-installed hardware software or interrupting a capture. Follow the package's
-checksum, signature, macOS approval and sandbox-grant instructions.
+The new package’s physical acquisition and replacement/rollback workflow remain
+unqualified. Prior bounded M1 SIP-on observations used earlier app/driver bytes.
+A saved capture that plays smoothly does not establish transport continuity or
+source quality. Do not interrupt an active job or replace a loaded extension
+for testing. See [compatibility](COMPATIBILITY.md) and [limitations](KNOWN-LIMITATIONS.md).
 
-## Earlier full hardware packages
+## Rollback and removal
 
-The Alpha 0.0.93 / Driver B190 download bundled an ad-hoc app, DriverKit extension
-and CLI, with no provisioning profiles. Its documented test-system workflow
-used SIP disabled and system-extension developer mode. Disabling SIP reduces
-macOS security. The exact public app's SIP-on startup and physical installation
-were not qualified. Offline operation does not activate a driver, but the full
-ad-hoc app still carries restricted DriverKit entitlements and may fail before
-startup with SIP enabled.
+Preserve the previous verified app and original captures. Finish work first.
+Use the app’s normal deactivation/removal request only when offered, follow
+macOS restart instructions, and verify registered driver identity afterward.
+Live unload/replacement is unqualified. If normal removal or approval stalls,
+stop and request support rather than weakening security or deleting system
+extension directories. Restoring an old app alone does not prove the matching
+old driver is active. No script in this package automatically installs or removes
+an extension.
 
-For that historical package, use its immutable
-[installation instructions](https://github.com/rewinddv/rewindDV/blob/alpha-0.0.93/INSTALL.md)
-and [removal instructions](https://github.com/rewinddv/rewindDV/blob/alpha-0.0.93/UNINSTALL.md).
-The new full Alpha 0.0.94 candidate failed restricted-entitlement startup on a
-SIP-enabled host and was not published. Do not apply historical driver-install
-steps to the offline-only package.
+## Historical releases
 
-## Source builds
+[Alpha 0.0.94 offline instructions](https://github.com/rewinddv/rewindDV/blob/alpha-0.0.94/Foundation/OFFLINE-DISTRIBUTION.md)
+remain authoritative for that ad-hoc, no-driver package. Earlier full ad-hoc
+releases retain their tagged instructions; do not apply their security-changing
+workflow to the current signed package. Historical tags and assets are unchanged.
 
-The complete source retains independent Driver192 and the normal app's hardware
-functionality. See [BUILDING.md](BUILDING.md). Development signing with valid
-Apple profiles is distinct from ad-hoc public distribution. Developer ID signing,
-notarization and normal SIP-on DriverKit distribution remain future work.
-
-Keep original captures and private diagnostic evidence separate. Report sanitized
-issues at https://github.com/rewinddv/rewindDV/issues or info@rewinddv.com.
+Report sanitized issues at https://github.com/rewinddv/rewindDV/issues or
+info@rewinddv.com. Keep private support ZIPs and capture footage out of public issues.

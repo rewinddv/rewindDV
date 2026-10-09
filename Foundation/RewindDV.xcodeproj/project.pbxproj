@@ -5544,7 +5544,7 @@
         "MACOSX_DEPLOYMENT_TARGET" = "26.0";
         "SWIFT_VERSION" = "6.0";
         "CODE_SIGNING_ALLOWED" = "NO";
-        "CURRENT_PROJECT_VERSION" = "188";
+        "CURRENT_PROJECT_VERSION" = "190";
         "OTHER_CFLAGS" = (
           "$(inherited)",
           "-ffile-prefix-map=$(SRCROOT:dir)=/rewindDV/",
@@ -5572,8 +5572,8 @@
         "GCC_C_LANGUAGE_STANDARD" = "gnu17";
         "MACOSX_DEPLOYMENT_TARGET" = "26.0";
         "SWIFT_VERSION" = "6.0";
-        "CODE_SIGNING_ALLOWED" = "NO";
-        "CURRENT_PROJECT_VERSION" = "188";
+        "CODE_SIGNING_ALLOWED" = "YES";
+        "CURRENT_PROJECT_VERSION" = "190";
         "OTHER_CFLAGS" = (
           "$(inherited)",
           "-ffile-prefix-map=$(SRCROOT:dir)=/rewindDV/",
@@ -5664,9 +5664,10 @@
         "PRODUCT_BUNDLE_IDENTIFIER" = "net.rewinddigital.RewindDV.Driver";
         "GENERATE_INFOPLIST_FILE" = "YES";
         "INFOPLIST_FILE" = "Config/DriverInfo.plist";
-        "CODE_SIGN_ENTITLEMENTS" = "Config/Driver.entitlements";
-        "CODE_SIGN_IDENTITY" = "Apple Development";
-        "CODE_SIGN_STYLE" = "Automatic";
+        "CODE_SIGN_ENTITLEMENTS" = "Config/Driver.Release.entitlements";
+        "CODE_SIGN_IDENTITY" = "Developer ID Application";
+        "CODE_SIGN_STYLE" = "Manual";
+        "PROVISIONING_PROFILE_SPECIFIER" = "$(REWINDDV_DRIVER_DISTRIBUTION_PROFILE)";
         "ENABLE_HARDENED_RUNTIME" = "YES";
         "SKIP_INSTALL" = "YES";
         "GCC_PREPROCESSOR_DEFINITIONS" = (
@@ -5757,8 +5758,9 @@
         "INFOPLIST_KEY_LSApplicationCategoryType" = "public.app-category.video";
         "INFOPLIST_KEY_NSHumanReadableCopyright" = "Rewind Digital. Includes ASFireWire under Apache-2.0.";
         "CODE_SIGN_ENTITLEMENTS" = "Config/App.entitlements";
-        "CODE_SIGN_IDENTITY" = "Apple Development";
-        "CODE_SIGN_STYLE" = "Automatic";
+        "CODE_SIGN_IDENTITY" = "Developer ID Application";
+        "CODE_SIGN_STYLE" = "Manual";
+        "PROVISIONING_PROFILE_SPECIFIER" = "$(REWINDDV_APP_DISTRIBUTION_PROFILE)";
         "ENABLE_HARDENED_RUNTIME" = "YES";
         "ENABLE_APP_SANDBOX" = "YES";
         "SWIFT_STRICT_CONCURRENCY" = "complete";

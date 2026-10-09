@@ -18,7 +18,10 @@ private struct TechnicalSpecificationRows: View {
   var metadataOrdinalIsEstimated = false
   var body: some View {
     ScrollView(.vertical) {
-      VStack(alignment: .leading, spacing: 16) {
+      // A live sample can contain hundreds of pack/field rows. Keep offscreen
+      // evidence out of the capture window's layout pass; it remains available
+      // when the operator scrolls to it. Raw preservation never consults this UI.
+      LazyVStack(alignment: .leading, spacing: 16) {
         ForEach(DVMetadataPresentation.summarySections(sections)) { section in
           VStack(alignment: .leading, spacing: 9) {
             Text(section.title).font(.headline)

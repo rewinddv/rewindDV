@@ -1,24 +1,28 @@
-rewindDV current reviewed public source snapshot
-Application Alpha 0.0.94; app build188; independent Driver build192.
-The build surface is exported from accepted cumulative development with a
-reviewed allowlist, active project references and literal local-include closure.
-Decoder/archive/driver sources and applicable original tests match the accepted
-checkpoint. Three app source files and the CLI source add explicitly approved offline-distribution
-guards and local CLI hardware-command filtering: ordinary builds preserve the accepted hardware behavior; the offline
-bundle cannot discover, activate or open a driver. Reduced app entitlements and
-distribution instructions are new public packaging inputs. The offline app has
-its own bundle identity, sandbox container and CLI socket. Correspondence records
-these additions and guards. Private Git ancestry is not imported into public history.
-Public transformations retain portable signing, generic icon settings, synthetic
-fixture provenance, diagnostic build provenance and distributable notices.
-The source geometry audit excludes private research registry/disposition inputs;
-its software geometry/coverage checks remain runnable from public source.
-Private evidence, standards documents, capture media, signing resources and local
-identifiers are excluded. SOURCE-MANIFEST.json binds exact publishable inputs to
-public source. PROJECT-STATUS.json independently records source/download status.
-Artifact provenance binds each package to its actual public source commit/tree.
+rewindDV cumulative reviewed public source
 
-Epoch-aware mixed NTSC/PAL archival, ordered lossless segmented export, raw
-metadata/unknown-region preservation and IEC inventory are software validated.
-VAUX0x61 remains unresolved. Complete IEC certification is not claimed.
-No new physical acquisition or full signed-application qualification is implied.
+The full build surface is exported from cumulative accepted development using
+per-path hash/mode correspondence, active project references and transitive
+local-include closure. Private Git ancestry is never imported. App/driver/alpha
+versions are read from source configuration; PROJECT-STATUS.json and artifact
+provenance record their independent identities.
+
+IEC evidence-preserving metadata, epoch-aware mixed NTSC/PAL archives, byte-exact
+segmented exports, atomic receive ownership, cancellation/drain/storage
+safeguards and the M1 lazy inspector layout correction remain present. No new
+upstream ASFireWire implementation is introduced during this consolidation.
+Normal app/CLI hardware paths remain enabled. Historical offline-distribution
+flags and its reduced entitlements remain explicit compatibility options.
+
+Public transformations remove private branch/commit diagnostics, local team
+settings, private icon selection and an obsolete uncompiled header. Public
+notices and synthetic fixture provenance remain reviewed. The source geometry
+audit excludes private research receipts while retaining executable coverage
+checks. Manual Developer ID tooling takes the builder's own team/certificate
+and profiles explicitly. Required embedded profiles occur only in signed
+artifacts, never as standalone source files.
+
+SOURCE-MANIFEST.json binds functional inputs to the public build-source commit.
+Later status-only commits do not claim a new runtime build. Source parity does
+not prove independently reproducible binaries. Private captures, standards,
+research, credentials, signing keys and detailed local logs remain excluded.
+VAUX0x61 and unqualified hardware workflows remain explicit limitations.

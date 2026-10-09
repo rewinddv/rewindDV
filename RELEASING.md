@@ -1,3 +1,42 @@
+# Full signed release workflow
+
+Build the exact clean reviewed public-source commit using the manual archive
+workflow in [DeveloperIDSigning](Foundation/Docs/DeveloperIDSigning.md). Compile
+and Developer ID-sign the normal CLI separately with hardened runtime and a secure
+timestamp. Stage the newly built full app/embedded matching driver, CLI and notices.
+Submit the complete stage to Apple, retain Accepted results, staple the app and
+repeat native signature, profile, PCI, Gatekeeper and distribution assessments.
+
+Use `tools/release_candidate.py ingest-signed` with an external hash-bound private
+distribution receipt. Its `provenance` schema2 records explicit full/signing flags,
+app/driver/CLI hashes, the two exact embedded profile hashes, architecture and native
+verification checks, accepted notarization submission/log/submitted-ZIP hashes,
+and final ticket/policy results. Its `stage_manifest` binds every relative path,
+mode, size and SHA-256 of the final stapled stage. The tool checks the clean source,
+effective versions and stage, then produces exactly ZIP, checksum, manifest and
+sanitized provenance. It never signs, installs or publishes.
+
+Run release/disclosure/status tests, inspect newly introduced public history and
+all required transitive build inputs, independently extract and verify the ZIP,
+and obtain separate exact-hash source/artifact/disclosure approval. Embedded
+profiles and public signing metadata are required in the two sealed binary
+locations; they are not permission to publish credentials or private logs.
+A pure manifest check does not authenticate a code signature.
+
+Create a previously unused annotated tag at the exact public build-source commit.
+Publish through a draft prerelease, uploading only the four reviewed assets.
+Re-download and verify them before making the draft public. Never move tags or
+replace assets. Update canonical PROJECT-STATUS.json only after assets exist,
+then synchronize website status and source lock. Keep compiled-source commits
+separate from status-only successors and retain the cross-repository identity
+envelope outside its own hashed inputs. No claim of independent binary
+reproducibility or broad hardware qualification follows from this workflow.
+
+## Historical unsigned/offline preparation
+
+The following retained workflow describes earlier unsigned/ad-hoc releases.
+Use the full signed process above for the current primary package.
+
 # Releases and source provenance
 
 The canonical project is [rewinddv/rewindDV](https://github.com/rewinddv/rewindDV).

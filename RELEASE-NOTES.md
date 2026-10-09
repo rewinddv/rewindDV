@@ -8,13 +8,27 @@
 Development source and downloads have separate identities and qualification. Application versions and driver builds advance independently. [Machine-readable status](PROJECT-STATUS.json).
 <!-- project-status:end -->
 
-## Alpha 0.0.94 engineering source
+## Full Developer ID candidate
 
-Alpha 0.0.94 / application build 188 / independent Driver B192 includes the integrated IEC pack classifier, interpretation provenance and epoch-aware mixed NTSC/PAL archive model. Software inventory covers all 256 pack IDs and 274 layout variants, including reserved, unassigned and opaque cases; this is not complete semantic support or IEC certification. Raw pack bytes, conflicting observations and unknown regions remain preserved. VAUX 0x61 fixed-bit interpretation remains unresolved.
+The new engineering candidate integrates the accepted metadata/archive/receive
+lineage and M1 inspector layout correction, builds its matching embedded driver
+from the tagged public source, and retains the normal 66-tool CLI. Manual profile
+selection, notarization, staple and restored-package verification are recorded in
+artifact provenance. The latest-download block above remains the publication
+identity authority; candidate source does not imply an available asset.
+
+The M1 preview correction avoids eagerly laying out offscreen inspector rows.
+Prior paced offline workspace retests passed; a new physical live-preview test
+has not been performed. Prior SIP-on M1 capture used App188/Driver192, and the
+App189 offline retest used different bytes. Neither qualifies this new package.
+
+## Current cumulative engineering source
+
+The cumulative source includes the integrated IEC pack classifier, interpretation provenance and epoch-aware mixed NTSC/PAL archive model. Software inventory covers all 256 pack IDs and 274 layout variants, including reserved, unassigned and opaque cases; this is not complete semantic support or IEC certification. Raw pack bytes, conflicting observations and unknown regions remain preserved. VAUX 0x61 fixed-bit interpretation remains unresolved.
 
 Source-bound epochs carry physical ordinals, byte extents and rational cadence through acquisition maps, metadata reports, review ranges and filmstrip/contact-sheet consumers. Lossless reviewed-range exports split at recording-system boundaries and preserve ordered source bytes. Mixed-system single-file merge and film/container output reject with a segmented-export alternative. HDV uses a separate representation and gains no physical qualification from DV archive tests.
 
-The accepted source passed 527 Swift Testing tests and 14 XCTest cases, receive ownership/lifecycle and storage tests, and an unsigned Release app/driver build. Native mixed playback and all-frame archive/export validation were measured offline. Rendered archive/metadata components were exercised in an isolated host; the full signed application UI, exact signed app-driver negotiation, Driver192 physical acquisition, PAL/HDV capture and full-tape endurance remain unqualified. Publication tests and artifact provenance report the exact public-source reruns separately.
+The source retains receive ownership/lifecycle and storage safeguards, the manual Developer ID archive pipeline, and the M1 preview inspector layout correction. Source tests and native offline archive/playback checks have separate receipts from final artifact verification. Physical PAL/HDV capture, full-tape endurance, broader device compatibility and the new package’s app-driver negotiation remain unqualified. The release provenance identifies the exact public-source build; earlier M1 observations do not qualify a rebuilt driver.
 
 
 ## Historical Alpha 0.0.93 / Driver B190 public download
@@ -220,6 +234,6 @@ configuration and a generic icon. It contains no private Git history, signed
 application, development profile or original recording. An initial public import
 will be a new source snapshot, not the private development branches or tags.
 
-## Offline-only distribution
+## Historical Alpha 0.0.94 offline distribution
 
-The Alpha0.0.94 downloadable candidate uses reduced app entitlements and includes no DriverKit extension. Driver discovery/activation, deck control and physical acquisition are disabled by an explicit bundle distribution flag. The complete source retains independent Driver192; full hardware packages remain a separate qualification/signing task. Playback, metadata inspection, supported archive/export and CLI/MCP remain available without a SIP change. Read [offline distribution instructions](Foundation/OFFLINE-DISTRIBUTION.md). An earlier full ad-hoc candidate was rejected on a SIP-enabled host because of restricted DriverKit app entitlements; it was not published.
+The preserved Alpha0.0.94 download uses reduced app entitlements and includes no DriverKit extension. Driver discovery/activation, deck control and physical acquisition are disabled by an explicit bundle distribution flag. That historical package excludes the driver. Current full distribution instructions are in INSTALL.md. Playback, metadata inspection, supported archive/export and CLI/MCP remain available without a SIP change. Read [offline distribution instructions](Foundation/OFFLINE-DISTRIBUTION.md). An earlier full ad-hoc candidate was rejected on a SIP-enabled host because of restricted DriverKit app entitlements; it was not published.

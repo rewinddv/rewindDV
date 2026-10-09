@@ -30,7 +30,7 @@ def fake_app(stage):
     driver.mkdir(parents=True)
     (app / "Contents/Info.plist").write_bytes(plistlib.dumps({
         "CFBundleIdentifier": r.APP_ID, "RewindDVAlphaVersion": "9.8.7",
-        "CFBundleVersion": "190", "CFBundleShortVersionString": "0.1.0"}))
+        "CFBundleVersion": "190", "CFBundleShortVersionString": "0.1.0", "RewindDVRequiredDriverBuild": "183"}))
     (driver / "Info.plist").write_bytes(plistlib.dumps({
         "CFBundleIdentifier": r.DRIVER_ID, "CFBundleVersion": "183", "CFBundleShortVersionString": "0.1.0"}))
     (app / "Contents/MacOS").mkdir()

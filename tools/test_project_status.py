@@ -57,6 +57,28 @@ class StatusTests(unittest.TestCase):
             bad = copy.deepcopy(data); bad['public_release'][key] = True
             with self.assertRaises(ValueError): status.validate_identities(bad, ALPHA, DRIVER)
 
+    def test_full_signed_status_and_false_claims(self):
+        data = copy.deepcopy(BASE)
+        data['public_release'].update(signing='developer-id', notarized=True, offline_only=False,
+                                      driver_included=True, requires_sip_disabled=False)
+        status.validate_identities(data, ALPHA, DRIVER)
+        block = status.status_block(data)
+        self.assertIn('Developer ID-signed and notarized', block)
+        self.assertNotIn('disabling SIP', block)
+        self.assertNotIn('ad-hoc', block)
+        for field in ('notarized', 'offline_only', 'driver_included', 'requires_sip_disabled'):
+            bad = copy.deepcopy(data); bad['public_release'][field] = not bad['public_release'][field]
+            with self.subTest(field=field), self.assertRaises(ValueError): status.validate_identities(bad, ALPHA, DRIVER)
+
+    def test_signed_provenance_scope_must_match(self):
+        data, remote, receipt = self.candidate()
+        flags = dict(signing='developer-id', notarized=True, offline_only=False, driver_included=True, requires_sip_disabled=False)
+        data['public_release'].update(flags); receipt.update(flags, schema=2)
+        status.validate_release(data, remote, receipt)
+        for field in flags:
+            bad = copy.deepcopy(receipt); bad[field] = 'wrong' if field == 'signing' else not bad[field]
+            with self.subTest(field=field), self.assertRaises(ValueError): status.validate_release(data, remote, bad)
+
     def candidate(self):
         data = copy.deepcopy(BASE); r = data['public_release']; r.pop('offline_only', None); r.pop('driver_included', None)
         r.update(application_version='0.0.90', application_build=188, driver_build=190, tag='alpha-0.0.90', package_name='future.zip')

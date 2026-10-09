@@ -1,10 +1,12 @@
 # Known limitations
 
-Alpha 0.0.94 / application build 188 / independent Driver B192 includes the integrated IEC pack classifier, interpretation provenance and epoch-aware mixed NTSC/PAL archive model. Software inventory covers all 256 pack IDs and 274 layout variants, including reserved, unassigned and opaque cases; this is not complete semantic support or IEC certification. Raw pack bytes, conflicting observations and unknown regions remain preserved. VAUX 0x61 fixed-bit interpretation remains unresolved.
+The cumulative source includes the integrated IEC pack classifier, interpretation provenance and epoch-aware mixed NTSC/PAL archive model. Software inventory covers all 256 pack IDs and 274 layout variants, including reserved, unassigned and opaque cases; this is not complete semantic support or IEC certification. Raw pack bytes, conflicting observations and unknown regions remain preserved. VAUX 0x61 fixed-bit interpretation remains unresolved.
 
 Source-bound epochs carry physical ordinals, byte extents and rational cadence through acquisition maps, metadata reports, review ranges and filmstrip/contact-sheet consumers. Lossless reviewed-range exports split at recording-system boundaries and preserve ordered source bytes. Mixed-system single-file merge and film/container output reject with a segmented-export alternative. HDV uses a separate representation and gains no physical qualification from DV archive tests.
 
-The accepted source passed 527 Swift Testing tests and 14 XCTest cases, receive ownership/lifecycle and storage tests, and an unsigned Release app/driver build. Native mixed playback and all-frame archive/export validation were measured offline. Rendered archive/metadata components were exercised in an isolated host; the full signed application UI, exact signed app-driver negotiation, Driver192 physical acquisition, PAL/HDV capture and full-tape endurance remain unqualified. Publication tests and artifact provenance report the exact public-source reruns separately.
+The source retains receive ownership/lifecycle and storage safeguards, the manual Developer ID archive pipeline, and the M1 preview inspector layout correction. Source tests and native offline archive/playback checks have separate receipts from final artifact verification. Physical PAL/HDV capture, full-tape endurance, broader device compatibility and the new package’s app-driver negotiation remain unqualified. The release provenance identifies the exact public-source build; earlier M1 observations do not qualify a rebuilt driver.
+
+The previously installed M1 App189 Open DV chooser was not visible over Screen Sharing. Direct local comparison was unavailable; its cause remains unresolved. The combined app’s local chooser check passed, but M1 saved-file interaction and physical live-preview retesting remain open.
 
 CLI/MCP external path grants are session-scoped. Physical recovery and driver activation remain interactive.
 
@@ -74,7 +76,7 @@ content. Preview, source metadata, raw transport evidence and human playback
 observations remain distinct. Unknown metadata is not silently repaired or
 selected by majority. Performance superiority has not been established.
 
-An ad-hoc engineering alpha is available from this repository’s [releases](https://github.com/rewinddv/rewindDV/releases). It is
-not notarized. Activating its ad-hoc DriverKit extension may require disabling SIP, which reduces macOS security; ordinary offline operations require no driver activation. The
-repackaged artifact has not been installed or newly physically qualified.
-See [INSTALLATION-PLAN](INSTALLATION-PLAN.md) for artifact-specific instructions.
+Consult the canonical status and each immutable release’s provenance for its
+actual signing and artifact identity. The current full pipeline is Developer
+ID-signed and notarized, with normal macOS approval and no SIP change. Signing
+and notarization establish distribution checks, not full hardware qualification.

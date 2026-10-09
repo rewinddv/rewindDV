@@ -577,7 +577,7 @@ final class SystemExtensionInstaller: NSObject, ObservableObject,
       return
     }
     guard !isInFlight else { return }
-    guard Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String == "188",
+    guard Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String == "190",
       DriverBuildRequirement.bundled != nil
     else {
       state = .failed("The host app build or required-driver identity is not valid for this candidate.")
@@ -815,7 +815,7 @@ struct RewindDVApp: App {
           } else { AlphaDiagnosticsModel.shared.latestCaptureFolder = live.flightURL }
           AlphaDiagnosticsModel.shared.latestAccessRoot = live.ingestDestinationURL
           var snapshot = RewindDVAutomationSnapshot(
-            schemaVersion: 1, generatedAt: Date(), build: "188",
+            schemaVersion: 1, generatedAt: Date(), build: "190",
             page: (model.page ?? .capture).accessibilityID,
             monitorSource: model.monitorSource.rawValue,
             driverState: model.status.driver.rawValue,

@@ -27,13 +27,13 @@ contributions. Visit [rewinddv.com](https://rewinddv.com) for the project websit
 Development source and downloads have separate identities and qualification. Application versions and driver builds advance independently. [Machine-readable status](PROJECT-STATUS.json).
 <!-- project-status:end -->
 
-## Alpha 0.0.94 engineering source
+## Current cumulative engineering source
 
-Alpha 0.0.94 / application build 188 / independent Driver B192 includes the integrated IEC pack classifier, interpretation provenance and epoch-aware mixed NTSC/PAL archive model. Software inventory covers all 256 pack IDs and 274 layout variants, including reserved, unassigned and opaque cases; this is not complete semantic support or IEC certification. Raw pack bytes, conflicting observations and unknown regions remain preserved. VAUX 0x61 fixed-bit interpretation remains unresolved.
+The cumulative source includes the integrated IEC pack classifier, interpretation provenance and epoch-aware mixed NTSC/PAL archive model. Software inventory covers all 256 pack IDs and 274 layout variants, including reserved, unassigned and opaque cases; this is not complete semantic support or IEC certification. Raw pack bytes, conflicting observations and unknown regions remain preserved. VAUX 0x61 fixed-bit interpretation remains unresolved.
 
 Source-bound epochs carry physical ordinals, byte extents and rational cadence through acquisition maps, metadata reports, review ranges and filmstrip/contact-sheet consumers. Lossless reviewed-range exports split at recording-system boundaries and preserve ordered source bytes. Mixed-system single-file merge and film/container output reject with a segmented-export alternative. HDV uses a separate representation and gains no physical qualification from DV archive tests.
 
-The accepted source passed 527 Swift Testing tests and 14 XCTest cases, receive ownership/lifecycle and storage tests, and an unsigned Release app/driver build. Native mixed playback and all-frame archive/export validation were measured offline. Rendered archive/metadata components were exercised in an isolated host; the full signed application UI, exact signed app-driver negotiation, Driver192 physical acquisition, PAL/HDV capture and full-tape endurance remain unqualified. Publication tests and artifact provenance report the exact public-source reruns separately.
+The source retains receive ownership/lifecycle and storage safeguards, the manual Developer ID archive pipeline, and the M1 preview inspector layout correction. Source tests and native offline archive/playback checks have separate receipts from final artifact verification. Physical PAL/HDV capture, full-tape endurance, broader device compatibility and the new package’s app-driver negotiation remain unqualified. The release provenance identifies the exact public-source build; earlier M1 observations do not qualify a rebuilt driver.
 
 
 ## Download and install
@@ -42,14 +42,11 @@ Choose an engineering prerelease from [Releases](https://github.com/rewinddv/rew
 and verify its attached ZIP against its checksum. Read [installation](INSTALL.md)
 and [removal, rollback and security restoration](UNINSTALL.md) before proceeding.
 
-**Engineering binaries are ad-hoc signed and not notarized.** The new Alpha
-0.0.94 candidate is explicitly offline-only, includes no DriverKit extension,
-and requires no SIP change. Earlier full hardware packages used a SIP-disabled
-test-system workflow, which reduces macOS security; their app startup with SIP
-enabled was not established. Developer ID signing, notarization and normal
-SIP-on DriverKit distribution remain future work. These releases are not a
-production-readiness claim. The latest-download status above identifies what
-has actually been published.
+The current full-release pipeline produces a Developer ID-signed and notarized
+app with its matching DriverKit extension and normal CLI. Verify the exact
+published package in the status above. Normal macOS approval does not require
+changing SIP. The preserved Alpha 0.0.94 offline package remains separately
+labelled. Engineering releases are not a production-readiness claim.
 
 Application version, source revision and driver build are separate identities.
 [Release notes](RELEASE-NOTES.md) record the available releases and withdrawal
@@ -67,7 +64,7 @@ See [release provenance and future releases](RELEASING.md).
   rewrite captured media.
 - Frame-local file opening and latest-request scrubbing avoid automatic full-file
   indexing. Exact coordinates remain an explicit scan, and preview estimates
-  stay labeled. Mixed-format inspector association remains an open issue.
+  stay labeled. Sampled playback-clock values retain explicit display-association limits.
 - [Native CLI and 66 local MCP tools](Foundation/CLIAndMCP.md) control playback,
   Surgery and offline review through the running app's operation guards.
   External sandbox paths require a GUI grant for the current session.
@@ -88,8 +85,7 @@ supported PCI 11c1:5901 controller and tested adapter chain.
 
 Broader OS, deck, adapter and storage compatibility, physical PAL/HDV capture,
 HDV playback and full-length endurance remain unqualified. Offline source and
-exporter tests do not extend hardware qualification. The packaged ad-hoc releases
-have not been installed or newly physically qualified. See
+exporter tests do not extend hardware qualification. The new package has not been physically qualified. See
 [compatibility](COMPATIBILITY.md) and [known limitations](KNOWN-LIMITATIONS.md).
 No RECORD or tape-erasure control is provided.
 
@@ -123,6 +119,6 @@ purchasing IEC standards to research tape metadata and expand what rewindDV can
 decode. Support does not buy guaranteed compatibility, recovery, Apple approval
 or a release date; purchased standards are not redistributed.
 
-## Offline-only distribution
+## Historical Alpha 0.0.94 offline distribution
 
-The Alpha0.0.94 downloadable candidate uses reduced app entitlements and includes no DriverKit extension. Driver discovery/activation, deck control and physical acquisition are disabled by an explicit bundle distribution flag. The complete source retains independent Driver192; full hardware packages remain a separate qualification/signing task. Playback, metadata inspection, supported archive/export and CLI/MCP remain available without a SIP change. Read [offline distribution instructions](Foundation/OFFLINE-DISTRIBUTION.md). An earlier full ad-hoc candidate was rejected on a SIP-enabled host because of restricted DriverKit app entitlements; it was not published.
+The preserved Alpha0.0.94 download uses reduced app entitlements and includes no DriverKit extension. Driver discovery/activation, deck control and physical acquisition are disabled by an explicit bundle distribution flag. That historical package excludes the driver. Current full distribution instructions are in INSTALL.md. Playback, metadata inspection, supported archive/export and CLI/MCP remain available without a SIP change. Read [offline distribution instructions](Foundation/OFFLINE-DISTRIBUTION.md). An earlier full ad-hoc candidate was rejected on a SIP-enabled host because of restricted DriverKit app entitlements; it was not published.

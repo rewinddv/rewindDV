@@ -8,14 +8,37 @@
 Development source and downloads have separate identities and qualification. Application versions and driver builds advance independently. [Machine-readable status](PROJECT-STATUS.json).
 <!-- project-status:end -->
 
-## Alpha 0.0.94 engineering source
+## Current cumulative engineering source
 
-Alpha 0.0.94 / application build 188 / independent Driver B192 includes the integrated IEC pack classifier, interpretation provenance and epoch-aware mixed NTSC/PAL archive model. Software inventory covers all 256 pack IDs and 274 layout variants, including reserved, unassigned and opaque cases; this is not complete semantic support or IEC certification. Raw pack bytes, conflicting observations and unknown regions remain preserved. VAUX 0x61 fixed-bit interpretation remains unresolved.
+The cumulative source includes the integrated IEC pack classifier, interpretation provenance and epoch-aware mixed NTSC/PAL archive model. Software inventory covers all 256 pack IDs and 274 layout variants, including reserved, unassigned and opaque cases; this is not complete semantic support or IEC certification. Raw pack bytes, conflicting observations and unknown regions remain preserved. VAUX 0x61 fixed-bit interpretation remains unresolved.
 
 Source-bound epochs carry physical ordinals, byte extents and rational cadence through acquisition maps, metadata reports, review ranges and filmstrip/contact-sheet consumers. Lossless reviewed-range exports split at recording-system boundaries and preserve ordered source bytes. Mixed-system single-file merge and film/container output reject with a segmented-export alternative. HDV uses a separate representation and gains no physical qualification from DV archive tests.
 
-The accepted source passed 527 Swift Testing tests and 14 XCTest cases, receive ownership/lifecycle and storage tests, and an unsigned Release app/driver build. Native mixed playback and all-frame archive/export validation were measured offline. Rendered archive/metadata components were exercised in an isolated host; the full signed application UI, exact signed app-driver negotiation, Driver192 physical acquisition, PAL/HDV capture and full-tape endurance remain unqualified. Publication tests and artifact provenance report the exact public-source reruns separately.
+The source retains receive ownership/lifecycle and storage safeguards, the manual Developer ID archive pipeline, and the M1 preview inspector layout correction. Source tests and native offline archive/playback checks have separate receipts from final artifact verification. Physical PAL/HDV capture, full-tape endurance, broader device compatibility and the new package’s app-driver negotiation remain unqualified. The release provenance identifies the exact public-source build; earlier M1 observations do not qualify a rebuilt driver.
 
+
+## Bounded M1 SIP-on observation
+
+An M1 MacBook Air running macOS 26.6.2 exercised Developer ID-signed App188
+with Driver192 and a Sony HVR-M15U. SIP and authenticated-root protection were
+enabled; system-extension developer-mode state remained unknown. The operator
+approved normal extension activation and reseated the cable before deck discovery.
+
+The retained capture contains 452 complete NTSC frames (15.0817 seconds), despite
+the operator describing the interaction as a four-second capture. Saved-byte and
+final acknowledgement checks passed. Host ring drops, oversized/rejected packets
+and raw transport-gap events were zero; two DBC discontinuities after empty
+packets and one terminal partial frame remained recorded. Exact lost frames and
+source quality remain unknown. The operator reported a stuttery preview but
+smooth saved-file playback.
+
+A later App189 inspector layout correction and paced saved-frame replay passed
+offline on that M1. No physical live-preview retest followed. Its Open DV chooser
+was not visible over Screen Sharing; a direct local comparison was unavailable.
+The current combined app’s chooser and saved playback worked on the development
+Mac, which does not resolve that M1-only observation. Preserve this limitation
+when testing the new release. The final new package has different app/driver
+bytes and does not inherit those earlier installation or acquisition results.
 
 ## Historical Alpha 0.0.89 / Driver B190 development evidence
 
@@ -83,6 +106,6 @@ full-length tapes and broader macOS versions are not established by these
 results. Project scope and deployment settings are not a compatibility matrix.
 See [KNOWN-LIMITATIONS](KNOWN-LIMITATIONS.md).
 
-## Offline-only distribution
+## Historical Alpha 0.0.94 offline distribution
 
-The Alpha0.0.94 downloadable candidate uses reduced app entitlements and includes no DriverKit extension. Driver discovery/activation, deck control and physical acquisition are disabled by an explicit bundle distribution flag. The complete source retains independent Driver192; full hardware packages remain a separate qualification/signing task. Playback, metadata inspection, supported archive/export and CLI/MCP remain available without a SIP change. Read [offline distribution instructions](Foundation/OFFLINE-DISTRIBUTION.md). An earlier full ad-hoc candidate was rejected on a SIP-enabled host because of restricted DriverKit app entitlements; it was not published.
+The preserved Alpha0.0.94 download uses reduced app entitlements and includes no DriverKit extension. Driver discovery/activation, deck control and physical acquisition are disabled by an explicit bundle distribution flag. That historical package excludes the driver. Current full distribution instructions are in INSTALL.md. Playback, metadata inspection, supported archive/export and CLI/MCP remain available without a SIP change. Read [offline distribution instructions](Foundation/OFFLINE-DISTRIBUTION.md). An earlier full ad-hoc candidate was rejected on a SIP-enabled host because of restricted DriverKit app entitlements; it was not published.

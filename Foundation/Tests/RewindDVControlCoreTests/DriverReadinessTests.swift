@@ -246,7 +246,14 @@ private func handshakeRoute(_ changedOffset: Int? = nil) throws -> FoundationRou
   #expect(project.components(separatedBy: "\"MACOSX_DEPLOYMENT_TARGET\" = \"26.0\"").count == 3)
   #expect(project.components(separatedBy: "\"DRIVERKIT_DEPLOYMENT_TARGET\" = \"25.0\"").count == 3)
   #expect(project.components(separatedBy: "\"ARCHS\" = \"arm64e\"").count == 3)
-  #expect(project.components(separatedBy: "\"CURRENT_PROJECT_VERSION\" = \"188\"").count == 3)
+  let appBuilds = project.components(separatedBy: "\n")
+    .filter { $0.contains("\"CURRENT_PROJECT_VERSION\" =") }
+    .map { $0.components(separatedBy: "\"")[3] }
+  #expect(appBuilds.count == 2 && Set(appBuilds).count == 1)
+  let appBuild = try #require(appBuilds.first)
+  #expect(Int(appBuild) != nil)
+  #expect(model.contains("CFBundleVersion\") as? String == \"\(appBuild)\""))
+  #expect(model.contains("generatedAt: Date(), build: \"\(appBuild)\""))
   // Both configurations sanitize compile-time file macros, not just debug symbols.
   #expect(project.components(separatedBy: "-ffile-prefix-map=$(SRCROOT:dir)=/rewindDV/").count == 3)
   #expect(project.components(separatedBy: "\"-file-prefix-map\", \"$(SRCROOT:dir)=/rewindDV/\"").count == 3)

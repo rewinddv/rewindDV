@@ -95,7 +95,7 @@ tool listing or offline pass does not qualify physical capture or recovery.
 The full package suite includes IEC decoder/sequence/property witnesses, legacy
 metadata schemas, epoch validation, mixed NTSC/PAL reviewed-range segment export,
 empty-plan/empty-snapshot rejection, and unknown/damaged-region preservation.
-Run the receive lifecycle script above for Driver192 atomic owner and Blocks
+Run the receive lifecycle script above for the current atomic owner and Blocks
 retirement checks. All fixtures are original synthetic or minimal byte witnesses;
 no private capture or standards document is needed.
 
@@ -110,3 +110,21 @@ registry seals/disposition evidence are intentionally excluded. The executable
 IEC inventory audits all256 allocations and274 layouts, not normative correctness.
 Source-bound archive/export tests do not establish physical capture qualification
 or complete signed-application UI qualification. VAUX0x61 remains unresolved.
+
+## Full distribution regressions
+
+Run the following in addition to the package/native suites above:
+
+```sh
+python3 -B Foundation/Tools/test-developer-id-verification.py
+python3 -B Foundation/Tools/test-command-cli.py
+python3 -B tools/test_release_candidate.py
+python3 -B tools/test_signed_release.py
+python3 -B tools/test_project_status.py
+python3 -B tools/test-publication-content.py
+```
+
+The signed-package tests are synthetic gate tests, not certificate attestation.
+Inspect actual signatures/profiles and independently restored bundle bytes before
+release. The workspace preview harness uses saved NTSC frames and requires
+`--ui-automation-no-driver`; it never establishes physical live-preview results.

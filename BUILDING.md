@@ -36,3 +36,28 @@ packaging scripts are retained only where static tests require them; they are
 not instructions for signing, installing or activating this source snapshot.
 An unsigned build cannot establish driver activation, distribution eligibility
 or hardware qualification. See [INSTALLATION-PLAN](INSTALLATION-PLAN.md).
+
+## Developer ID and Debug signing
+
+The full release uses the [manual Developer ID archive workflow](Foundation/Docs/DeveloperIDSigning.md).
+Supply your own eligible Apple team, certificate and explicit host/DEXT profiles;
+no credentials or standalone profiles belong in source Git. Do not use automatic
+export thinning for this arm64e DEXT. Build from a clean committed public checkout
+and retain exact toolchain and source provenance. Do not splice an installed driver
+into a new archive.
+
+For an Apple Development Debug build, retain Automatic target signing and pass
+`CODE_SIGNING_ALLOWED=YES DEVELOPMENT_TEAM=YOUR_TEAM_ID` with isolated outputs.
+The default Debug compile check leaves signing disabled. Verify actual host and
+embedded driver signatures after a signed build.
+
+Compile the normal CLI without `REWINDDV_OFFLINE_DISTRIBUTION`:
+
+```sh
+xcrun swiftc -parse-as-library -O -target arm64-apple-macos26.0 \
+  Foundation/Tools/RewindDVCommandCLI/main.swift -o "$build_root/rewinddv-cli"
+```
+
+The normal CLI exposes 66 tools and routes to the normal app. Historical offline
+compatibility exposes 57 tools through a separate identity/socket. Neither a CLI
+inventory nor signing verification qualifies physical operations.

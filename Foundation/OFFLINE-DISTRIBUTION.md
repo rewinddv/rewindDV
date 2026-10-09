@@ -1,3 +1,7 @@
+# Historical Alpha 0.0.94 offline distribution
+
+This compatibility configuration documents the preserved offline release. The current normal app includes the matching DriverKit extension; do not apply offline flags to a full release.
+
 # rewindDV Alpha 0.0.94 — offline-only engineering prerelease
 
 App build188. Apple silicon arm64; macOS26 or later. Built with Xcode27.

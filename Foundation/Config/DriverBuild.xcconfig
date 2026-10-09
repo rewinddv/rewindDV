@@ -1,4 +1,4 @@
 // Independent driver identity. The app retains its project-level build number.
 // Both DEXT Info.plist and compiled diagnostics derive from this one value.
-REWINDDV_DRIVER_BUILD = 192
+REWINDDV_DRIVER_BUILD = 193
 CURRENT_PROJECT_VERSION = $(REWINDDV_DRIVER_BUILD)

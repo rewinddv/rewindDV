@@ -36,6 +36,10 @@ def validate_identities(status, alpha, driver, app_build=None):
     check(type(status['development'].get('application_build')) is int, 'Independent app build required')
     check(isinstance(status['qualification'].get('capture'), str) and isinstance(status['qualification'].get('hot_unload'), str), 'Separate capture and hot-unload states required')
     r = status['public_release']
+    if r.get('signing') == 'developer-id':
+        check(r.get('notarized') is True and r.get('offline_only') is False
+              and r.get('driver_included') is True and r.get('requires_sip_disabled') is False,
+              'Invalid full Developer ID distribution flags')
     if r.get('offline_only', False):
         check(r.get('driver_included') is False and r.get('requires_sip_disabled') is False, 'Offline package must exclude driver and SIP requirement')
     check(r['tag'] == 'alpha-' + r['application_version'], 'Release tag disagrees with application version')
@@ -75,7 +79,12 @@ def source_app_build(root):
 
 def status_block(status):
     d, r = status['development'], status['public_release']
-    if r.get('offline_only', False):
+    if r.get('signing') == 'developer-id':
+        download = (f"**Latest public download:** [Alpha {r['application_version']} / Driver B{r['driver_build']}]"
+                    f"({status['links']['release']}) — engineering prerelease, Developer ID-signed and notarized. "
+                    f"App build {r['application_build']} includes the matching driver. Use normal macOS approval; no SIP change is required. "
+                    "Offline playback, Surgery and inspection require no driver activation. Hardware qualification remains bounded.\n\n")
+    elif r.get('offline_only', False):
         download = (f"**Latest public download:** [Alpha {r['application_version']} offline-only / app build {r['application_build']}]"
                     f"({status['links']['release']}) — engineering prerelease, ad-hoc signed and not notarized. "
                     "No DriverKit extension is included; driver activation, deck control and physical acquisition are disabled. "
@@ -128,6 +137,10 @@ def validate_release(status, remote, provenance=None):
         check(provenance.get('offline_only', False) == r.get('offline_only', False), 'Released distribution mode mismatch')
         if r.get('offline_only', False):
             check(provenance.get('driver_included') is False, 'Offline provenance includes driver')
+        if provenance.get('schema') == 2 or r.get('signing') == 'developer-id':
+            check(provenance.get('schema') == 2, 'Signed release requires current provenance')
+            for field in ('signing', 'notarized', 'offline_only', 'driver_included', 'requires_sip_disabled'):
+                check(field in r and field in provenance and r[field] == provenance[field], 'Released distribution mismatch: ' + field)
         versions = provenance['versions']
         check(versions['application_version'] == r['application_version'], 'Released application mismatch')
         check(str(versions['driver_build']) == str(r['driver_build']), 'Released driver mismatch')

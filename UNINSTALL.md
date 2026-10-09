@@ -1,3 +1,16 @@
+# Current signed package removal and rollback
+
+Follow the [current full-release installation and rollback procedure](INSTALL.md#rollback-and-removal).
+Do not disable SIP or use global extension disable as capture STOP. Live unload
+and reboot-free replacement remain unqualified. Preserve the previous app and
+verify the actual registered driver after any macOS-requested restart.
+
+## Historical ad-hoc procedure
+
+The following applies only to historical ad-hoc packages and is not the current
+signed package’s maintenance procedure. Prefer each release’s immutable tagged
+instructions.
+
 # Remove rewindDV and restore security
 
 1. Finish capture and verification, stop tape motion and quit rewindDV. Preserve original captures and reports. Live extension disable/unload and hot replacement are unqualified: do not toggle an active driver off or unplug it as a shutdown shortcut. Shut down macOS normally, disconnect FireWire while the Mac is powered off, then start with FireWire disconnected. This establishes a fresh maintenance boot without an attached rewindDV runtime.

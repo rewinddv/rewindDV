@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read-only GitHub gates and unsigned release preparation. Never publishes/signs."""
+"""Read-only GitHub gates and candidate packaging. Never publishes or signs."""
 import argparse
 import hashlib
 import importlib.util
@@ -28,6 +28,11 @@ APP_ID = "net.rewinddigital.RewindDV"
 OFFLINE_APP_ID = APP_ID + ".Offline"
 DRIVER_ID = APP_ID + ".Driver"
 DEXT = "Contents/Library/SystemExtensions/" + DRIVER_ID + ".dext"
+EMBEDDED_PROFILES = {"RewindDV.app/Contents/embedded.provisionprofile",
+                     "RewindDV.app/" + DEXT + "/embedded.provisionprofile"}
+EXECUTABLES = {"app": "RewindDV.app/Contents/MacOS/RewindDV",
+               "driver": "RewindDV.app/" + DEXT + "/" + DRIVER_ID,
+               "cli": "rewinddv-cli"}
 ROOTS = set(".github .gitignore ACKNOWLEDGMENTS.md ASFWDriver ASFireWire-LICENSE.txt ASFireWire-NOTICE.txt BRANDING-AND-FUNDING.md BUILDING.md COMPATIBILITY.md CONTRIBUTING.md Foundation INSTALL.md INSTALLATION-PLAN.md KNOWN-LIMITATIONS.md LICENSE NOTICE PRIVACY.md README.md RELEASE-NOTES.md RELEASING.md SOURCE-PROVENANCE.txt PROJECT-STATUS.json SOURCE-MANIFEST.json TEST-REPORT.md TESTING.md ThirdPartyNotices.txt UNINSTALL.md assets licenses release tests tools".split())
 
 
@@ -213,10 +218,10 @@ def release_identity(v, channel, tag, signing="unsigned", offline_only=False):
     require(channel in {"alpha", "beta", "rc", "stable"}, "Unknown release channel")
     expected = ("v" if channel == "stable" else channel + "-") + v["application_version"]
     require(tag == expected and tag not in HISTORICAL, "Tag/version mismatch or historical tag reuse")
-    require(signing in {"unsigned", "ad-hoc"}, "Unknown artifact signing state")
+    require(signing in {"unsigned", "ad-hoc", "developer-id"}, "Unknown artifact signing state")
     require(type(offline_only) is bool, "Explicit offline distribution boolean required")
     require(not offline_only or signing == "ad-hoc", "Offline distribution requires ad-hoc signing")
-    suffix = "AdHoc" if signing == "ad-hoc" else "Unsigned"
+    suffix = "DeveloperID-Notarized" if signing == "developer-id" else ("AdHoc" if signing == "ad-hoc" else "Unsigned")
     if offline_only:
         return f"rewindDV-{channel.title()}-{v['application_version']}-AppBuild{v['app_bundle_build']}-Offline-{suffix}.zip"
     return f"rewindDV-{channel.title()}-{v['application_version']}-Driver{v['driver_build']}-AppBuild{v['app_bundle_build']}-{suffix}.zip"
@@ -242,24 +247,60 @@ def bundle_versions(read, v, offline_only=False):
         require(app.get("RewindDVOfflineOnly") is True, "Offline package must enforce offline runtime")
         return
     require("RewindDVOfflineOnly" not in app, "Full package must not carry an offline distribution marker")
+    require(str(app.get("RewindDVRequiredDriverBuild")) == v["driver_build"], "App required driver differs from embedded driver")
     driver = plistlib.loads(read("RewindDV.app/" + DEXT + "/Info.plist"))
     expected = {"CFBundleIdentifier": DRIVER_ID, "CFBundleVersion": v["driver_build"],
                 "CFBundleShortVersionString": v["driver_bundle_version"]}
     require(all(str(driver.get(k)) == value for k, value in expected.items()), "Built driver version identity mismatch")
 
 
-def package(stage, output, name, v, offline_only=False):
+def profile_paths(paths, signing, offline_only):
+    found = {p for p in paths if Path(p).suffix.lower() == ".provisionprofile"}
+    require(found == (EMBEDDED_PROFILES if signing == "developer-id" and not offline_only else set()),
+            "Unexpected or missing embedded distribution profile")
+
+
+def validate_distribution(receipt, entries):
+    if receipt.get("signing") != "developer-id":
+        require(receipt.get("schema", 1) == 1, "New signed schema requires Developer ID")
+        return
+    require(receipt.get("schema") == 2, "Developer ID requires signed provenance schema")
+    for field, expected in {"notarized": True, "offline_only": False, "driver_included": True,
+                            "requires_sip_disabled": False, "hardware_qualified": False,
+                            "publication_authorized": False}.items():
+        require(receipt.get(field) is expected, "Invalid distribution flag: " + field)
+    d = receipt["distribution"]
+    require(d["certificate_type"] == "Developer ID Application" and d["verification"] == "PASS", "Unverified Developer ID distribution")
+    require(d["pci_primary_match"] == "0x590111C1", "Unapproved PCI grant")
+    require(re.fullmatch(r"[0-9a-f]{64}", d["verification_report_sha256"]), "Missing verifier evidence digest")
+    require(set(d["executables"]) == set(EXECUTABLES), "Incomplete executable identities")
+    for role, path in EXECUTABLES.items():
+        row = d["executables"][role]
+        require(row["path"] == path and row["sha256"] == entries[path]["sha256"], "Executable digest mismatch")
+        require(row["architecture"] == ("arm64e" if role == "driver" else "arm64"), "Unexpected architecture")
+        require(all(row.get(k) is True for k in ("strict_signature", "secure_timestamp", "hardened_runtime")), "Executable signing verification failed")
+    require(len(d["profiles"]) == 2 and {p["path"] for p in d["profiles"]} == EMBEDDED_PROFILES, "Incomplete embedded profile identities")
+    for row in d["profiles"]:
+        require(row["sha256"] == entries[row["path"]]["sha256"], "Embedded profile digest mismatch")
+    n = d["notarization"]
+    require(n["status"] == "Accepted" and re.fullmatch(r"[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}", n["submission_id"]), "Notarization not accepted")
+    require(all(re.fullmatch(r"[0-9a-f]{64}", n[k]) for k in ("submitted_zip_sha256", "log_sha256")), "Missing notarization evidence digests")
+    require(all(d.get(k) == "PASS" for k in ("staple", "gatekeeper", "distribution_policy")), "Distribution assessment incomplete")
+
+
+def package(stage, output, name, v, offline_only=False, signing="unsigned"):
     require(not (output / name).exists(), "Never overwrite a candidate")
     bundle_versions(lambda path: (stage / path).read_bytes(), v, offline_only)
     if offline_only:
         require(not list(stage.rglob("*.dext")), "Offline package must not contain a DriverKit extension")
+    profile_paths([p.relative_to(stage).as_posix() for p in stage.rglob("*") if p.is_file()], signing, offline_only)
     manifest = []
     with zipfile.ZipFile(output / name, "x", compression=zipfile.ZIP_STORED) as z:
         for p in sorted(stage.rglob("*")):
             require(not p.is_symlink(), "Symlinks need a separately reviewed packaging policy")
             if p.is_dir():
                 continue
-            require(p.is_file() and p.suffix != ".provisionprofile", "Unexpected package entry")
+            require(p.is_file(), "Unexpected package entry")
             rel = p.relative_to(stage).as_posix()
             data = p.read_bytes()
             mode = stat.S_IMODE(p.stat().st_mode)
@@ -291,6 +332,9 @@ def verify_artifact(candidate, receipt, expected_receipt_hash):
     require((candidate / (name + ".sha256")).read_text() == a["sha256"] + "  " + name + "\n", "Checksum sidecar mismatch")
     require(file_sha(candidate / "manifest.json") == a["manifest_sha256"], "Manifest changed")
     manifest = json.loads((candidate / "manifest.json").read_text())
+    profile_paths([m["path"] for m in manifest], receipt.get("signing", "unsigned"), receipt.get("offline_only", False))
+    require(len(manifest) == len({m["path"] for m in manifest}), "Duplicate manifest paths")
+    validate_distribution(receipt, {m["path"]: m for m in manifest})
     with zipfile.ZipFile(archive) as z:
         require(z.testzip() is None and len(z.namelist()) == len(set(z.namelist())), "Invalid or duplicate ZIP entries")
         require(set(z.namelist()) == {m["path"] for m in manifest}, "Archive/manifest paths differ")
@@ -398,18 +442,59 @@ def verify(args, root):
     require(file_sha(candidate / "provenance.json") == args.receipt_sha256, "Reviewed receipt changed")
     receipt = json.loads((candidate / "provenance.json").read_text())
     destination(receipt["repository"], receipt["repository_id"])
-    require(receipt["schema"] == 1 and receipt["public_boundary"] == PUBLIC_BASE, "Unsupported provenance policy")
+    require(receipt["schema"] in {1, 2} and receipt["public_boundary"] == PUBLIC_BASE, "Unsupported provenance policy")
     refs = remote_state()
     tree = source_guard(root, receipt["source_commit"], refs["refs/heads/main"])
     require(tree == receipt["source_tree"], "Source tree mismatch")
     with tempfile.TemporaryDirectory(prefix="rewinddv-release-verify-") as tmp:
         require(versions(root, environment(Path(tmp))) == receipt["versions"], "Source/bundle version mismatch")
-    release_identity(receipt["versions"], receipt["channel"], receipt["tag"])
+    release_identity(receipt["versions"], receipt["channel"], receipt["tag"], receipt.get("signing", "unsigned"), receipt.get("offline_only", False))
     tag_guard(receipt["tag"], receipt["source_commit"], refs, args.tag_state,
               api("repos/" + REPOSITORY + "/releases/tags/" + receipt["tag"], missing=True) is not None)
     require(receipt["prerelease"] == (receipt["channel"] != "stable"), "Release channel/prerelease mismatch")
     verify_artifact(candidate, receipt, args.receipt_sha256)
     print("PASS: source/tag/artifact identity; manual disclosure/distribution review still required. No publication performed.")
+
+
+def ingest_signed(args, root):
+    """Package a hash-bound, already verified stage; never signs or publishes.
+
+    Native verification and independent disclosure approval remain separate
+    gates. The private input receipt binds the complete final stage, including
+    stapled bytes; it is not itself an independent approval.
+    """
+    raw = Path(args.distribution_receipt).read_bytes()
+    require(sha(raw) == args.distribution_receipt_sha256, "Distribution receipt changed")
+    value = json.loads(raw)
+    receipt, expected = value["provenance"], value["stage_manifest"]
+    destination(receipt["repository"], receipt["repository_id"])
+    require(receipt["signing"] == "developer-id" and receipt["public_boundary"] == PUBLIC_BASE, "Wrong signed distribution policy")
+    tree = source_guard(root, receipt["source_commit"])
+    require(tree == receipt["source_tree"], "Distribution source tree changed")
+    require(receipt["prerelease"] == (receipt["channel"] != "stable"), "Release lifecycle mismatch")
+    with tempfile.TemporaryDirectory(prefix="rewinddv-signed-ingest-") as tmp:
+        require(versions(root, environment(Path(tmp))) == receipt["versions"], "Source/version mismatch")
+    stage = Path(args.stage).resolve(); candidate = Path(args.output).resolve()
+    require(stage.is_dir() and not candidate.exists() and root not in candidate.parents and candidate != root
+            and candidate != stage and stage not in candidate.parents,
+            "Use a new candidate output outside source")
+    actual = []
+    for path in sorted(stage.rglob("*")):
+        require(not path.is_symlink(), "Stage symlinks are not permitted")
+        if path.is_dir(): continue
+        require(path.is_file(), "Nonregular stage input")
+        actual.append({"path": path.relative_to(stage).as_posix(), "mode": stat.S_IMODE(path.stat().st_mode),
+                       "bytes": path.stat().st_size, "sha256": file_sha(path)})
+    require(actual == expected, "Stage differs from distribution receipt")
+    validate_distribution(receipt, {m["path"]:m for m in actual})
+    name = release_identity(receipt["versions"], receipt["channel"], receipt["tag"], "developer-id", False)
+    candidate.mkdir()
+    receipt["artifact"] = package(stage, candidate, name, receipt["versions"], signing="developer-id")
+    require(json.loads((candidate / "manifest.json").read_text()) == expected, "Packaged bytes differ from verified stage")
+    write_json(candidate / "provenance.json", receipt)
+    digest = file_sha(candidate / "provenance.json")
+    verify_artifact(candidate, receipt, digest)
+    print(json.dumps({"receipt_sha256": digest, "publication": False, "independent_review_required": True}))
 
 
 def inspect_versions(args, root):
@@ -433,11 +518,16 @@ def main():
     p.add_argument("--candidate", required=True)
     p.add_argument("--receipt-sha256", required=True)
     p.add_argument("--tag-state", choices=["absent", "present"], required=True)
+    p = sub.add_parser("ingest-signed")
+    p.add_argument("--stage", required=True)
+    p.add_argument("--distribution-receipt", required=True)
+    p.add_argument("--distribution-receipt-sha256", required=True)
+    p.add_argument("--output", required=True)
     sub.add_parser("versions")
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
     try:
-        {"prepare": prepare, "verify": verify, "versions": inspect_versions}[args.command](args, root)
+        {"prepare": prepare, "verify": verify, "versions": inspect_versions, "ingest-signed": ingest_signed}[args.command](args, root)
     except (GateError, OSError, ValueError, KeyError, zipfile.BadZipFile) as e:
         print("BLOCKED: " + str(e), file=sys.stderr)
         return 1

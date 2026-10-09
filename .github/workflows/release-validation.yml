@@ -20,6 +20,9 @@ jobs:
         with:
           persist-credentials: false
       - name: Release provenance and artifact regression tests
-        run: python3 -B tools/test_release_candidate.py
+        run: |
+          python3 -B tools/test_release_candidate.py
+          python3 -B tools/test_signed_release.py
+          python3 -B Foundation/Tools/test-developer-id-verification.py
       - name: Existing disclosure-checker regression tests
         run: python3 -B tools/test-publication-content.py
