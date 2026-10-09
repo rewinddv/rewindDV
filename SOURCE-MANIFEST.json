@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "source_revision": "042b2dd94bff3f2946301bf08548907fa9b438dd",
+  "source_revision": "6d230337766a7f982d5d77572851065330191652",
   "files": [
     {
       "path": "ACKNOWLEDGMENTS.md",
@@ -4229,8 +4229,8 @@
     {
       "path": "Foundation/App/RewindDVApp.swift",
       "mode": "100644",
-      "git_blob": "a5ba7ae187fac2f350dc9435f4449ef4ab63be17",
-      "sha256": "d9aea8c636ce2b6c06f3c497ad8221f2171d8cfdc7a12ec44bb5da63d3afdc7b"
+      "git_blob": "43044e0bbb8fe647410554e25fb772a9b3968dd6",
+      "sha256": "7c7cd728269bd46e88d489cdf87721e3b5a4b95d269b2032a64d202801b5a1ac"
     },
     {
       "path": "Foundation/App/RewindDVSection.swift",
@@ -4265,8 +4265,8 @@
     {
       "path": "Foundation/App/UnifiedMonitorWorkspace.swift",
       "mode": "100644",
-      "git_blob": "4cf6f317b0d4bd26eaa935c82f3c50f3047a2171",
-      "sha256": "4c7ea00019a7c1a29b9be1ae8dc8c206540cf35f132b323ec7c386cd9f62d1e2"
+      "git_blob": "ab759c4a2880b2b410ace569e00c184fcb9b4158",
+      "sha256": "f3c9cfdd0ec02ef2c191808223bff146507d5e623f75d5b1e9cb6a1ad857710d"
     },
     {
       "path": "Foundation/App/WholeTapeCaptureModel.swift",
@@ -4289,14 +4289,20 @@
     {
       "path": "Foundation/Config/AlphaVersion.txt",
       "mode": "100644",
-      "git_blob": "4cdce1d77af71e4649793df0f99f6faeea13edea",
-      "sha256": "7dd95f009be86fd2c7998f7214a4933404c0167786e8f7d21d71043eafd4060d"
+      "git_blob": "a2dc0c7ea016ad6a7752344cf61185687281b69b",
+      "sha256": "42a1974661cfe10b6fdf1ced7f50e40d6901879a596160206144893d8b170404"
     },
     {
       "path": "Foundation/Config/App.entitlements",
       "mode": "100644",
       "git_blob": "810e923584c3f76bf9f9c400b95968b1cbe9ed79",
       "sha256": "bcf8418e3222c7baa321a20c1ab9b5ba30887db6b6fa65b449127576f2fba10b"
+    },
+    {
+      "path": "Foundation/Config/Driver.Release.entitlements",
+      "mode": "100644",
+      "git_blob": "faf071c49d0ee626764e40dbe6f919ce9b585d0a",
+      "sha256": "27c72d1116c0b31fa503f855f1ffc070491af7343fc103b17d4c7077dccdd2f3"
     },
     {
       "path": "Foundation/Config/Driver.entitlements",
@@ -4307,8 +4313,8 @@
     {
       "path": "Foundation/Config/DriverBuild.xcconfig",
       "mode": "100644",
-      "git_blob": "9c827c96ef058eb6b93274f89dce43c0b6bc875b",
-      "sha256": "ed8d994b05bb5392ebe8dc657b4718a8327169f1af3ae46432ece7c62c250e44"
+      "git_blob": "673342871aa86bf4f7e7c946ad8e643aa2ce4419",
+      "sha256": "b2b1efe34ae3cae4260cf2048d03d01767dfa7e12de63d1bd4887b90e100dd77"
     },
     {
       "path": "Foundation/Config/DriverInfo.plist",
@@ -4345,6 +4351,12 @@
       "mode": "100644",
       "git_blob": "d5e9e96da3234fe79f2482fee1e5a40214a8beed",
       "sha256": "c298586fd86fce6ef5ecaf9536d9956822efe30a946daaab2ec9b18c93a40515"
+    },
+    {
+      "path": "Foundation/Docs/DeveloperIDSigning.md",
+      "mode": "100644",
+      "git_blob": "14c141d610e4f5c8cec5c41a8bfaea48f4869f45",
+      "sha256": "9f5e78e9073ec1b4f5f184700b258ab51f52c2a22bf74d16e04cd6bd98545541"
     },
     {
       "path": "Foundation/Docs/PostCaptureMemoryHotfix.md",
@@ -4595,8 +4607,8 @@
     {
       "path": "Foundation/OFFLINE-DISTRIBUTION.md",
       "mode": "100644",
-      "git_blob": "72985635b321faf7bf9cf1f070d9d6ea3686b952",
-      "sha256": "c01c191be0fbfe278e3b4ef0dec39a4c535918902e6b79211d2c3b86e97a41cb"
+      "git_blob": "ef2e1cdf9e0b3802a47f3a8ed746ef504b79813f",
+      "sha256": "6d304b2188b64759e784d0c7f48c77786f79c63243e6a6ba6985aa162000f939"
     },
     {
       "path": "Foundation/Package.swift",
@@ -4607,8 +4619,8 @@
     {
       "path": "Foundation/RewindDV.xcodeproj/project.pbxproj",
       "mode": "100644",
-      "git_blob": "4c208bedff4b19372a70eac59197737de32e0cfe",
-      "sha256": "bbfc022eaa7269c32603bed6bd613d05e31100f4e16be659d47dc7492fd16f25"
+      "git_blob": "10e6cefeb8e872fa02e8f86040276ef0c3484c0a",
+      "sha256": "43d4dc9df53e184fec31d6e0a28aa933acdd2609c63d0f157b6c647110cef7d1"
     },
     {
       "path": "Foundation/Sources/RewindDVArchiveCore/ArchiveAdmission.swift",
@@ -5285,8 +5297,8 @@
     {
       "path": "Foundation/Tests/RewindDVControlCoreTests/DriverReadinessTests.swift",
       "mode": "100644",
-      "git_blob": "0bfab18b0275f771482e68eda2bc647a15d4923a",
-      "sha256": "b44c1495ec0dc8a24e5568a692a936e6a2b39ef9d5905dbb17af83b60c1cec30"
+      "git_blob": "26d64eada3f7b98e8f0fb12490027f40d114b582",
+      "sha256": "eaaa6876267bd5b3b306eed6b80a3a7d3a1cabd3c255407ed02253e2c9def953"
     },
     {
       "path": "Foundation/Tests/RewindDVControlCoreTests/DriverRefreshPolicyTests.swift",
@@ -5607,6 +5619,12 @@
       "sha256": "3da73f6ddb9b237df24df5f24540e9682a1799f7a96c04e2d0015e855c0e9d50"
     },
     {
+      "path": "Foundation/Tools/LiveWorkspacePerformanceRegression.swift",
+      "mode": "100644",
+      "git_blob": "c870659a8aaa57e8be67f584217e6dd83da6b239",
+      "sha256": "3293f77b4f4b16c1dec27e052a3e14c9f9f4b370032360fac1ebf88e887941f4"
+    },
+    {
       "path": "Foundation/Tools/ManualStopTailRegression.swift",
       "mode": "100644",
       "git_blob": "b7cf149727b2fcf7fc36d49a531f33514fe1a580",
@@ -5633,8 +5651,8 @@
     {
       "path": "Foundation/Tools/OfflinePlaybackContinuityRegression.swift",
       "mode": "100644",
-      "git_blob": "4e8fbf1f3a21de24d7b5b30ea2b36e9789df8c0b",
-      "sha256": "52b982646dab2e6520ff13de5815157728b5516d3f630a5b310d074ed2bdd859"
+      "git_blob": "348a46e8c5fb377d33a1cc09513c34813da8aa3e",
+      "sha256": "ceab0960318d565239503a2841079e299f47bf2b8bcba0beade6d4c59aece300"
     },
     {
       "path": "Foundation/Tools/OfflinePlaybackFormatRegression.swift",
@@ -5683,6 +5701,12 @@
       "mode": "100644",
       "git_blob": "f01b073483fb223ad6e7296ec595f6f2a767f248",
       "sha256": "bb9ce70d8d05e02c6214fbbee710baae5eaa187db8d4eef4c91bc82989388a95"
+    },
+    {
+      "path": "Foundation/Tools/OfflineWorkspaceReplay.swift.inc",
+      "mode": "100644",
+      "git_blob": "ff8fa23f2f3df3eb36bb0bff8e252cd6aebaab10",
+      "sha256": "fc5646b0dc9868fb595d17935a121191a293570f57b0c6da48874f4462b06236"
     },
     {
       "path": "Foundation/Tools/PlayCallbackBindingRegression.swift",
@@ -5799,10 +5823,22 @@
       "sha256": "54f0dbe7f6af428b3e4f889946f34dc92c59f446bc2981538ba460acafc73a35"
     },
     {
+      "path": "Foundation/Tools/build-developer-id-archive.py",
+      "mode": "100755",
+      "git_blob": "cdf57c9a0260eda8adfba342f68cbd2ba1819d82",
+      "sha256": "5eb8eb04caf363afb79e1bb1cafa65434e825c5e3edeccb51002a0b48cd8f05a"
+    },
+    {
       "path": "Foundation/Tools/build-preview-timing-regression.zsh",
       "mode": "100644",
       "git_blob": "5f502bd62afbb02d924f6517f3cf81f668f4be08",
       "sha256": "e0203eaa1b56ed544c0d1009d0086b314a4f009fdb4f835efac064b553e0b3cd"
+    },
+    {
+      "path": "Foundation/Tools/build-workspace-preview-regression.zsh",
+      "mode": "100755",
+      "git_blob": "fd28002b671a98db73a282451e1f3a9e960dc38a",
+      "sha256": "6310fd7f129dd873c89c61f1fda56d612375b9771923018fdfff3f7a871b6f39"
     },
     {
       "path": "Foundation/Tools/compare-signature-stripped.rb",
@@ -5895,6 +5931,18 @@
       "sha256": "922eccc9e0d4f2eb85f131f7970b4df764c426450c6e4727c420ab778ff4efb7"
     },
     {
+      "path": "Foundation/Tools/test-command-cli.py",
+      "mode": "100644",
+      "git_blob": "6fd72ace16b47e7c05620731b3bb975e66aa55c3",
+      "sha256": "ad2df5297ddc566bf9b4e2c9ec24f872bf4f9c76a201d5d8a582960362d183cb"
+    },
+    {
+      "path": "Foundation/Tools/test-developer-id-verification.py",
+      "mode": "100755",
+      "git_blob": "2547c69bb12d55d1d53f04ffc7397ad8ab4be792",
+      "sha256": "1735aac3990c11fe78b14b140825fd83535885828a47a9b3494ff6a3db1ea3bf"
+    },
+    {
       "path": "Foundation/Tools/test-signature-comparison.rb",
       "mode": "100644",
       "git_blob": "73d4c2d0eb1a0e0f969e9a230307cb7f7d6da827",
@@ -5905,6 +5953,12 @@
       "mode": "100644",
       "git_blob": "2485d13a0ccf2be98aaa7f5fad32e9668aa5542c",
       "sha256": "74482ccfea01adc8438a0408b3810a3f61e30b3d5b0a37f5f87f006d916b4c0d"
+    },
+    {
+      "path": "Foundation/Tools/verify-developer-id-candidate.py",
+      "mode": "100755",
+      "git_blob": "f54dcc8d3be9aeb274935d9aee72bbff7db3576f",
+      "sha256": "daff294894a62b4a381b107964f33f71dc7d30eadcf90af272a195b5e79f1a8b"
     },
     {
       "path": "Foundation/Tools/verify-dv-metadata-registry.py",

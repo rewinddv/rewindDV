@@ -1,12 +1,12 @@
 {
   "schema_version": 1,
   "development": {
-    "application_version": "0.0.94",
-    "driver_build": 192,
-    "source_revision": "042b2dd94bff3f2946301bf08548907fa9b438dd",
-    "state": "complete reviewed source published; matching offline-only Alpha0.0.94 app188/CLI57 download available; independent Driver192 source retained; Driver192 acquisition and complete signed app UI unqualified",
-    "updated_utc": "2026-10-08T21:57:59.700185+00:00",
-    "application_build": 188
+    "application_version": "0.0.96",
+    "driver_build": 193,
+    "source_revision": "6d230337766a7f982d5d77572851065330191652",
+    "state": "Cumulative full hardware-capable source reviewed and built; fresh Developer ID app/driver candidate notarized; independent artifact review and publication in progress. Published download below remains the historical offline Alpha0.0.94 until the new assets are available.",
+    "updated_utc": "2026-10-09T15:53:22.269943+00:00",
+    "application_build": 190
   },
   "public_release": {
     "application_version": "0.0.94",

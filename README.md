@@ -20,7 +20,7 @@ application and driver source, engineering downloads, documentation, issues and
 contributions. Visit [rewinddv.com](https://rewinddv.com) for the project website.
 
 <!-- project-status:start -->
-**Current development:** Alpha 0.0.94 / Driver B192. App build 188. [Reviewed public source](https://github.com/rewinddv/rewindDV/tree/042b2dd94bff3f2946301bf08548907fa9b438dd).
+**Current development:** Alpha 0.0.96 / Driver B193. App build 190. [Reviewed public source](https://github.com/rewinddv/rewindDV/tree/6d230337766a7f982d5d77572851065330191652).
 
 **Latest public download:** [Alpha 0.0.94 offline-only / app build 188](https://github.com/rewinddv/rewindDV/releases/tag/alpha-0.0.94) — engineering prerelease, ad-hoc signed and not notarized. No DriverKit extension is included; driver activation, deck control and physical acquisition are disabled. Offline operations require no SIP change.
 
