@@ -1,12 +1,13 @@
 {
   "schema_version": 1,
   "development": {
-    "application_version": "0.0.96",
-    "driver_build": 193,
-    "source_revision": "6d230337766a7f982d5d77572851065330191652",
-    "state": "Cumulative reviewed full source published; matching Developer ID-signed, notarized engineering prerelease available; new package hardware qualification remains open.",
-    "updated_utc": "2026-10-09T16:02:25.894128+00:00",
-    "application_build": 190
+    "application_version": "0.1.1",
+    "driver_build": 194,
+    "source_revision": "abb0fbc9947f965f3a08fd8a95227211beff2b84",
+    "state": "Reviewed canonical version migration and terminal/receive safety source. Unsigned engineering candidate only; no new downloadable binary. Latest download remains Alpha0.0.96 / App190 / Driver193.",
+    "updated_utc": "2026-10-09T18:55:50.509443+00:00",
+    "application_build": 191,
+    "release_channel": "alpha"
   },
   "public_release": {
     "application_version": "0.0.96",
@@ -27,8 +28,8 @@
     "notarization_submission": "528960d0-09c3-4869-80f9-172c8573e424"
   },
   "qualification": {
-    "public_summary": "Cumulative IEC metadata, epoch-aware mixed NTSC/PAL archives, byte-exact segmented exports, receive/storage safeguards and M1 inspector improvements. 527 Swift Testing cases plus14 XCTest cases pass on exported source. Native offline continuity/playback/archive checks pass, including complete11811-frame mixed archive and360-frame paced replay. Final signed package passes bounded local offline UI smoke, signing, notarization and extraction checks; physical capture for this new package remains unqualified.",
-    "architecture": "Full package: app and CLI arm64; matching Driver193 arm64e. Intel unsupported.",
+    "public_summary": "Development0.1.1 unifies product/channel and independent App191/Driver194 identity. Preserves terminal Stop fencing, bounded receive Stop retry and permanent quarantine. Software/offline validation is separate from the unchanged signed Alpha0.0.96 download and its historical qualification. No new hardware qualification or live-unload claim.",
+    "architecture": "Development app and CLI arm64; Driver194 arm64e. Existing downloadable Driver193 remains arm64e. Intel unsupported.",
     "macos_deployment_floor": "26.0",
     "bounded_runtime_macos": [
       "27.0.1",
@@ -49,7 +50,8 @@
     "mixed_archive": "Source-bound recording epochs and ordered lossless segmented exports validated offline; unknown regions preserved; mixed-system single-file merge and film/container output reject explicitly; HDV remains separate",
     "signed_app_ui": "Final restored App190: chooser cancel/reopen, read-only saved-DV play/pause, first/last-frame identity and inspector scrolling passed locally. No broad rendered-frame or M1 runtime claim.",
     "historical_b190_startup": "stable final generation before capture; no reset observed during these bounded captures; broader startup/reset coverage remains open",
-    "m1_preview": "App189 inspector layout correction and bounded paced offline replay passed on the earlier M1 setup. Physical live-preview retest outstanding. App189 chooser visibility over Screen Sharing unresolved; MacBook Air unavailable for local comparison. Neither result qualifies rebuilt App190/Driver193."
+    "m1_preview": "App189 inspector layout correction and bounded paced offline replay passed on the earlier M1 setup. Physical live-preview retest outstanding. App189 chooser visibility over Screen Sharing unresolved; MacBook Air unavailable for local comparison. Neither result qualifies rebuilt App190/Driver193.",
+    "development": "App191/Driver194: unsigned engineering build and software/offline regression scope only. No signing, notarization, installation, activation or physical capture in this migration."
   },
   "links": {
     "source": "https://github.com/rewinddv/rewindDV",

@@ -1,7 +1,7 @@
 # Bounded compatibility evidence
 
 <!-- project-status:start -->
-**Current development:** Alpha 0.0.96 / Driver B193. App build 190. [Reviewed public source](https://github.com/rewinddv/rewindDV/tree/6d230337766a7f982d5d77572851065330191652).
+**Current development:** rewindDV 0.1.1 (Alpha). App build 191; driver build 194. [Reviewed public source](https://github.com/rewinddv/rewindDV/tree/abb0fbc9947f965f3a08fd8a95227211beff2b84).
 
 **Latest public download:** [Alpha 0.0.96 / Driver B193](https://github.com/rewinddv/rewindDV/releases/tag/alpha-0.0.96) — engineering prerelease, Developer ID-signed and notarized. App build 190 includes the matching driver. Use normal macOS approval; no SIP change is required. Offline playback, Surgery and inspection require no driver activation. Hardware qualification remains bounded.
 
