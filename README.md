@@ -22,7 +22,7 @@ contributions. Visit [rewinddv.com](https://rewinddv.com) for the project websit
 <!-- project-status:start -->
 **Current development:** Alpha 0.0.96 / Driver B193. App build 190. [Reviewed public source](https://github.com/rewinddv/rewindDV/tree/6d230337766a7f982d5d77572851065330191652).
 
-**Latest public download:** [Alpha 0.0.94 offline-only / app build 188](https://github.com/rewinddv/rewindDV/releases/tag/alpha-0.0.94) — engineering prerelease, ad-hoc signed and not notarized. No DriverKit extension is included; driver activation, deck control and physical acquisition are disabled. Offline operations require no SIP change.
+**Latest public download:** [Alpha 0.0.96 / Driver B193](https://github.com/rewinddv/rewindDV/releases/tag/alpha-0.0.96) — engineering prerelease, Developer ID-signed and notarized. App build 190 includes the matching driver. Use normal macOS approval; no SIP change is required. Offline playback, Surgery and inspection require no driver activation. Hardware qualification remains bounded.
 
 Development source and downloads have separate identities and qualification. Application versions and driver builds advance independently. [Machine-readable status](PROJECT-STATUS.json).
 <!-- project-status:end -->

@@ -51,7 +51,7 @@ class StatusTests(unittest.TestCase):
 
     def test_offline_distribution_cannot_claim_driver_or_sip_requirement(self):
         data = copy.deepcopy(BASE)
-        data['public_release'].update(offline_only=True, driver_included=False, requires_sip_disabled=False)
+        data['public_release'].update(signing='ad-hoc', notarized=False, offline_only=True, driver_included=False, requires_sip_disabled=False)
         status.validate_identities(data, ALPHA, DRIVER)
         for key in ['driver_included', 'requires_sip_disabled']:
             bad = copy.deepcopy(data); bad['public_release'][key] = True
@@ -81,7 +81,7 @@ class StatusTests(unittest.TestCase):
 
     def candidate(self):
         data = copy.deepcopy(BASE); r = data['public_release']; r.pop('offline_only', None); r.pop('driver_included', None)
-        r.update(application_version='0.0.90', application_build=188, driver_build=190, tag='alpha-0.0.90', package_name='future.zip')
+        r.update(signing='ad-hoc', notarized=False, application_version='0.0.90', application_build=188, driver_build=190, tag='alpha-0.0.90', package_name='future.zip')
         remote = {'tag_name':r['tag'], 'draft':False, 'prerelease':True, 'assets':[
             {'name':r['package_name'], 'digest':'sha256:' + r['package_sha256']},
             {'name':r['package_name'] + '.sha256'}, {'name':'manifest.json','digest':'sha256:' + 'a' * 64}]}

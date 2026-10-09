@@ -301,7 +301,7 @@ without maintaining a second version table. An app-only update can retain a driv
 a driver update never triggers an artificial alpha-number bump. An older public
 release than current development is an expected, validated lifecycle state.
 
-## Current public ad-hoc distribution preparation
+## Historical public ad-hoc distribution preparation
 
 `tools/build_adhoc_candidate.py` builds both app and independent driver from one
 clean, full public checkout, runs source/software checks, builds the arm64 CLI/MCP
@@ -335,6 +335,6 @@ the sealed archive. A narrowly hash-bound source-history exception recognizes
 two generic volume examples in the already-reviewed CLI usage blob; changed
 content and all other path/credential markers still fail the source gate.
 
-## Offline-only distribution
+## Historical Alpha 0.0.94 offline-only distribution
 
-The Alpha0.0.94 downloadable candidate uses reduced app entitlements and includes no DriverKit extension. Driver discovery/activation, deck control and physical acquisition are disabled by an explicit bundle distribution flag. The complete source retains independent Driver192; full hardware packages remain a separate qualification/signing task. Playback, metadata inspection, supported archive/export and CLI/MCP remain available without a SIP change. Read [offline distribution instructions](Foundation/OFFLINE-DISTRIBUTION.md). The corresponding full ad-hoc candidate was rejected on a SIP-enabled host because of restricted DriverKit app entitlements; it was not published.
+The preserved Alpha0.0.94 download uses reduced app entitlements and includes no DriverKit extension. Driver discovery/activation, deck control and physical acquisition are disabled by an explicit bundle distribution flag. The complete source retains independent Driver192; the current full signed package has its own source and qualification identities. Playback, metadata inspection, supported archive/export and CLI/MCP remain available without a SIP change. Read [offline distribution instructions](Foundation/OFFLINE-DISTRIBUTION.md). The corresponding full ad-hoc candidate was rejected on a SIP-enabled host because of restricted DriverKit app entitlements; it was not published.
