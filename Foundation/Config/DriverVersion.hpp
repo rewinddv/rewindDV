@@ -2,6 +2,7 @@
 // this is a modified downstream article, not an unmodified ASFW binary.
 #pragma once
 #include <cstdint>
+#include "ProductIdentity.hpp"
 // Xcode supplies the canonical driver build through DriverBuild.xcconfig.
 // Host-only contract fixtures have no deliverable driver identity.
 #ifndef REWINDDV_DRIVER_BUILD
@@ -10,6 +11,9 @@
 #else
 #error "Build Foundation driver with DriverBuild.xcconfig"
 #endif
+#endif
+#ifndef ASFW_HOST_TEST
+static_assert(REWINDDV_DRIVER_BUILD == REWINDDV_EXPECTED_DRIVER_BUILD, "Driver identity drift");
 #endif
 #define REWINDDV_STRINGIFY_IMPL(value) #value
 #define REWINDDV_STRINGIFY(value) REWINDDV_STRINGIFY_IMPL(value)
@@ -23,8 +27,8 @@ inline constexpr bool kGitDirty = false;
 inline constexpr const char* kBuildTimestamp = "2026-10-04";
 inline constexpr const char* kBuildHost = "Xcode 27.0 (27A266a)";
 inline constexpr const char* kCompilerVersion = "Apple Clang";
-inline constexpr const char* kSemanticVersion = "0.1.0";
-inline constexpr const char* kFullVersionString = "RewindDV Foundation 0.1.0 Build" REWINDDV_STRINGIFY(REWINDDV_DRIVER_BUILD) " (ASFW ac8a124 derived)";
+inline constexpr const char* kSemanticVersion = REWINDDV_PRODUCT_VERSION_STRING;
+inline constexpr const char* kFullVersionString = "rewindDV " REWINDDV_PRODUCT_VERSION_STRING " (Alpha) Driver Build" REWINDDV_STRINGIFY(REWINDDV_DRIVER_BUILD) " (ASFW ac8a124 derived)";
 inline constexpr const char* kBuildInfoString = "Foundation Build" REWINDDV_STRINGIFY(REWINDDV_DRIVER_BUILD) "; ownership and initial-reset hardening; no command replay; macOS 26 minimum; consult candidate source manifest";
 }
 

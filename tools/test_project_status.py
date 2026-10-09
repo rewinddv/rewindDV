@@ -43,7 +43,7 @@ class StatusTests(unittest.TestCase):
 
     def test_current_block_labels_both_lifecycles(self):
         block = status.status_block(BASE)
-        self.assertIn(f'Current development:** Alpha {ALPHA} / Driver B{DRIVER}', block)
+        self.assertIn(f'Current development:** rewindDV {ALPHA} (Alpha)', block)
         if BASE['public_release'].get('offline_only', False):
             self.assertIn('offline-only', block); self.assertIn('No DriverKit extension is included', block)
         else:

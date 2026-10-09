@@ -5,6 +5,9 @@ driver = File.read(File.join(root, 'ASFWDriver/ASFWDriver.cpp'))
 context = File.read(File.join(root, 'ASFWDriver/Service/DriverContext.cpp'))
 async = File.read(File.join(root, 'ASFWDriver/Async/AsyncSubsystemLifecycle.cpp'))
 checks = {
+  'terminal Stop revokes MMIO before entering coordinator teardown' => driver.match?(/IMPL\(ASFWDriver, Stop\).*?LatchProviderRevokedAndDrain\(\);.*?RequestRuntimeQuiesce\(static_cast<uint32_t>\(QuiesceReason::kProviderRevoked\)\)/m),
+  'terminal finalizer uses the shared exactly-once superclass receipt' => driver.match?(/void ASFWDriver::CompleteNativeRuntimeDrain.*?if \(ivars->stopPending\) \{\s*\(void\)CompleteServiceStop\(ivars->stopProvider\);/m),
+  'terminal completion permanently refuses runtime restart' => driver.include?('if (ivars->stopCompleted) return kIOReturnNotReady;'),
   'async retirement failure gates other DMA releases and provider detach' => driver.match?(/if \(ctx.deps.asyncSubsystem && !ctx.deps.asyncSubsystem->Stop\(\)\).*?QuarantineRuntime\(service, ctx, kIOReturnNotReady\).*?return false;.*?selfId->ReleaseBuffers\(\).*?hardware->Detach\(\)/m),
   'reset retains graph without async retirement proof' => context.index('!deps.asyncSubsystem->DMAContextsRetired()') < context.index('deps.hardware.reset()'),
   'failed async retirement returns before destroying payload owners' => async.match?(/!contextManager_->teardown\(disableHardware\).*?dmaQuarantined_ = true;.*?return false;.*?tracking_->CancelAllAndFreeLabels\(\)/m),
@@ -15,7 +18,7 @@ checks = {
   'quiescence gates owner teardown' => driver.index('ctx.dvCapture.StopAll') < driver.index('ctx.BeginProviderNativeRetirement(drain)'),
   'quarantine retains service owner exactly once or transfers native retain' => driver.match?(/void QuarantineRuntime.*?receiveQuarantined.store\(true.*?!ctx.quarantineServiceRetained.exchange\(true.*?ctx.nativeDrainServiceRetained = false;.*?else service.retain\(\);/m),
   'free preserves the entire unproved graph' => driver.match?(/void ASFWDriver::free\(\).*?receiveQuarantined.*?return;.*?context->Reset\(\)/m),
-  'quarantine suppresses superclass Stop' => driver.match?(/IMPL\(ASFWDriver, Stop\).*?receiveQuarantined.*?return ivars->context->receiveQuiesceFailure.*?return Stop\(provider, SUPERDISPATCH\)/m),
+  'quarantine suppresses superclass Stop' => driver.match?(/IMPL\(ASFWDriver, Stop\).*?receiveQuarantined.*?return ivars->context->receiveQuiesceFailure.*?return CompleteServiceStop\(provider\)/m),
   'no client allocation can reuse retained address owner' => driver.match?(/IMPL\(ASFWDriver, NewUserClient\).*?receiveQuarantined.*?return kIOReturnNotReady;.*?auto ret = Create/m),
   'reset releases stopped receive contexts before hardware owner' => context.index('ReleaseQuiescedReceiveContexts()') < context.index('deps.hardware.reset()'),
   'failed teardown cannot publish completion' => driver.match?(/if \(!ExecuteRuntimeTeardown\(\*this, ctx, plan\)\) \{.*?return;\s*\}\s*ReleaseQuiescedRuntime\(ctx, plan\);/m),

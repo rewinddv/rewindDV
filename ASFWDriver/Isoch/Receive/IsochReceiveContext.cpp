@@ -1,5 +1,7 @@
 // Modified by Rewind Digital for RewindDV Foundation, September 2026; see Foundation/NOTICE.md.
 #include "IsochReceiveContext.hpp"
+#include "ReceiveStopGate.hpp"
+#include "../../Common/TimingUtils.hpp"
 #include "../Core/IsochEventGroup.hpp"
 #include "../../Hardware/OHCIConstants.hpp"
 #include "../../Hardware/RegisterMap.hpp"
@@ -122,7 +124,24 @@ kern_return_t IsochReceiveContext::Start() {
 }
 
 kern_return_t IsochReceiveContext::Stop() {
-    while (rxLock_.test_and_set(std::memory_order_acquire)) {
+    if (rxLock_.test_and_set(std::memory_order_acquire)) {
+        // Only the control caller waits. Poll and packet consumption keep their
+        // nonblocking gate. Use a local timebase: a failed/partial startup must
+        // not depend on globally initialized timing or race its initialization.
+        mach_timebase_info_data_t timebase{};
+        if (mach_timebase_info(&timebase) != KERN_SUCCESS ||
+            timebase.numer == 0 || timebase.denom == 0) return kIOReturnNotReady;
+        const uint64_t started = mach_absolute_time();
+        constexpr uint64_t kStopGateBudgetNs = 100'000'000;
+        const auto expired = [&] {
+            return ASFW::Timing::detail::ScaleFloor(mach_absolute_time() - started,
+                timebase.numer, timebase.denom) >= kStopGateBudgetNs;
+        };
+        if (!Detail::AcquireReceiveStopGate(rxLock_, expired, [] { IOSleep(1); })) {
+            // No ownership was acquired: leave state, descriptors and binding
+            // untouched. The caller must retain them and contain the failure.
+            return kIOReturnTimeout;
+        }
     }
 
     if (GetState() == IRPolicy::State::Stopped) {

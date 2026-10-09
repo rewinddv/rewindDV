@@ -1,0 +1,7 @@
+{
+  "policy": "Prior distributed or reserved high-water identities; immutable. Current ProductIdentity.json reserves the next candidate. Before advancing it, append the old identity here and audit external usage. No automatic increments. Historical component hashes remain in release records.",
+  "prior_identities": [
+    {"product_version": "0.0.96", "app_build": 190, "driver_build": 193, "meaning": "Published alpha-0.0.96; immutable download identity"},
+    {"product_version": "0.1.0", "app_build": 190, "driver_build": 193, "meaning": "Historical macOS bundle marketing version high-water; same published components"}
+  ]
+}

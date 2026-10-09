@@ -20,6 +20,6 @@ let package = Package(
     .testTarget(name: "RewindDVControlCoreTests", dependencies: ["RewindDVControlCore"]),
     .executableTarget(
       name: "RewindDVInspect", dependencies: ["RewindDVArchiveCore"], path: "Tools/RewindDVInspect"),
-    .executableTarget(name: "RewindDVCommandCLI", path: "Tools/RewindDVCommandCLI"),
+    .executableTarget(name: "RewindDVCommandCLI", dependencies: ["RewindDVMonitorCore"], path: "Tools/RewindDVCommandCLI"),
   ]
 )

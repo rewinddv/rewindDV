@@ -742,14 +742,22 @@ kern_return_t Service::Stop(uint64_t owner, uint64_t epoch) {
     if (!lock_) return kIOReturnNotReady;
     SessionOwner target;
     kern_return_t result;
+    bool newlyQuarantined = false;
     {
         Guard guard(lock_);
         if (!session_) return kIOReturnNotReady;
         target = session_;
         Guard sessionGuard(target->lock);
         if (target->owner != owner || target->epoch != epoch) return kIOReturnNotPrivileged;
+        const auto before = target->sink.GetState();
         result = target->StopLocked(State::Stopped);
+        newlyQuarantined = before != State::Quarantined &&
+                           target->sink.GetState() == State::Quarantined;
     }
+    // Authorized failed retirement closes outer admission even when the RX
+    // gate was never acquired and its context still says Running. Invoke the
+    // containment callback outside both locks; repeated Stop keeps its receipt.
+    if (newlyQuarantined) target->quarantine();
     if (result == kIOReturnSuccess) target->BeginCleanup(target);
     return result;
 }

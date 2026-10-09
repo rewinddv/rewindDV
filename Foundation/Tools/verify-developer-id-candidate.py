@@ -93,15 +93,12 @@ def main():
         return result
 
     now = datetime.datetime.now(datetime.timezone.utc)
-    expected_alpha = (repo / "Foundation/Config/AlphaVersion.txt").read_text().strip()
-    driver_build = dict(tuple(part.strip() for part in line.split("=", 1)) for line in
-                        (repo / "Foundation/Config/DriverBuild.xcconfig").read_text().splitlines()
-                        if "=" in line and not line.lstrip().startswith("//"))
-    expected_driver = driver_build["REWINDDV_DRIVER_BUILD"]
-    project = plistlib.loads(subprocess.check_output([
-        "plutil", "-convert", "xml1", "-o", "-",
-        str(repo / "Foundation/RewindDV.xcodeproj/project.pbxproj")]))
-    expected_app = project["objects"]["000000000000000000000888"]["buildSettings"]["CURRENT_PROJECT_VERSION"]
+    from product_identity import check, bundle_identity
+    identity = check(repo)
+    expected_alpha = identity['product_version']
+    expected_driver = str(identity['driver_build'])
+    expected_app = str(identity['app_build'])
+    bundle_identity(args.app.resolve(), identity)
     app = args.app.resolve()
     driver = app / "Contents/Library/SystemExtensions" / (DRIVER_ID + ".dext")
     rows = []

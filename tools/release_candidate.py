@@ -187,8 +187,8 @@ def safe_source_path(path):
 
 
 def versions_from_settings(root, settings):
-    alpha = (root / "Foundation/Config/AlphaVersion.txt").read_text().strip()
-    require(re.fullmatch(r"\d+\.\d+\.\d+", alpha), "Invalid application version")
+    identity = json.loads(run(["python3", "-B", str(root / "Foundation/Tools/product_identity.py"), "--check"], cwd=root))
+    alpha = identity["product_version"]
     selected = {}
     for t in settings:
         b = t["buildSettings"]
@@ -202,7 +202,9 @@ def versions_from_settings(root, settings):
         v = selected[bundle][field]
         require(re.fullmatch(r"\d+(?:\.\d+)*", v), "Unresolved version setting")
         return v
-    return {"application_version": alpha, "app_bundle_build": value(APP_ID, "CURRENT_PROJECT_VERSION"),
+    require(value(APP_ID, "CURRENT_PROJECT_VERSION") == str(identity["app_build"]) and value(DRIVER_ID, "CURRENT_PROJECT_VERSION") == str(identity["driver_build"]), "Component settings disagree with canonical identity")
+    require(value(APP_ID, "MARKETING_VERSION") == alpha and value(DRIVER_ID, "MARKETING_VERSION") == alpha, "Marketing settings disagree with product identity")
+    return {"product_version": alpha, "release_channel": identity["channel"], "application_version": alpha, "app_bundle_build": value(APP_ID, "CURRENT_PROJECT_VERSION"),
             "app_bundle_version": value(APP_ID, "MARKETING_VERSION"),
             "driver_build": value(DRIVER_ID, "CURRENT_PROJECT_VERSION"),
             "driver_bundle_version": value(DRIVER_ID, "MARKETING_VERSION")}
@@ -216,6 +218,8 @@ def versions(root, env):
 
 def release_identity(v, channel, tag, signing="unsigned", offline_only=False):
     require(channel in {"alpha", "beta", "rc", "stable"}, "Unknown release channel")
+    if "release_channel" in v:
+        require(channel == v["release_channel"], "Channel disagrees with canonical identity")
     expected = ("v" if channel == "stable" else channel + "-") + v["application_version"]
     require(tag == expected and tag not in HISTORICAL, "Tag/version mismatch or historical tag reuse")
     require(signing in {"unsigned", "ad-hoc", "developer-id"}, "Unknown artifact signing state")
@@ -243,6 +247,9 @@ def bundle_versions(read, v, offline_only=False):
     expected = {"CFBundleIdentifier": OFFLINE_APP_ID if offline_only else APP_ID, "RewindDVAlphaVersion": v["application_version"],
                 "CFBundleVersion": v["app_bundle_build"], "CFBundleShortVersionString": v["app_bundle_version"]}
     require(all(str(app.get(k)) == value for k, value in expected.items()), "Built app version identity mismatch")
+    if "product_version" in v:
+        require(v["product_version"] == v["application_version"] == v["app_bundle_version"] == v["driver_bundle_version"], "Canonical version disagreement")
+        require(app.get("RewindDVProductVersion") == v["product_version"] and app.get("RewindDVReleaseChannel") == v["release_channel"], "Canonical app metadata disagreement")
     if offline_only:
         require(app.get("RewindDVOfflineOnly") is True, "Offline package must enforce offline runtime")
         return
@@ -252,6 +259,8 @@ def bundle_versions(read, v, offline_only=False):
     expected = {"CFBundleIdentifier": DRIVER_ID, "CFBundleVersion": v["driver_build"],
                 "CFBundleShortVersionString": v["driver_bundle_version"]}
     require(all(str(driver.get(k)) == value for k, value in expected.items()), "Built driver version identity mismatch")
+    if "product_version" in v:
+        require(driver.get("IOKitPersonalities", {}).get("RewindDVFoundationController", {}).get("FoundationBuildNumber") == v["driver_build"], "Driver registry build mismatch")
 
 
 def profile_paths(paths, signing, offline_only):

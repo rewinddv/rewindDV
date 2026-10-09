@@ -13,6 +13,7 @@ import sys
 import tempfile
 import types
 import unittest
+import copy
 from unittest.mock import patch
 
 sys.dont_write_bytecode = True
@@ -407,17 +408,31 @@ class PreparationTests(unittest.TestCase):
             self.assertFalse(output.exists())
 
     def test_build_settings_derive_versions_and_check_duplicate_consistency(self):
-        with tempfile.TemporaryDirectory() as t:
-            root = Path(t)
-            (root / "Foundation/Config").mkdir(parents=True)
-            (root / "Foundation/Config/AlphaVersion.txt").write_text("9.8.7\n")
-            app = {"PRODUCT_BUNDLE_IDENTIFIER": r.APP_ID, "CURRENT_PROJECT_VERSION": "190", "MARKETING_VERSION": "0.1.0"}
-            driver = {"PRODUCT_BUNDLE_IDENTIFIER": r.DRIVER_ID, "CURRENT_PROJECT_VERSION": "183", "MARKETING_VERSION": "0.1.0"}
-            settings = [{"buildSettings": b} for b in [app, driver, driver.copy()]]
-            self.assertEqual(r.versions_from_settings(root, settings), VERSIONS)
-            settings[-1]["buildSettings"]["CURRENT_PROJECT_VERSION"] = "184"
-            with self.assertRaises(r.GateError):
-                r.versions_from_settings(root, settings)
+        root = Path(__file__).resolve().parents[1]
+        app = {"PRODUCT_BUNDLE_IDENTIFIER": r.APP_ID, "CURRENT_PROJECT_VERSION": "191", "MARKETING_VERSION": "0.1.1"}
+        driver = {"PRODUCT_BUNDLE_IDENTIFIER": r.DRIVER_ID, "CURRENT_PROJECT_VERSION": "194", "MARKETING_VERSION": "0.1.1"}
+        settings = [{"buildSettings": b} for b in [app, driver, driver.copy()]]
+        expected = {"product_version":"0.1.1", "release_channel":"alpha", "application_version":"0.1.1", "app_bundle_build":"191", "driver_build":"194", "app_bundle_version":"0.1.1", "driver_bundle_version":"0.1.1"}
+        self.assertEqual(r.versions_from_settings(root, settings), expected)
+        for field, value in [("CURRENT_PROJECT_VERSION", "193"), ("MARKETING_VERSION", "0.1.0")]:
+            bad = copy.deepcopy(settings); bad[-1]["buildSettings"][field] = value
+            with self.assertRaises(r.GateError): r.versions_from_settings(root, bad)
+        with self.assertRaises(r.GateError): r.release_identity(expected, "beta", "beta-0.1.1")
+
+    def test_canonical_bundle_metadata_and_registry_mismatch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            stage=Path(tmp); fake_app(stage)
+            a=stage/"RewindDV.app/Contents/Info.plist"
+            d=stage/"RewindDV.app"/r.DEXT/"Info.plist"
+            app=plistlib.loads(a.read_bytes());driver=plistlib.loads(d.read_bytes())
+            app.update(CFBundleShortVersionString="9.8.7",RewindDVProductVersion="9.8.7",RewindDVReleaseChannel="alpha")
+            driver.update(CFBundleShortVersionString="9.8.7",IOKitPersonalities={"RewindDVFoundationController":{"FoundationBuildNumber":"183"}})
+            a.write_bytes(plistlib.dumps(app));d.write_bytes(plistlib.dumps(driver))
+            v=dict(VERSIONS, product_version="9.8.7", release_channel="alpha",app_bundle_version="9.8.7",driver_bundle_version="9.8.7")
+            r.bundle_versions(lambda p:(stage/p).read_bytes(),v)
+            driver["IOKitPersonalities"]["RewindDVFoundationController"]["FoundationBuildNumber"]="182"
+            d.write_bytes(plistlib.dumps(driver))
+            with self.assertRaises(r.GateError): r.bundle_versions(lambda p:(stage/p).read_bytes(),v)
 
 
 if __name__ == "__main__":

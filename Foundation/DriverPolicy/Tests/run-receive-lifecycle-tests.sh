@@ -2,6 +2,10 @@
 set -eu
 cd "$(dirname "$0")/../../.."
 receive_test_dir=$(mktemp -d /tmp/rewinddv-receive-lifecycle.XXXXXX)
+xcrun --sdk macosx clang++ -std=c++23 -O2 \
+  Foundation/DriverPolicy/Tests/ReceiveStopGateTests.cpp \
+  -o "$receive_test_dir/receive-stop-gate-tests"
+"$receive_test_dir/receive-stop-gate-tests"
 xcrun --sdk macosx clang++ -std=c++23 -O2 -I. -pthread \
   Foundation/DriverPolicy/Tests/AtomicSharedOwnerTests.cpp \
   -o "$receive_test_dir/atomic-owner-tests"
@@ -63,6 +67,7 @@ compile_receive_test Foundation/DriverPolicy/Tests/FoundationRawReceiveTests.cpp
   ASFWDriver/Discovery/DeviceRegistry.cpp \
   ASFWDriver/Discovery/FWDevice.cpp ASFWDriver/Discovery/FWUnit.cpp
 "$receive_test_dir/raw-receive-tests"
+"$receive_test_dir/raw-receive-tests" --gate-contention
 xcrun --sdk macosx clang++ -std=c++23 -DASFW_HOST_TEST \
   -I. -IASFWDriver -IASFWDriver/Testing -IAppleHeaders \
   Foundation/DriverPolicy/Tests/RuntimeEpochTests.cpp \

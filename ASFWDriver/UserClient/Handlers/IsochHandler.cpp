@@ -107,9 +107,8 @@ kern_return_t IsochHandler::FoundationReceive(IOUserClientMethodArguments* args,
         return ctx->foundationReceive.Acknowledge(ownerToken_, epoch, args->scalarInput[1]);
     if (selector != Receive::kStop) return kIOReturnUnsupported;
     const auto status = ctx->foundationReceive.Stop(ownerToken_, epoch);
-    if (const auto receiveOwner = ctx->isoch.CopyReceiveContext();
-        status != kIOReturnSuccess && receiveOwner &&
-        receiveOwner->GetState() == ASFW::Isoch::IRPolicy::State::Stopping)
+    if (status != kIOReturnSuccess &&
+        ctx->receiveQuarantined.load(std::memory_order_acquire))
         driver_->RequestRuntimeQuiesce(static_cast<uint32_t>(ASFW::Driver::QuiesceReason::kPlannedStop));
     return status;
 }

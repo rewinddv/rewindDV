@@ -246,14 +246,10 @@ private func handshakeRoute(_ changedOffset: Int? = nil) throws -> FoundationRou
   #expect(project.components(separatedBy: "\"MACOSX_DEPLOYMENT_TARGET\" = \"26.0\"").count == 3)
   #expect(project.components(separatedBy: "\"DRIVERKIT_DEPLOYMENT_TARGET\" = \"25.0\"").count == 3)
   #expect(project.components(separatedBy: "\"ARCHS\" = \"arm64e\"").count == 3)
-  let appBuilds = project.components(separatedBy: "\n")
-    .filter { $0.contains("\"CURRENT_PROJECT_VERSION\" =") }
-    .map { $0.components(separatedBy: "\"")[3] }
-  #expect(appBuilds.count == 2 && Set(appBuilds).count == 1)
-  let appBuild = try #require(appBuilds.first)
-  #expect(Int(appBuild) != nil)
-  #expect(model.contains("CFBundleVersion\") as? String == \"\(appBuild)\""))
-  #expect(model.contains("generatedAt: Date(), build: \"\(appBuild)\""))
+  #expect(!project.contains("\"CURRENT_PROJECT_VERSION\" ="))
+  #expect(!project.contains("\"MARKETING_VERSION\" ="))
+  #expect(model.contains("ProductIdentity.matchesHost(Bundle.main.infoDictionary ?? [:])"))
+  #expect(model.contains("generatedAt: Date(), build: ProductIdentity.appBuild"))
   // Both configurations sanitize compile-time file macros, not just debug symbols.
   #expect(project.components(separatedBy: "-ffile-prefix-map=$(SRCROOT:dir)=/rewindDV/").count == 3)
   #expect(project.components(separatedBy: "\"-file-prefix-map\", \"$(SRCROOT:dir)=/rewindDV/\"").count == 3)
@@ -315,9 +311,31 @@ private func handshakeRoute(_ changedOffset: Int? = nil) throws -> FoundationRou
     .deletingLastPathComponent().deletingLastPathComponent()
   let model = try String(contentsOf: root.appendingPathComponent("App/RewindDVApp.swift"), encoding: .utf8)
   let bridge = try String(contentsOf: root.appendingPathComponent("App/DriverBridge.swift"), encoding: .utf8)
-  #expect(model.contains("DriverBuildRequirement.bundled?.permitsReplacement(bundleVersion: ext.bundleVersion) == true"))
+  #expect(model.contains("existingBuild: existing.bundleVersion, existingVersion: existing.bundleShortVersion"))
+  #expect(model.contains("incomingBuild: ext.bundleVersion, incomingVersion: ext.bundleShortVersion"))
+  #expect(model.contains("productVersion: ProductIdentity.version) == true"))
   #expect(model.contains("DriverBuildRequirement.bundled != nil"))
   #expect(!model.contains("ext.bundleVersion == \"188\""))
   #expect(bridge.contains("guard let requiredBuildNumber = Self.requiredBuildNumber else"))
   #expect(bridge.contains("identityMatches && build == requiredBuildNumber"))
+}
+
+@Test func replacementRequiresExactIncomingAndForwardExistingIdentity() {
+  let requirement = DriverBuildRequirement(metadata: "194")!
+  func permits(_ oldBuild: String, _ oldVersion: String, _ newBuild: String = "194", _ newVersion: String = "0.1.1") -> Bool {
+    requirement.permitsReplacement(existingBuild: oldBuild, existingVersion: oldVersion,
+      incomingBuild: newBuild, incomingVersion: newVersion, productVersion: "0.1.1")
+  }
+  #expect(permits("193", "0.1.0"))
+  #expect(permits("193", "0.0.96"))
+  #expect(permits("193", "0.0.100"))
+  #expect(permits("193", "0.1.1"))
+  #expect(!permits("193", "0.2.0"))
+  #expect(!permits("195", "0.1.0"))
+  #expect(!permits("194", "0.1.1")) // same identity cannot authenticate bytes
+  #expect(!permits("0193", "0.1.0"))
+  #expect(!permits("193", "0.01.0"))
+  #expect(!permits("193", "garbage"))
+  #expect(!permits("193", "0.1.0", "193"))
+  #expect(!permits("193", "0.1.0", "194", "0.1.0"))
 }

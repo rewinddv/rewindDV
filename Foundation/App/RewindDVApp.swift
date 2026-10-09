@@ -577,7 +577,7 @@ final class SystemExtensionInstaller: NSObject, ObservableObject,
       return
     }
     guard !isInFlight else { return }
-    guard Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String == "190",
+    guard ProductIdentity.matchesHost(Bundle.main.infoDictionary ?? [:]),
       DriverBuildRequirement.bundled != nil
     else {
       state = .failed("The host app build or required-driver identity is not valid for this candidate.")
@@ -612,7 +612,10 @@ final class SystemExtensionInstaller: NSObject, ObservableObject,
   ) -> OSSystemExtensionRequest.ReplacementAction {
     guard existing.bundleIdentifier == Self.identifier,
       ext.bundleIdentifier == Self.identifier,
-      DriverBuildRequirement.bundled?.permitsReplacement(bundleVersion: ext.bundleVersion) == true
+      DriverBuildRequirement.bundled?.permitsReplacement(
+        existingBuild: existing.bundleVersion, existingVersion: existing.bundleShortVersion,
+        incomingBuild: ext.bundleVersion, incomingVersion: ext.bundleShortVersion,
+        productVersion: ProductIdentity.version) == true
     else { return .cancel }
     return .replace
   }
@@ -648,7 +651,7 @@ struct RewindDVApp: App {
   private var alphaVersion: String {
     Bundle.main.object(forInfoDictionaryKey: "RewindDVAlphaVersion") as? String ?? "development"
   }
-  private var productTitle: String { "rewindDV LAB (Alpha \(alphaVersion))" }
+  private var productTitle: String { ProductIdentity.display }
   @NSApplicationDelegateAdaptor(WholeTapeAppDelegate.self) private var appDelegate
   @Environment(\.scenePhase) private var scenePhase
   @StateObject private var model = RewindDVModel()
@@ -815,7 +818,7 @@ struct RewindDVApp: App {
           } else { AlphaDiagnosticsModel.shared.latestCaptureFolder = live.flightURL }
           AlphaDiagnosticsModel.shared.latestAccessRoot = live.ingestDestinationURL
           var snapshot = RewindDVAutomationSnapshot(
-            schemaVersion: 1, generatedAt: Date(), build: "190",
+            schemaVersion: 1, generatedAt: Date(), build: ProductIdentity.appBuild,
             page: (model.page ?? .capture).accessibilityID,
             monitorSource: model.monitorSource.rawValue,
             driverState: model.status.driver.rawValue,
@@ -841,6 +844,8 @@ struct RewindDVApp: App {
             wholeTapeActive: wholeTape.active,
             wholeTapeStatus: wholeTape.status)
           snapshot.alphaDiagnostics = [
+            "productVersion": ProductIdentity.version, "releaseChannel": ProductIdentity.channel,
+            "appBuild": ProductIdentity.appBuild, "driverBuild": ProductIdentity.driverBuild,
             "activation": String(describing: installer.state), "readiness": model.refreshFeedback,
             "readinessChecks": String(model.refreshAttempts), "ingest": live.ingestDetail,
             "captureFlight": live.flightURL?.path ?? "none", "wholeTapeFlight": wholeTape.evidenceURL?.path ?? "none",
@@ -886,13 +891,17 @@ struct RewindDVApp: App {
           let build = info["CFBundleVersion"] as? String ?? "Unknown"
           let revision = info["RewindDVCandidateRevision"] as? String ?? "Unpackaged development build"
           NSApplication.shared.orderFrontStandardAboutPanel(options: [
-            .applicationName: "rewindDV LAB",
-            .applicationVersion: "Alpha \(alphaVersion) · Build \(build) · \(revision)",
+            .applicationName: "rewindDV",
+            .applicationVersion: "\(ProductIdentity.version) (Alpha) · App \(build) · Driver \(ProductIdentity.driverBuild) · \(revision)",
             .version: build
           ])
         }
       }
       CommandGroup(after: .appInfo) {
+        Button("Copy Diagnostics") {
+          NSPasteboard.general.clearContents()
+          NSPasteboard.general.setString("\(ProductIdentity.display)\nApp build: \(ProductIdentity.appBuild)\nRequired driver build: \(ProductIdentity.driverBuild)\n\(model.refreshFeedback)", forType: .string)
+        }
         AcknowledgmentsCommand()
       }
       CommandMenu("Alpha testing") {

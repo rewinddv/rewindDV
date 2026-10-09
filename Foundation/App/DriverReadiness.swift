@@ -157,3 +157,30 @@ struct DriverBuildRequirement: Equatable, Sendable {
     DriverBuildRequirement(metadata: bundleVersion)?.build == build
   }
 }
+
+extension DriverBuildRequirement {
+  // SystemExtensions detects version differences; numeric forward ordering is
+  // our policy. Equal identifiers do not authenticate equal executable bytes.
+  func permitsReplacement(existingBuild: String, existingVersion: String,
+    incomingBuild: String, incomingVersion: String, productVersion: String) -> Bool {
+    guard permitsReplacement(bundleVersion: incomingBuild),
+      incomingVersion == productVersion,
+      let old = Self(metadata: existingBuild), old.build < build,
+      let oldVersion = Self.numericVersion(existingVersion),
+      let newVersion = Self.numericVersion(incomingVersion)
+    else { return false }
+    return oldVersion == newVersion || oldVersion.lexicographicallyPrecedes(newVersion)
+  }
+
+  private static func numericVersion(_ text: String) -> [UInt64]? {
+    let parts = text.split(separator: ".", omittingEmptySubsequences: false)
+    guard parts.count == 3 else { return nil }
+    var result: [UInt64] = []
+    for part in parts {
+      guard !part.isEmpty, part.utf8.allSatisfy({ $0 >= 48 && $0 <= 57 }),
+        let value = UInt64(part), value <= 9999, String(value) == part else { return nil }
+      result.append(value)
+    }
+    return result
+  }
+}

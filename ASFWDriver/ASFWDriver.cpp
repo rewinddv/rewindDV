@@ -398,6 +398,7 @@ kern_return_t ASFWDriver::StartRuntime(IOService* provider) {
     kern_return_t kr = kIOReturnSuccess;
     auto& ctx = *ivars->context;
     if (ctx.receiveQuarantined.load(std::memory_order_acquire)) return kIOReturnNotReady;
+    if (ivars->stopCompleted) return kIOReturnNotReady;
     if (ctx.nativeDrain || ivars->stopPending) return kIOReturnBusy;
     DriverWiring::EnsureDeps(this, ctx);
     if (!ctx.lifecycle || !ctx.lifecycle->BeginStart("runtime start", mach_absolute_time())) {
@@ -592,25 +593,50 @@ kern_return_t ASFWDriver::StartRuntime(IOService* provider) {
 }
 
 kern_return_t IMPL(ASFWDriver, Stop) {
+    // Native Stop and its finalizer are serialized on Default. This receipt
+    // also covers a duplicate delivered after the native drain has completed.
+    if (ivars && ivars->stopCompleted) return ivars->stopResult;
     if (ivars && !ivars->stopPending) {
         ivars->stopPending = true;
         ivars->stopProvider = provider;
         if (provider) provider->retain();
     }
-    RequestRuntimeQuiesce(static_cast<uint32_t>(QuiesceReason::kPlannedStop));
+    // Terminal service Stop can precede the provider notification on Default.
+    // Close MMIO before any teardown (including a missing lifecycle queue).
+    // This is access revocation, NOT proof of removal or DMA containment:
+    // the existing retirement gates must retain an unproved runtime.
+    if (ivars && ivars->context && ivars->context->deps.hardware) {
+        ivars->context->deps.hardware->LatchProviderRevokedAndDrain();
+    }
+    RequestRuntimeQuiesce(static_cast<uint32_t>(QuiesceReason::kProviderRevoked));
     if (ivars && ivars->context &&
         ivars->context->receiveQuarantined.load(std::memory_order_acquire)) {
         return ivars->context->receiveQuiesceFailure.load(std::memory_order_acquire);
     }
     if (ivars && ivars->context && ivars->context->nativeDrain) return kIOReturnSuccess;
     // A service that never created native sources still has no drain to await.
-    if (ivars) {
-        ivars->powerProvider = nullptr;
-        ivars->stopPending = false;
-        if (ivars->stopProvider) ivars->stopProvider->release();
-        ivars->stopProvider = nullptr;
-    }
-    return Stop(provider, SUPERDISPATCH);
+    return CompleteServiceStop(provider);
+}
+
+kern_return_t ASFWDriver::CompleteServiceStop(IOService* provider) {
+    if (!ivars) return Stop(provider, SUPERDISPATCH);
+    if (ivars->stopCompleted) return ivars->stopResult;
+    // Keep both service and the original provider alive through superclass
+    // completion. Publish the receipt before calling out, including reentry.
+    retain();
+    auto* retainedProvider = ivars->stopProvider;
+    ivars->stopProvider = nullptr;
+    ivars->stopPending = false;
+    ivars->stopCompleted = true;
+    ivars->stopResult = kIOReturnBusy;
+    ivars->powerProvider = nullptr;
+    ivars->powerAcknowledgementPending = false;
+    ivars->wakeRebuildPending = false;
+    const auto result = Stop(retainedProvider ? retainedProvider : provider, SUPERDISPATCH);
+    ivars->stopResult = result;
+    if (retainedProvider) retainedProvider->release();
+    release();
+    return result;
 }
 
 void ASFWDriver::RequestRuntimeQuiesce(uint32_t rawReason) {
@@ -804,16 +830,7 @@ void ASFWDriver::CompleteNativeRuntimeDrain() {
                       !ctx.deps.romScanner && !ctx.deps.avcDiscovery));
 
     if (ivars->stopPending) {
-        auto* provider = ivars->stopProvider;
-        ivars->stopProvider = nullptr;
-        ivars->stopPending = false;
-        ivars->powerProvider = nullptr;
-        ivars->powerAcknowledgementPending = false;
-        ivars->wakeRebuildPending = false;
-        // Stop's explicit provider reference stays valid through super and is
-        // released afterward without dereferencing provider-owned state.
-        (void)Stop(provider, SUPERDISPATCH);
-        if (provider) provider->release();
+        (void)CompleteServiceStop(ivars->stopProvider);
         release();
         return;
     }

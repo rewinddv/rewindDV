@@ -79,6 +79,8 @@ class IsochReceiveContext final
     kern_return_t Start();
     // Clearing RUN only prevents new descriptor fetches.  The caller must not
     // release any DMA-visible memory until this returns success (ACTIVE clear).
+    // A contended control gate has a 100 ms uptime retry budget. Failure before
+    // acquisition leaves state/binding untouched and requires owner retention.
     [[nodiscard]] kern_return_t Stop();
     uint32_t Poll();
 
@@ -93,6 +95,12 @@ class IsochReceiveContext final
     void DrainPayloadWriterTelemetry();
     void LogTxSytTrace();
 #ifdef ASFW_HOST_TEST
+    // Deterministic host scheduling of the real gate, without sleeping a
+    // packet callback or substituting the production Stop implementation.
+    bool TestTryAcquireReceiveGate() noexcept {
+        return !rxLock_.test_and_set(std::memory_order_acquire);
+    }
+    void TestReleaseReceiveGate() noexcept { rxLock_.clear(std::memory_order_release); }
     [[nodiscard]] Rx::IsochRxDmaRing::OHCIDescriptor* TestDescriptorAt(size_t index) noexcept {
         return rxRing_.DescriptorAt(index);
     }

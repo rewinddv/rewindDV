@@ -47,6 +47,8 @@ actor AlphaSessionRecorder {
     if journal == nil {
       let info: [String: String] = ["schema": "rewinddv.alpha-session.v1", "startedUTC": Date().ISO8601Format(),
         "macOS": ProcessInfo.processInfo.operatingSystemVersionString,
+        "productVersion": ProductIdentity.version, "releaseChannel": ProductIdentity.channel,
+        "appBuild": ProductIdentity.appBuild, "driverBuild": ProductIdentity.driverBuild,
         "alpha": Bundle.main.object(forInfoDictionaryKey: "RewindDVAlphaVersion") as? String ?? "development",
         "revision": Bundle.main.object(forInfoDictionaryKey: "RewindDVCandidateRevision") as? String ?? "development",
         "memoryBytes": String(ProcessInfo.processInfo.physicalMemory),

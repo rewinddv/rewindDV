@@ -14,9 +14,14 @@ using ASFW::Isoch::IRPolicy;
 
 struct Consumer final : ASFW::Isoch::IIsochReceiveConsumer {
     unsigned activated{}, quiesced{}, batches{}, packets{}, telemetry{};
+    ASFW::Isoch::IsochReceiveContext* reentrantContext{};
+    kern_return_t reentrantResult{kIOReturnSuccess};
     void OnReceiveActivated() noexcept override { ++activated; }
     void OnReceiveQuiesced() noexcept override { ++quiesced; }
-    void BeginReceiveBatch(const ASFW::Isoch::IsochReceiveBatch&) noexcept override { ++batches; }
+    void BeginReceiveBatch(const ASFW::Isoch::IsochReceiveBatch&) noexcept override {
+        ++batches;
+        if (reentrantContext) reentrantResult = reentrantContext->Stop();
+    }
     void ConsumePacket(const ASFW::Isoch::IsochReceiveBatch&,
                        const ASFW::Isoch::IsochReceivePacket&) noexcept override { ++packets; }
     void DrainReceiveTelemetry(uint32_t) override { ++telemetry; }
@@ -36,6 +41,24 @@ struct Fixture {
 
 int main() {
     const auto control = static_cast<Register32>(DMAContextHelpers::IsoRcvContextControlSet(0));
+    {
+        Fixture f;
+        f.Start();
+        auto context = f.isoch.CopyReceiveContext();
+        // Deliberately reentrant host consumer: production RawSink does not
+        // reenter Stop. No queue required for the owner can make progress here.
+        f.consumer.reentrantContext = context.get();
+        context->TestPayloadAt(0)[0] = 0x31;
+        context->TestDescriptorAt(0)->statusWord = (0x11u << 16) | 4095;
+        assert(context->Poll() == 1);
+        assert(f.consumer.reentrantResult == kIOReturnTimeout);
+        assert(f.consumer.packets == 1 && f.consumer.quiesced == 0);
+        assert(context->GetState() == IRPolicy::State::Running);
+        f.consumer.reentrantContext = nullptr;
+        f.hardware.SetTestRegister(control, 0);
+        assert(f.isoch.StopPacketReceive(&f.consumer) == kIOReturnSuccess);
+        assert(f.consumer.packets == 1 && f.consumer.quiesced == 1);
+    }
     {
         Fixture f;
         // Whole-tape close followed by manual start reuses the exact context.

@@ -29,6 +29,7 @@ def validate_identities(status, alpha, driver, app_build=None):
         check(re.fullmatch(r'\d+\.\d+\.\d+', identity['application_version']), 'Invalid alpha version')
         check(type(identity['driver_build']) is int and identity['driver_build'] > 0, 'Invalid driver build')
         check(re.fullmatch(r'[0-9a-f]{40}', identity['source_revision']), 'Full public source revision required')
+    check(status['development'].get('release_channel') == 'alpha', 'Development channel must remain alpha')
     check(status['development']['application_version'] == alpha, 'Development alpha disagrees with source')
     check(status['development']['driver_build'] == driver, 'Development driver disagrees with source')
     if app_build is not None:
@@ -49,32 +50,17 @@ def validate_identities(status, alpha, driver, app_build=None):
     # Deliberately no arithmetic/coupling across app, driver or lifecycle versions.
 
 
+def canonical_identity(root):
+    return json.loads(subprocess.check_output(['python3', '-B', str(root / 'Foundation/Tools/product_identity.py'), '--check'], text=True))
+
+
 def source_versions(root):
-    alpha = (root / 'Foundation/Config/AlphaVersion.txt').read_text().strip()
-    config = (root / 'Foundation/Config/DriverBuild.xcconfig').read_text()
-    builds = re.findall(r'^REWINDDV_DRIVER_BUILD = ([1-9][0-9]*)$', config, re.M)
-    check(len(builds) == 1 and int(builds[0]) <= 4294967295, 'Ambiguous canonical driver build')
-    check('CURRENT_PROJECT_VERSION = $(REWINDDV_DRIVER_BUILD)' in config,
-          'Driver bundle version is not bound to canonical driver build')
-    project = (root / 'Foundation/RewindDV.xcodeproj/project.pbxproj').read_text()
-    # CI uses the same checked-in OpenStep structure without Apple plutil.
-    blocks = re.findall(r'"buildSettings" = \{(.*?)\n      \};', project, re.S)
-    driver_blocks = [b for b in blocks if '"PRODUCT_BUNDLE_IDENTIFIER" = "net.rewinddigital.RewindDV.Driver";' in b]
-    check(len(driver_blocks) == 2 and not any('"CURRENT_PROJECT_VERSION"' in b for b in driver_blocks),
-          'Driver build must resolve through its canonical xcconfig')
-    config_ids = re.findall(r'"([A-Za-z0-9]+)" = \{\n      "isa" = "PBXFileReference";\n      "lastKnownFileType" = "text.xcconfig";\n      "path" = "Config/DriverBuild.xcconfig";', project)
-    check(len(config_ids) == 1 and project.count('"baseConfigurationReference" = "' + config_ids[0] + '";') == 2,
-          'Both driver configurations must use the canonical xcconfig')
-    header = (root / 'Foundation/Config/DriverVersion.hpp').read_text()
-    check('REWINDDV_STRINGIFY(REWINDDV_DRIVER_BUILD)' in header, 'Compiled driver metadata is not canonical')
-    return alpha, int(builds[0])
+    identity = canonical_identity(root)
+    return identity['product_version'], identity['driver_build']
 
 
 def source_app_build(root):
-    project = (root / 'Foundation/RewindDV.xcodeproj/project.pbxproj').read_text()
-    defaults = re.findall(r'"CURRENT_PROJECT_VERSION" = "([0-9]+)";', project)
-    check(len(set(defaults)) == 1, 'Ambiguous independent app build')
-    return int(defaults[0])
+    return canonical_identity(root)['app_build']
 
 
 def status_block(status):
@@ -94,8 +80,8 @@ def status_block(status):
                     f"({status['links']['release']}) — engineering prerelease, ad-hoc signed and not notarized. "
                     "Driver installation requires disabling SIP, which reduces macOS security. Offline playback, Surgery and inspection require no driver activation.\n\n")
     return (START + "\n"
-            f"**Current development:** Alpha {d['application_version']} / Driver B{d['driver_build']}. "
-            f"App build {d['application_build']}. [Reviewed public source]({status['links']['source']}/tree/{d['source_revision']}).\n\n"
+            f"**Current development:** rewindDV {d['application_version']} (Alpha). "
+            f"App build {d['application_build']}; driver build {d['driver_build']}. [Reviewed public source]({status['links']['source']}/tree/{d['source_revision']}).\n\n"
             + download + "Development source and downloads have separate identities and qualification. "
             "Application versions and driver builds advance independently. "
             "[Machine-readable status](PROJECT-STATUS.json).\n" + END)

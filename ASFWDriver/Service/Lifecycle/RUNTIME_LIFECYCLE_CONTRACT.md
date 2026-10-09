@@ -6,7 +6,6 @@ This document is the authority for the ASFWDriver root runtime lifecycle.
 Implementation code may refine resource details, but it must not introduce a
 second state machine, teardown path, or hardware-legality authority.
 
-Token-based routing and device-route validity remain part of the runtime ownership contract.
 
 ## Ownership
 
@@ -126,15 +125,44 @@ only the DriverKit objects explicitly required for a safe resume. Finish in
 
 ### Provider revocation
 
-1. Enter `Revoked` from `Running`.
-2. Close producers.
-3. Revoke and drain local MMIO immediately.
-4. Cancel and drain DriverKit callback sources.
-5. Tear down software state without final register cleanup.
-6. Release provider resources.
-7. Enter `Stopped`.
+1. Latch MMIO rejection, then drain any synchronous admitted access scope.
+2. Enter `Revoked` and close producer admission through the coordinator.
+3. Require receive retirement before entering native cancellation.
+4. Cancel and drain DriverKit callback sources, preserving acknowledgments.
+5. Require async/DMA retirement and wire certainty before resource release.
+6. Tear down software state without final register cleanup only when every
+   release gate succeeds; otherwise retain the complete quarantined graph.
+7. Release provider resources and enter `Stopped` only after those gates.
 
-No operation after step 3 may assume that OHCI registers respond.
+No operation after step 1 may assume that OHCI registers respond. The software
+revocation flag proves neither physical removal nor DMA isolation. Existing
+initialized receive/async contexts normally cannot establish retirement after
+access closes, so terminal containment can retain them indefinitely.
+
+### Terminal service Stop
+
+Native `IOService::Stop` can arrive before provider notification on Default. It
+latches/drains MMIO before requesting the revoked coordinator path, including
+when the lifecycle queue is unavailable. Ordinary capture STOP, AV/C tape STOP,
+client disconnect, suspend and failed-start cleanup retain their own paths.
+
+`CompleteServiceStop` owns one Default-serialized superclass completion receipt,
+shared by the empty-resource path and native-drain finalizer. Service and original
+provider references survive the superclass call; duplicate requests return the
+recorded result and cannot complete it twice. Terminal completion forbids runtime
+restart. This receipt is not another runtime state or evidence of DMA retirement.
+Clean live unload and physical removal remain unqualified.
+
+Receive Stop retains its nonblocking packet-consumption path and uses a 100 ms
+monotonic uptime budget only when its control caller contends for the receive
+gate. Scheduler delay/suspension can extend wall-clock return; it is not a hard
+real-time deadline. Failure leaves the foreign gate, binding, descriptors and
+context state untouched. An authorized Foundation session Stop records permanent
+quarantine, closes outer admission outside its locks, and requests service
+containment even if the receive context still reports Running. Late owner
+completion or local context retirement cannot erase that session failure or
+authorize resource cleanup/restart. Quiesced Start/binding and inactive Foundation
+transmit paths are unchanged.
 
 ### Start failure
 

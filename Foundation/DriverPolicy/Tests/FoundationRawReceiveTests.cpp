@@ -126,7 +126,60 @@ struct Fixture {
     }
 };
 
-int main() {
+int main(int argc, char**) {
+    // Each quarantined fixture keeps the global capture exclusion, like the
+    // real service. Exercise independent failures in separate host processes.
+    if (argc > 1) {
+        auto* f = new Fixture; // retained session after failed gate acquisition
+        f->ManagedActive();
+        auto context = f->isoch.CopyReceiveContext();
+        assert(context->TestTryAcquireReceiveGate());
+        auto* descriptor = context->TestDescriptorAt(0);
+        context->TestPayloadAt(0)[0] = 0x57;
+        const uint32_t completed = (0x8411u << 16) | (4096 - 496);
+        descriptor->statusWord = completed;
+        const auto locks = f->bus.LockCount();
+        const auto writes = f->bus.WriteCount();
+        assert(f->service.Stop(11, f->session.epoch) == kIOReturnNotPrivileged);
+        assert(f->service.Stop(10, f->session.epoch + 1) == kIOReturnNotPrivileged);
+        assert(f->quarantineCalls == 0);
+        // The real gate is held throughout Stop, including its full deadline.
+        assert(f->service.Stop(10, f->session.epoch) == kIOReturnTimeout);
+        assert(f->quarantineCalls == 1);
+        assert(context->GetState() == ASFW::Isoch::IRPolicy::State::Running);
+        assert(descriptor->statusWord == completed);
+        assert(context->Poll() == 0); // timeout did not clear someone else's gate
+        assert(f->Status().state == uint32_t(RX::State::Quarantined));
+        assert(f->Status().lastStatus == kIOReturnTimeout);
+        assert(f->service.Stop(10, f->session.epoch) == kIOReturnTimeout);
+        assert(f->service.StopAll() == kIOReturnTimeout);
+        assert(f->service.ReleaseOwner(10) == kIOReturnTimeout);
+        assert(f->Start() == kIOReturnBusy);
+        assert(f->quarantineCalls == 1 && f->isoch.CopyReceiveContext() == context);
+        assert(f->bus.LockCount() == locks && f->bus.WriteCount() == writes && f->bus.pending.empty());
+        context->TestReleaseReceiveGate();
+        f->hardware->SetTestRegister(static_cast<Register32>(DMAContextHelpers::IsoRcvContextControlSet(0)), 0);
+        // A late owner can finish and locally quiesce; the terminal service
+        // receipt still forbids cleanup/restart and retains its error evidence.
+        assert(context->Stop() == kIOReturnSuccess);
+        assert(f->Status().writeSequence == 1);
+        uint64_t options = 0;
+        IOMemoryDescriptor* memory = nullptr;
+        assert(f->service.CopyMemory(10, &options, &memory) == kIOReturnSuccess);
+        IOAddressSegment range{};
+        assert(memory->GetAddressRange(&range) == kIOReturnSuccess);
+        const auto* records = reinterpret_cast<const RX::Record*>(range.address + sizeof(RX::RingHeader));
+        assert(records[0].transferStatus == 0x8411 && records[0].residualCount == 3600);
+        assert(records[0].payloadBytes == 496 && records[0].payload[0] == 0x57);
+        memory->release();
+        assert(context->Stop() == kIOReturnSuccess && f->Status().writeSequence == 1);
+        assert(f->service.Stop(10, f->session.epoch) == kIOReturnTimeout);
+        assert(f->Status().lastStatus == kIOReturnTimeout);
+        assert(f->bus.LockCount() == locks && f->bus.WriteCount() == writes);
+        std::puts("Managed receive gate timeout: authorized containment, retained lease/packet, late drain and permanent failure receipt passed");
+        return 0;
+    }
+
     static_assert(RX::RawSink::RequiredBytes() == 272630016);
     {
         Fixture f;
@@ -760,6 +813,7 @@ int main() {
         f->hardware->SetTestRegister(static_cast<Register32>(DMAContextHelpers::IsoRcvContextControlSet(0)),
                                      ASFW::Driver::ContextControl::kActive);
         assert(f->service.Stop(10, f->session.epoch) == kIOReturnTimeout);
+        assert(f->quarantineCalls == 1);
         assert(f->Status().state == uint32_t(RX::State::Quarantined));
         assert(f->service.ReleaseOwner(10) == kIOReturnTimeout);
         assert(f->service.StopAll() == kIOReturnTimeout);

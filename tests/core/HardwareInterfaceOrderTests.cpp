@@ -70,6 +70,34 @@ protected:
 
 namespace {
 
+TEST_F(HardwareInterfaceOrderTests, RevocationSuppressesAdmittedReadWriteAndFinalFlushBeforeDrain) {
+    EXPECT_CALL(*mockDevice_, MemoryRead32(_, _, _)).Times(0);
+    EXPECT_CALL(*mockDevice_, MemoryWrite32(_, _, _)).Times(0);
+    auto access = hardware_.TryBeginAccess();
+    ASSERT_TRUE(access);
+    std::atomic<bool> returned{false};
+    std::thread revoker([&] {
+        hardware_.LatchProviderRevokedAndDrain();
+        returned.store(true, std::memory_order_release);
+    });
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (!hardware_.HardwareGone() && std::chrono::steady_clock::now() < deadline)
+        std::this_thread::yield();
+    const bool latched = hardware_.HardwareGone();
+    EXPECT_FALSE(returned.load(std::memory_order_acquire));
+    if (latched) {
+        EXPECT_EQ(access.Read(Register32::kHCControl), 0xffffffffu);
+        access.Write(Register32::kIntMaskClear, 1);
+        access.FlushPostedWrites();
+        access.WriteAndFlush(Register32::kIntMaskClear, 1);
+    }
+    access = {}; // Only this release lets the revoker's drain complete.
+    revoker.join();
+    EXPECT_TRUE(latched);
+    EXPECT_TRUE(returned.load(std::memory_order_acquire));
+    EXPECT_FALSE(hardware_.TryBeginAccess());
+}
+
 TEST_F(HardwareInterfaceOrderTests, ReadDoesNotApplyStaleCompareSwapToAnyResource) {
     for (uint32_t selector = 0; selector < 4; ++selector) {
         for (uint32_t original : {0u, 4915u, 0xFFFFFFFFu, 0x1332u}) {

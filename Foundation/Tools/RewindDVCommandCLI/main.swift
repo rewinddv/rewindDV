@@ -1,6 +1,9 @@
 // Copyright 2026 Rewind Digital, LLC. SPDX-License-Identifier: Apache-2.0
 import Darwin
 import Foundation
+#if canImport(RewindDVMonitorCore)
+import RewindDVMonitorCore
+#endif
 
 private struct Command: Codable {
   let name: String
@@ -207,7 +210,7 @@ private func mcpLoop() {
     case "initialize":
       reply["result"] = ["protocolVersion": "2025-06-18",
                          "capabilities": ["tools": ["listChanged": false]],
-                         "serverInfo": ["name": "rewinddv", "version": "0.1.0"]]
+                         "serverInfo": ["name": "rewinddv", "version": ProductIdentity.version]]
     case "ping": reply["result"] = [:]
     case "tools/list": reply["result"] = ["tools": tools.map(\.listing)]
     case "tools/call":
@@ -240,6 +243,12 @@ private func mcpLoop() {
 
 @main struct RewindDVCommandCLI {
   static func main() {
+    if CommandLine.arguments.dropFirst().first == "--version" {
+      print(ProductIdentity.display + " · App " + ProductIdentity.appBuild + " · Driver " + ProductIdentity.driverBuild)
+      exit(0)
+    }
+
+
     let args = Array(CommandLine.arguments.dropFirst())
     if args == ["mcp"] { mcpLoop(); return }
     guard let name = args.first, let tool = tools.first(where: { $0.name == name }) else {

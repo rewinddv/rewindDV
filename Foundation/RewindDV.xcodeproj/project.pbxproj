@@ -5544,7 +5544,6 @@
         "MACOSX_DEPLOYMENT_TARGET" = "26.0";
         "SWIFT_VERSION" = "6.0";
         "CODE_SIGNING_ALLOWED" = "NO";
-        "CURRENT_PROJECT_VERSION" = "190";
         "OTHER_CFLAGS" = (
           "$(inherited)",
           "-ffile-prefix-map=$(SRCROOT:dir)=/rewindDV/",
@@ -5554,7 +5553,6 @@
           "-file-prefix-map", "$(SRCROOT:dir)=/rewindDV/",
           "-debug-prefix-map", "$(SRCROOT:dir)=/rewindDV/",
         );
-        "MARKETING_VERSION" = "0.1.0";
         "ENABLE_USER_SCRIPT_SANDBOXING" = "YES";
         "GCC_OPTIMIZATION_LEVEL" = "0";
         "DEBUG_INFORMATION_FORMAT" = "dwarf";
@@ -5573,7 +5571,6 @@
         "MACOSX_DEPLOYMENT_TARGET" = "26.0";
         "SWIFT_VERSION" = "6.0";
         "CODE_SIGNING_ALLOWED" = "YES";
-        "CURRENT_PROJECT_VERSION" = "190";
         "OTHER_CFLAGS" = (
           "$(inherited)",
           "-ffile-prefix-map=$(SRCROOT:dir)=/rewindDV/",
@@ -5583,7 +5580,6 @@
           "-file-prefix-map", "$(SRCROOT:dir)=/rewindDV/",
           "-debug-prefix-map", "$(SRCROOT:dir)=/rewindDV/",
         );
-        "MARKETING_VERSION" = "0.1.0";
         "ENABLE_USER_SCRIPT_SANDBOXING" = "YES";
         "GCC_OPTIMIZATION_LEVEL" = "s";
         "SWIFT_OPTIMIZATION_LEVEL" = "-O";
@@ -5709,8 +5705,15 @@
       "defaultConfigurationIsVisible" = "0";
       "defaultConfigurationName" = "Release";
     };
+    "F01100000000000000000001" = {
+      "isa" = "PBXFileReference";
+      "lastKnownFileType" = "text.xcconfig";
+      "path" = "Config/AppBuild.xcconfig";
+      "sourceTree" = "<group>";
+    };
     "000000000000000000000893" = {
       "isa" = "XCBuildConfiguration";
+      "baseConfigurationReference" = "F01100000000000000000001";
       "name" = "Debug";
       "buildSettings" = {
         "SDKROOT" = "macosx";
@@ -5744,6 +5747,7 @@
     };
     "000000000000000000000894" = {
       "isa" = "XCBuildConfiguration";
+      "baseConfigurationReference" = "F01100000000000000000001";
       "name" = "Release";
       "buildSettings" = {
         "SDKROOT" = "macosx";
@@ -6027,6 +6031,7 @@
       "isa" = "PBXNativeTarget";
       "buildConfigurationList" = "000000000000000000000892";
       "buildPhases" = (
+        "F01100000000000000000002",
         "000000000000000000000896",
       );
       "buildRules" = (
@@ -6080,13 +6085,45 @@
       "name" = "Embed Driver Extension";
       "runOnlyForDeploymentPostprocessing" = "0";
     };
+    "F01100000000000000000002" = {
+      "isa" = "PBXShellScriptBuildPhase";
+      "buildActionMask" = "2147483647";
+      "files" = ();
+      "inputPaths" = (
+        "$(SRCROOT)/Config/ProductIdentity.json",
+        "$(SRCROOT)/Config/IdentityHistory.json",
+        "$(SRCROOT)/Config/ProductIdentity.xcconfig",
+        "$(SRCROOT)/Config/AppBuild.xcconfig",
+        "$(SRCROOT)/Config/DriverBuild.xcconfig",
+        "$(SRCROOT)/Config/AlphaVersion.txt",
+        "$(SRCROOT)/Config/ProductIdentity.hpp",
+        "$(SRCROOT)/Sources/RewindDVMonitorCore/ProductIdentity.swift",
+        "$(SRCROOT)/RewindDV.xcodeproj/project.pbxproj",
+        "$(SRCROOT)/Tools/product_identity.py",
+        "$(SRCROOT)/Tools/generate-app-info.zsh",
+      );
+      "outputPaths" = ();
+      "alwaysOutOfDate" = "1";
+      "name" = "Check Driver Product Identity";
+      "runOnlyForDeploymentPostprocessing" = "0";
+      "shellPath" = "/bin/zsh";
+      "shellScript" = "/usr/bin/python3 -B \"$SRCROOT/Tools/product_identity.py\" --check";
+    };
     "F01800000000000000000001" = {
       "isa" = "PBXShellScriptBuildPhase";
       "buildActionMask" = "2147483647";
       "files" = ();
       "inputPaths" = (
-        "$(SRCROOT)/Config/AlphaVersion.txt",
+        "$(SRCROOT)/Config/ProductIdentity.json",
+        "$(SRCROOT)/Config/IdentityHistory.json",
+        "$(SRCROOT)/Config/ProductIdentity.xcconfig",
+        "$(SRCROOT)/Config/AppBuild.xcconfig",
         "$(SRCROOT)/Config/DriverBuild.xcconfig",
+        "$(SRCROOT)/Config/AlphaVersion.txt",
+        "$(SRCROOT)/Config/ProductIdentity.hpp",
+        "$(SRCROOT)/Sources/RewindDVMonitorCore/ProductIdentity.swift",
+        "$(SRCROOT)/RewindDV.xcodeproj/project.pbxproj",
+        "$(SRCROOT)/Tools/product_identity.py",
         "$(SRCROOT)/Tools/generate-app-info.zsh",
       );
       "outputPaths" = (
