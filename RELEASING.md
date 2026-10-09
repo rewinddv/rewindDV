@@ -1,5 +1,14 @@
 # Full signed release workflow
 
+Current development is rewindDV 0.1.1 (Alpha), App191 / Driver194.
+`Foundation/Config/ProductIdentity.json` is the single product/channel/component
+authority; generated settings and the AlphaVersion compatibility alias are checked
+with `python3 -B Foundation/Tools/product_identity.py --check`. New numeric product
+versions also supply both freshly built bundles’ macOS short versions. Component
+builds remain independent. This migration publishes source only; the available
+Alpha0.0.96 / App190 / Driver193 binary and its historical identities are unchanged.
+
+
 Build the exact clean reviewed public-source commit using the manual archive
 workflow in [DeveloperIDSigning](Foundation/Docs/DeveloperIDSigning.md). Compile
 and Developer ID-sign the normal CLI separately with hardened runtime and a secure
@@ -99,8 +108,9 @@ The tool reads existing sources; it adds no independently maintained version fil
 | Source commit/tree | Git object identities of the clean, reviewed public checkout |
 | Release tag | `alpha-VERSION`, `beta-VERSION`, `rc-VERSION`, or `vVERSION` for stable |
 
-The app version and bundle marketing version currently have different meanings;
-the validator preserves that distinction. App and driver build numbers are
+For the historical releases described in this section, the app version and
+bundle marketing version had different meanings; archived receipts preserve that
+distinction. Current canonical identity validation requires agreement. App and driver build numbers are
 independent even when equal. Do not increment the driver merely to match an app
 release. Do not change any version just to exercise this tooling. If a version's
 tag already exists, preparation refuses it; another real release requires its
