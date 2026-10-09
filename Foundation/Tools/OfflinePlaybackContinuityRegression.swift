@@ -38,6 +38,9 @@ import Foundation
       }
       expected.append(archivedTimecode)
     }
+    // Frame-local opening deliberately does not start a whole-file scan. This
+    // oracle measures steady playback after an explicitly requested audit.
+    model.assessWholeFile()
     // Whole-file audit and initial source specifications publish once when ready.
     // Finish those independent owners before measuring steady playback updates.
     let sourceDeadline = ContinuousClock.now.advanced(by: .seconds(30))
