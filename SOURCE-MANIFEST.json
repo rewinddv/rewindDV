@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "source_revision": "28a500cb57f9f3f1ffeab16386cf9f1943d4d8ab",
+  "source_revision": "1b715b2a7e8f0b7d15e8caa48cdb7c0abae53554",
   "files": [
     {
       "path": "ACKNOWLEDGMENTS.md",
@@ -4059,10 +4059,16 @@
       "sha256": "cf3b07c8414d0b5822c2a8fd463f8261c2e36761e33688509c669eb5bc387afb"
     },
     {
+      "path": "Foundation/App/DVInspectorBrowserView.swift",
+      "mode": "100644",
+      "git_blob": "88ba8631b261a6e0db0dbd3e39b88e41dbe96968",
+      "sha256": "5883599689e44f83a14bf38ca5713120f8e96abb6bb352d984af1c16b882aaa1"
+    },
+    {
       "path": "Foundation/App/DVMetadataInspector.swift",
       "mode": "100644",
-      "git_blob": "73f30cc7f7234d28974480b50ee0256227ce2771",
-      "sha256": "9cd3607896bc37f00bc418237e8212f7575bc1d2a36813f5ec8358c5d4ceb424"
+      "git_blob": "66312c4be4f9c65a20efe5eba8e2c9defd4b11d7",
+      "sha256": "b4fbcc5a492b4f2be14e21b99aa4d49b7325a7707870aaff8c3e8b776a7963c6"
     },
     {
       "path": "Foundation/App/DVMetalFieldProcessor.swift",
@@ -4343,8 +4349,8 @@
     {
       "path": "Foundation/App/UnifiedMonitorWorkspace.swift",
       "mode": "100644",
-      "git_blob": "27c85a02f03a68f859c4d01f1bba920896a403ab",
-      "sha256": "3951e9d1a0711e800b7168452eb23ebd79ae599d1886b8d3a3dc1d227fd74543"
+      "git_blob": "db5f11aca036be3571eb81733f0d6f291bea744c",
+      "sha256": "53827803954952b037425d3c1db5595fac85aa42f827074bd144d0574642c67c"
     },
     {
       "path": "Foundation/App/WholeTapeCaptureModel.swift",
@@ -4373,8 +4379,8 @@
     {
       "path": "Foundation/Config/AlphaVersion.txt",
       "mode": "100644",
-      "git_blob": "7ac4e5e38f1e39e79557565a854f377c71d12766",
-      "sha256": "976e7492a0ab4e0e742f1c8af5c345fde0d450bfb22c01b0e40c4cf80a42cd10"
+      "git_blob": "7e72641b4bd1eeb711b63d83a55e913f24e3f6b8",
+      "sha256": "b0569383609842116bc78ee560cb5a7aee44bdbe59d85efc7b7316cb72389862"
     },
     {
       "path": "Foundation/Config/App.entitlements",
@@ -4421,8 +4427,8 @@
     {
       "path": "Foundation/Config/IdentityHistory.json",
       "mode": "100644",
-      "git_blob": "a19ac622400ccaf67e966283bc21fcf7eeed2837",
-      "sha256": "9697dceb364608347382d442b488e9d4ad22dfcaec111d04662d38ea6e528a25"
+      "git_blob": "c6ac2790fdc474871570e85dc2b800fc9e5ed900",
+      "sha256": "26792ffb52eaf5a555c1b9621b876f5fc4054dffb05e30779128a2cc714b0a1f"
     },
     {
       "path": "Foundation/Config/OfflineApp.entitlements",
@@ -4439,14 +4445,14 @@
     {
       "path": "Foundation/Config/ProductIdentity.json",
       "mode": "100644",
-      "git_blob": "ec96d5fd0bdda441bbe34b92d7b73b740c36128f",
-      "sha256": "15cb81e64079d5edca8886b32a68afa66908a39562395b521af4bbae60d08902"
+      "git_blob": "d798e2e4494581ac2bf427e1e13b8a94c720fc8a",
+      "sha256": "45cd6135d203627495627c2515cf789d391841b8a5e39648ac5e8f5b9807765f"
     },
     {
       "path": "Foundation/Config/ProductIdentity.xcconfig",
       "mode": "100644",
-      "git_blob": "dd9cc1290ac6172c4e3fb64862a359c442ab99a9",
-      "sha256": "a59ef5c58d44147e5dae5d2b40b820d1cdb38f46755d48fbea50a6eab8c13f44"
+      "git_blob": "13ba5843c283584671d71994c71b31aadfd0e7ff",
+      "sha256": "e429d5e1b50c5184d4007488762ab27c40bd07e8e46494555eff234d7c949d80"
     },
     {
       "path": "Foundation/DEVELOPMENT.md",
@@ -4479,16 +4485,28 @@
       "sha256": "9f5e78e9073ec1b4f5f184700b258ab51f52c2a22bf74d16e04cd6bd98545541"
     },
     {
+      "path": "Foundation/Docs/MetadataDecodingLimits.md",
+      "mode": "100644",
+      "git_blob": "bf8eed80d1de4f19688d7227d655046761fa2d20",
+      "sha256": "cd5992a2fd1c0266d31c91d4a49a4de5652d63a5809fe14503b5d0af25dc019c"
+    },
+    {
       "path": "Foundation/Docs/PostCaptureMemoryHotfix.md",
       "mode": "100644",
       "git_blob": "82a0b2f6368b2f3cbd7b6200678a976b4cc0afb8",
       "sha256": "af9826953397e5a579fff6df915379a6d086e602f85900d8a2ad6c619dabc8d4"
     },
     {
+      "path": "Foundation/Docs/RecordedMetadata.md",
+      "mode": "100644",
+      "git_blob": "14b71401088a75406023acf7032e3600e789a758",
+      "sha256": "58785413ed465be8552538c15dab861d9e61ab1a3124b45ae1ccb180c8307979"
+    },
+    {
       "path": "Foundation/Docs/UnchangedDriverPackaging.md",
       "mode": "100644",
-      "git_blob": "e1f17da3a03b5f6a48aa3465307a1d1fefd96d2b",
-      "sha256": "e0c287aff7ccea8796ee13c0b8b1e9db7b6d74fe7c62f3ea39cdeee94c4f338d"
+      "git_blob": "0aba10c4712f35625bddcc434dc32257901dff0d",
+      "sha256": "c0cfa88afbabb0ce95d52da845fe904bfd212b1d6c3758abb7494f21b72d3553"
     },
     {
       "path": "Foundation/Docs/WHOLE-TAPE-JOB-ACCOUNTING.md",
@@ -4745,8 +4763,8 @@
     {
       "path": "Foundation/Package.swift",
       "mode": "100644",
-      "git_blob": "c59da5568d4d84c426dfbbf9ee5fcc5cf60adc5e",
-      "sha256": "00b08cc1f9b503203f20fb524578a2ccf38c1a665563348b7b9433121c7d089f"
+      "git_blob": "5a5bad4a82758b95b0dc3156bc22cf49e8cda0ef",
+      "sha256": "44cbe7c9e5bb0801dc3a3fa9a930827a4630fe0b7c61762e261342803126ffe4"
     },
     {
       "path": "Foundation/RewindDV.xcodeproj/project.pbxproj",
@@ -4853,20 +4871,20 @@
     {
       "path": "Foundation/Sources/RewindDVArchiveCore/DVIEC61834.swift",
       "mode": "100644",
-      "git_blob": "884c810cf959b8c4de52f1c735b0509f99b48c84",
-      "sha256": "3f014c110a7b0c0ab71c5c329f401d53405fbc11803897448f5da1a51c0f26ad"
+      "git_blob": "36dec12ac5631901e29aa978cd408abd05c71edd",
+      "sha256": "cce9a1cd2865d403ad59c7c90728109ecde3052bb622ff69b5483b0c2d7151a8"
     },
     {
       "path": "Foundation/Sources/RewindDVArchiveCore/DVIEC61834Vocabularies.swift",
       "mode": "100644",
-      "git_blob": "7dd21cb2c1671f9f5d319410f847c5927bacf50a",
-      "sha256": "694294664f8eba4d9f1f0960b8ca036743c4249687fe05a0a1b68541ffb22325"
+      "git_blob": "9ce8024064375a8a10564c4682a5c4f975eb849b",
+      "sha256": "7947710b5d0e88a689ce9256043087fd3234f8aade3ccaeb04d45a2a6926ad93"
     },
     {
       "path": "Foundation/Sources/RewindDVArchiveCore/DVIECSequences.swift",
       "mode": "100644",
-      "git_blob": "e270344f1975a7d2cc72cdb7aa3f6b0bb977dd2d",
-      "sha256": "12ee9124895e87063eacdc0377786f9be7e7260edfd5e73e76cee10c319f2d91"
+      "git_blob": "5fc96eb7d719168439a858b2de76b0275e79b69e",
+      "sha256": "122bd0181ffa5ce1c69308e3d724688e50cc1cedf08ee98722e050d6ef26b4a3"
     },
     {
       "path": "Foundation/Sources/RewindDVArchiveCore/DVIngestExporter.swift",
@@ -4907,8 +4925,8 @@
     {
       "path": "Foundation/Sources/RewindDVArchiveCore/DVPackSemantics.swift",
       "mode": "100644",
-      "git_blob": "5b2b3066239fc8e5b9541559f1edef2c1168017b",
-      "sha256": "173fe7b1a6421d67c582f1725fde8179fc0247ada7c0f6f0519b9529e449f935"
+      "git_blob": "4fdb5becafccfd3526632f488b7449a85f209e70",
+      "sha256": "5ae25e3b540486059b500528acfcf92e810369205e1e35f3e32ef467d8a319a9"
     },
     {
       "path": "Foundation/Sources/RewindDVArchiveCore/DVPortablePublication.swift",
@@ -4949,8 +4967,8 @@
     {
       "path": "Foundation/Sources/RewindDVArchiveCore/DVStructuralMetadata.swift",
       "mode": "100644",
-      "git_blob": "acdd8821980d08adc2cb39c2f4a333ed43bbaf9d",
-      "sha256": "c321a424db51812142b5c1627c0ea5747d84b0f7fc8a32d0c284191be879f9e3"
+      "git_blob": "520f7ff2b294f5e5db83a7d3dff1d25a8c3c8320",
+      "sha256": "404cc4cc7db8575d753cc24d0f4f982217b21a13640263befe5827e5cda131e0"
     },
     {
       "path": "Foundation/Sources/RewindDVArchiveCore/DVSupplementalPackSemantics.swift",
@@ -4981,6 +4999,12 @@
       "mode": "100644",
       "git_blob": "b4b07f6b029369e34aad7b007e6fb5f66ed05f45",
       "sha256": "234737fb8d24a5a8595ec30859d6e7cde4dc81ced6477c6910d46861f83058dd"
+    },
+    {
+      "path": "Foundation/Sources/RewindDVArchiveCore/DVTimecodeUserBits.swift",
+      "mode": "100644",
+      "git_blob": "1a274591de03da34e175394def811d4f4fa84122",
+      "sha256": "4c49eb61effa6cdd8a70404b1db572d69082ce0be39bea34762a38741664355b"
     },
     {
       "path": "Foundation/Sources/RewindDVArchiveCore/DVVerifiedFrameSource.swift",
@@ -5055,10 +5079,16 @@
       "sha256": "cf6e85d7731bcc487d7603f75d315261b2cffcdfa9578eba946f1a64b3c55ec9"
     },
     {
+      "path": "Foundation/Sources/RewindDVMonitorCore/DVInspectorBrowser.swift",
+      "mode": "100644",
+      "git_blob": "02947ded20f64d86cd8a5eac1203c2528f7991ae",
+      "sha256": "b8aade2ce6086842616513df1919dbe46e8db7098d59c45af9a5c96b515571ce"
+    },
+    {
       "path": "Foundation/Sources/RewindDVMonitorCore/DVMetadataPresentation.swift",
       "mode": "100644",
-      "git_blob": "eaca3188d44a45b602bf440372401e32f1087988",
-      "sha256": "d688bef935f4caa2a97451e0937dc065fe513f0f7d37a60b22426710f8cb4ef0"
+      "git_blob": "5d1880950dcbef28ae8abab63d059febc4715c58",
+      "sha256": "eacfc0a31857fa2771c6e7ab44a1dce0d4d0d1306b2a55cd103ba98aaeaf78e4"
     },
     {
       "path": "Foundation/Sources/RewindDVMonitorCore/DVPlaybackTimeline.swift",
@@ -5087,8 +5117,8 @@
     {
       "path": "Foundation/Sources/RewindDVMonitorCore/DVTechnicalSpecifications.swift",
       "mode": "100644",
-      "git_blob": "b78224e6bdb8a58f3ec1c1a724f462204c29a75e",
-      "sha256": "b6b3809f7c609ae6fbb72476edaebdcff02227a9391b709ca567f4a9fc2a959b"
+      "git_blob": "fb70d4657333ac47b9b45f2d13c8a3333aaa3d59",
+      "sha256": "952e2cf9192e0622babce721a3dd8a8c534f88707207b14f581d0f752da33ab3"
     },
     {
       "path": "Foundation/Sources/RewindDVMonitorCore/DVViewingMode.swift",
@@ -5153,8 +5183,8 @@
     {
       "path": "Foundation/Sources/RewindDVMonitorCore/ProductIdentity.swift",
       "mode": "100644",
-      "git_blob": "80a1e3ae5bf6be619ee96af26d8e89a4ddbd14f5",
-      "sha256": "efe058ac21f8177d419f15c8aeadec3b0398557f9fc368012a9bcca87c9b542e"
+      "git_blob": "84b6bed25aaef8876b664d8d6f77555d77ae17d8",
+      "sha256": "db771d24eb63c31d2f8c24b99796b1475b31d9191db93f6de3be87da1ac60b66"
     },
     {
       "path": "Foundation/Sources/RewindDVMonitorCore/ReceiveMediaFormatEvidence.swift",
@@ -5201,8 +5231,8 @@
     {
       "path": "Foundation/Tests/RewindDVArchiveCoreTests/DVCorpusV2Tests.swift",
       "mode": "100644",
-      "git_blob": "620250d34befed06e079b3763a701eba4bcc8ae1",
-      "sha256": "315971c10430c2f5918adecb284d13101b85d731c87e2514a92e89082c3319a5"
+      "git_blob": "fe16b2e1984d1680d9529ca147e614a2856837df",
+      "sha256": "881994ce4dd081bb0ac53833e89704ad475d361ace90b9d7b68ada058d7f0ac2"
     },
     {
       "path": "Foundation/Tests/RewindDVArchiveCoreTests/DVDataSliceTests.swift",
@@ -5243,8 +5273,8 @@
     {
       "path": "Foundation/Tests/RewindDVArchiveCoreTests/DVIEC61834Tests.swift",
       "mode": "100644",
-      "git_blob": "243629700fbca80d42fb40ae6adc115e9750ec10",
-      "sha256": "a42434b7711c0e6f0d6843220227a23b60d6378e2dfac10c587243ffe46cf752"
+      "git_blob": "e5b659305138cbbb41340206a2fecb5428e4c308",
+      "sha256": "42401333985cc6f8f21021d8a158fd55904adadfe9c1a35ad615f44734b65ffc"
     },
     {
       "path": "Foundation/Tests/RewindDVArchiveCoreTests/DVIECEngineeringDecoderTests.swift",
@@ -5277,6 +5307,12 @@
       "sha256": "2e7f31c753bc09b746cc30c01e069f7272c8a396c940337fe996cb80d910568f"
     },
     {
+      "path": "Foundation/Tests/RewindDVArchiveCoreTests/DVMetadataCompletionTests.swift",
+      "mode": "100644",
+      "git_blob": "8a1b389af54d3dae26af32344a67372cf97f00f4",
+      "sha256": "e87fb6d58bbd0ba1ce16e9033c27185675b31e257cfa816f37a70aa1db108ad6"
+    },
+    {
       "path": "Foundation/Tests/RewindDVArchiveCoreTests/DVMetadataInventoryTests.swift",
       "mode": "100644",
       "git_blob": "6c0ef47b27fa8d4442b17e3db0ed28f602918d4c",
@@ -5297,8 +5333,8 @@
     {
       "path": "Foundation/Tests/RewindDVArchiveCoreTests/DVPackSemanticsTests.swift",
       "mode": "100644",
-      "git_blob": "eb4fac330bdaeb704c9ad9705018b8999f9cc858",
-      "sha256": "5775fc5744ce42a57f9a867bb3fce6480bfc56b299e3969bfcbec47505279842"
+      "git_blob": "bb4edc8f25dac2db9530bcdbdaff34f04432b4f4",
+      "sha256": "5ed8dda51671c4e848bd2c60c8c51ecbeac71775b7d846b72b86d1084e5dbeca"
     },
     {
       "path": "Foundation/Tests/RewindDVArchiveCoreTests/DVPositionEvidenceTests.swift",
@@ -5339,8 +5375,8 @@
     {
       "path": "Foundation/Tests/RewindDVArchiveCoreTests/DVSupplementalPackSemanticsTests.swift",
       "mode": "100644",
-      "git_blob": "a23c626204608b7c7f15ee42355cb0aea20b94fe",
-      "sha256": "a67c50baa671765d3b8f4927f2a37f1b78f68448868ae7d98d368e324780bd52"
+      "git_blob": "b1693686a0ed5623077da7d21f5221cb9b966056",
+      "sha256": "7ae3a9cb2ffe513ef39211d650a7dd731416bfd911ceb8b5bab3a61c3d31a967"
     },
     {
       "path": "Foundation/Tests/RewindDVArchiveCoreTests/DVTapeEvidenceMapTests.swift",
@@ -5493,6 +5529,12 @@
       "sha256": "a061f53a2990c6d5016bfb9348bebe2b0918b7b5ce9df78fc9d5129edd4e8672"
     },
     {
+      "path": "Foundation/Tests/RewindDVMonitorCoreTests/DVInspectorBrowserTests.swift",
+      "mode": "100644",
+      "git_blob": "e8324605af0746b00d9e298ef07f7e851d645877",
+      "sha256": "674aed1552304d61f215b23278d1ba976c851a87f3f1805d07ba7a4e196c5dc9"
+    },
+    {
       "path": "Foundation/Tests/RewindDVMonitorCoreTests/DVPlaybackTimelineTests.swift",
       "mode": "100644",
       "git_blob": "ef80092eeb0ca1aa96e428e7fbd859d672e7cfdd",
@@ -5513,8 +5555,8 @@
     {
       "path": "Foundation/Tests/RewindDVMonitorCoreTests/DVTechnicalSpecificationsTests.swift",
       "mode": "100644",
-      "git_blob": "5ffedc0c5fbe65a4114eee8c5ee6ea5255a4587a",
-      "sha256": "15cba6012fb1b503cbaaf665f1ac3ce08491472b33bccf2ce35259c672c6c518"
+      "git_blob": "89708f95dde3be3afce508aaf71702c28f05fcca",
+      "sha256": "e3e2462528f096727ef86945bce66d44d9856be6b3579e66cef077d32fc91138"
     },
     {
       "path": "Foundation/Tests/RewindDVMonitorCoreTests/DVViewingModeTests.swift",
@@ -5573,8 +5615,8 @@
     {
       "path": "Foundation/Tests/RewindDVMonitorCoreTests/ProductIdentityTests.swift",
       "mode": "100644",
-      "git_blob": "a8730c0654c04f2d22fc0578e5c083ac89e81040",
-      "sha256": "3d6121f40451b690ecdd35cd1f42778693e836b7fda402bfc284b90948f51d55"
+      "git_blob": "136c29d075747f2ec0bf7b27c4d0585fb4fc2679",
+      "sha256": "27b6d325c46eddc2edf938dcee95cf1504e8a6fd81e4c5cfb7eb04298b674abf"
     },
     {
       "path": "Foundation/Tests/RewindDVMonitorCoreTests/ReceiveMediaFormatEvidenceTests.swift",
@@ -5627,8 +5669,8 @@
     {
       "path": "Foundation/Tools/CaptureAdmissionRegression.swift",
       "mode": "100644",
-      "git_blob": "73e6e529c8690f7616525babd97641a12e0ad6ef",
-      "sha256": "b236f754553fe66fc96cad4ca3630b332068eb55420e7a8763e7ca3e274e23dc"
+      "git_blob": "c7874f4b0a64b0a41413ed0484bbeb21cdf40e1d",
+      "sha256": "1183e48762f001e01508631a2e77716795924baac73305d55f9d060cfa251862"
     },
     {
       "path": "Foundation/Tools/DVAuditInput.swift",
@@ -5801,8 +5843,8 @@
     {
       "path": "Foundation/Tools/MultiPassUIRegression.swift",
       "mode": "100644",
-      "git_blob": "acc7d3caeb315d475045961f8637966e2aa861ad",
-      "sha256": "1c391691d9504f5e562990de4904819ce36337dfc8a26a1a32921d4bd5fa91f4"
+      "git_blob": "ab7798ced1864165dd2ac640ca3723fafb965be8",
+      "sha256": "2ab398ea747397ee919a82d7c876618e63b8126496bf5bd62b87163810765206"
     },
     {
       "path": "Foundation/Tools/OfflineAudioAudit.swift",
@@ -5981,14 +6023,14 @@
     {
       "path": "Foundation/Tools/build-app-only.py",
       "mode": "100644",
-      "git_blob": "24dba37782cbec6529294d89be3804e71551c76e",
-      "sha256": "34f876d6fc32491ee794fcefd4d3f891d8410f070d437d23e6e16f1c0e74149d"
+      "git_blob": "512e49f255bae2fbb72bd8bc30292eebaed4da18",
+      "sha256": "44fba517a0bc9ca8a3733d2b1888ab1e6c08f43ce808be22bf0339a69a24d2f2"
     },
     {
       "path": "Foundation/Tools/build-archives-ui-regression.zsh",
       "mode": "100644",
-      "git_blob": "631eda1b11c5015390c8e4f4fbe62b37844ddc67",
-      "sha256": "54f0dbe7f6af428b3e4f889946f34dc92c59f446bc2981538ba460acafc73a35"
+      "git_blob": "34917feb3805468acc5caa8918b4d093ddb51781",
+      "sha256": "520572c868c3788f4ce9e0cbe986ca71772af91e60ad784d147da7df37a4bca9"
     },
     {
       "path": "Foundation/Tools/build-developer-id-archive.py",
@@ -6035,8 +6077,8 @@
     {
       "path": "Foundation/Tools/product_identity.py",
       "mode": "100644",
-      "git_blob": "5724a65d5a08b064c7cea6cf7c79dd42ad0244ba",
-      "sha256": "f17dead322008cf43a7f5d9c7ae466153e5ae68cb6ef170543dd0cc5313f230d"
+      "git_blob": "8d527c8a4aee3e441fccfa03b6f34b1ad9f8ba92",
+      "sha256": "698c92ec62828c638ce95f0042d30bca13d29497671b51643c014bdf7f475b24"
     },
     {
       "path": "Foundation/Tools/run-async-reset-recovery-regression.zsh",
@@ -6059,8 +6101,8 @@
     {
       "path": "Foundation/Tools/run-capture-admission-regression.zsh",
       "mode": "100755",
-      "git_blob": "9f91fccc3db15b718bbdbbb7bda6297d35e0139b",
-      "sha256": "6cdf66151f93e9178b7da7d16cf8d77e3f8db655a8179bc51e532f7f738d46f7"
+      "git_blob": "c5cdc0f68c766aab0c05c31236b7f044c4828f82",
+      "sha256": "55e30a58e972785c7c40a0ac52bc80f8f5c087399225ac96516c0397ecf80a38"
     },
     {
       "path": "Foundation/Tools/run-command-payload-regression.zsh",
@@ -6123,10 +6165,16 @@
       "sha256": "b8ae2c0e10549a8be6ef3143c52f74bd5b628cb071ea6e9f2311c3e6b5a94add"
     },
     {
+      "path": "Foundation/Tools/test-build-source-mapping.py",
+      "mode": "100644",
+      "git_blob": "93a624d02b9970f72bf6a63ebf2a349a62be0cd6",
+      "sha256": "71f24820516ab386bc2ef24474a83980409fbcaaf774574d1a16b53b614a1579"
+    },
+    {
       "path": "Foundation/Tools/test-command-cli.py",
       "mode": "100644",
-      "git_blob": "3f553465ee7954e752ac29470fbbf57b79545581",
-      "sha256": "54069034af862f17477d4f0c3b47c3fa6f76a29ff3c8d530a20b92a0c1fad883"
+      "git_blob": "40c01c5c06d356b27da8b442acb2b458639936e8",
+      "sha256": "2d6cb758f843940ecfcf5dc908b6f8b91d21f006845054aa8d7316d7f7f701ac"
     },
     {
       "path": "Foundation/Tools/test-developer-id-verification.py",
@@ -6143,8 +6191,8 @@
     {
       "path": "Foundation/Tools/test-product-identity.py",
       "mode": "100644",
-      "git_blob": "ab9cb54c08ff508b261057e0e4b89d4bce75d71b",
-      "sha256": "b91b9c46ee8b22d3591947736a221ef4fa0c88335bedecf7c7c608b2f3318e08"
+      "git_blob": "9fb7fef777231dadba50a2f8c3aae03d54277930",
+      "sha256": "3c68ec7a4d5ecc007afc32fe96045865cb1c95a38226120cf53db6809f21e194"
     },
     {
       "path": "Foundation/Tools/test-signature-comparison.rb",
@@ -6199,6 +6247,12 @@
       "mode": "100644",
       "git_blob": "2621cbf3e5398b82aa10cfc30ca31f1ef09f238f",
       "sha256": "e1d8134f11db4b1b9ddc77cc5c4028b4dfaae633c7677fa1e2f5aec9a7383c24"
+    },
+    {
+      "path": "Foundation/Tools/verify-upstream-hardening.zsh",
+      "mode": "100644",
+      "git_blob": "63f8c76a74086572717aba7811f4cb3baf8dded2",
+      "sha256": "235d08bd8dbe826cf961328e9b17ff2288f49eb5c961683d4aac32fd9d0737f0"
     },
     {
       "path": "LICENSE",
@@ -6285,10 +6339,22 @@
       "sha256": "a7676822c12c4fb78f1823aa0ec1b9904724597e66547483c67f0e7f5024038b"
     },
     {
+      "path": "tests/async/CompletionRefactorPlanTests.cpp",
+      "mode": "100644",
+      "git_blob": "2f1b798e42084e9e16c75287a136047bb5a5bd5f",
+      "sha256": "886a63b66f57b5a93dbf6f915cf26dc54f4357c9b3021beeb2474776516a86b1"
+    },
+    {
       "path": "tests/async/ContextControlTests.cpp",
       "mode": "100644",
       "git_blob": "3087e0ce5f50e8049062d76fb8b93dfb2c594cfa",
       "sha256": "887c7ce1a6e52073fa9ccb2057857fcd3d9e806abd905a6335f6884df24cc6de"
+    },
+    {
+      "path": "tests/async/LinkSpeedClampTests.cpp",
+      "mode": "100644",
+      "git_blob": "1d8e49a3e11ccb42d85fb731c3d4a8e4985e0e7e",
+      "sha256": "3a8dc8d3fa242d2d7fcd75593990b05b67076ce52282b112b562be10fc8f5315"
     },
     {
       "path": "tests/async/OperationLifetimeTests.cpp",
@@ -6345,6 +6411,12 @@
       "sha256": "856d65af0e4890b7083d64e6890e44cbadc3a24110d33f9c8219dfaf86ee6ffc"
     },
     {
+      "path": "tests/core/BusManagerElectionTests.cpp",
+      "mode": "100644",
+      "git_blob": "b2babacda8c921cf53574e58cc421197af4c622c",
+      "sha256": "4230cab4ae403b1c636576d9b489273e9174c0b9bd630929b679892178d1e041"
+    },
+    {
       "path": "tests/core/BusResetCoordinatorTests.cpp",
       "mode": "100644",
       "git_blob": "71dde59a1d3dd53c45bddf8ee8ec781aa3362564",
@@ -6387,6 +6459,12 @@
       "sha256": "6c95ed6f335d9c239b2e38273e77c4a8279cd993bca1c30cf3633118fbccf2b6"
     },
     {
+      "path": "tests/core/GenerationTrackerTests.cpp",
+      "mode": "100644",
+      "git_blob": "7f6ff28fe667f295d314685525c3db857c8dddc0",
+      "sha256": "1072f0dff357ee4b9d5a1366c2a874b47f7a55f5eba84649ab1db49077e0805a"
+    },
+    {
       "path": "tests/core/HardwareInterfaceOrderTests.cpp",
       "mode": "100644",
       "git_blob": "dff35c92ba4aaac6220a06629b3d0ea8fc3e826e",
@@ -6411,10 +6489,46 @@
       "sha256": "b4c949b53bed391c3f6059bbc23cbadc7eaa9705a2bce11f789d5852838f9fed"
     },
     {
+      "path": "tests/core/TopologySpeedTests.cpp",
+      "mode": "100644",
+      "git_blob": "ae89cfe98f5056112da7afb73b138d4b4db62a90",
+      "sha256": "1c138e7e96307a45ec4b93d3212e2b62debfcb378a1932dfccd96d6d9980c3f8"
+    },
+    {
+      "path": "tests/devices/RegisterSubmissionTests.cpp",
+      "mode": "100644",
+      "git_blob": "2659b2515ad47e0e23a72b481fca7f89f358a198",
+      "sha256": "62f6ba9aa2dd52adb3f0210d04763e9191a93fd52dd4add248e6673992768648"
+    },
+    {
       "path": "tests/discovery/GenerationIndexTests.cpp",
       "mode": "100644",
       "git_blob": "419204681187dd6f15fea2eb13d7cf89ce7ea298",
       "sha256": "44d4b30e50d60031f498a1604919b369dc97955b1ee395d1ab6fb14dc369c31e"
+    },
+    {
+      "path": "tests/discovery/ROMReaderLifetimeTests.cpp",
+      "mode": "100644",
+      "git_blob": "9b78ad9463f9511858cb31bae047876516e469f5",
+      "sha256": "76cb7dd952693474ffcd7a75b6af802cc3491eff76b450cf79cdaf09910d5d4c"
+    },
+    {
+      "path": "tests/discovery/ROMScannerIRMVerifyTests.cpp",
+      "mode": "100644",
+      "git_blob": "27ed3f32ba8a2ab89f281d2abda379aacd2c0929",
+      "sha256": "ec4cec00e899c9a08b5594f5b9faaa6d38261b967caf16012dae19c715a726dc"
+    },
+    {
+      "path": "tests/discovery/ROMScannerLifetimeTests.cpp",
+      "mode": "100644",
+      "git_blob": "749d6fa6ceec5942da445cf350cb9759deaca2c7",
+      "sha256": "73c0f5f29c11e3ed9b3c33ad2067ebe6696d355356e0477b19b866021b4c7d26"
+    },
+    {
+      "path": "tests/irm/IRMClientHardeningTests.cpp",
+      "mode": "100644",
+      "git_blob": "2316397eab95b0e81410021ac261857d577de571",
+      "sha256": "7adbef891d5b99d31c20f6b4491e35e50b2a03794484cf5254c4dff3cc9b3a65"
     },
     {
       "path": "tests/mocks/AudioDriverKit/AudioDriverKit.h",
@@ -6681,6 +6795,12 @@
       "sha256": "5387304125b97208de70110c47f55a177e0095aba5cd61107057907a5dc44aed"
     },
     {
+      "path": "tests/protocols/CMPConnectionTests.cpp",
+      "mode": "100644",
+      "git_blob": "5de4d2a1daab305910b2964c9c15888bc68f9a9e",
+      "sha256": "b501258fad8e090154fbd66b5798e9cd30d8942f71024b4f4808073238450dee"
+    },
+    {
       "path": "tests/protocols/FCPHandleLifetimeTests.cpp",
       "mode": "100644",
       "git_blob": "1e406827729d1e45d1abf434b45d0a4b546c5e57",
@@ -6705,10 +6825,28 @@
       "sha256": "e34519452440c6bc79ca03276f0d75109426e108ae1d9dcb581db3ad2f995f15"
     },
     {
+      "path": "tests/support/AsyncSubsystemContractStub.cpp",
+      "mode": "100644",
+      "git_blob": "d9ed25aaf56974b90f6f0bc39f9cfc74588dac0f",
+      "sha256": "dadbddf597075413c0f00a2f6d776c34b8417a5c7a1e34c724f54994a1b6cc8e"
+    },
+    {
       "path": "tests/support/BusResetCoordinatorDepsStubs.cpp",
       "mode": "100644",
       "git_blob": "282bf15a43b256d25fb8c8ecb1993ed14bb99519",
       "sha256": "69d049d3c3886219402d28babb239df0de9c5310d9c33450a652165e4ae4dc8c"
+    },
+    {
+      "path": "tests/support/BusResetCoordinatorStub.cpp",
+      "mode": "100644",
+      "git_blob": "42619b8da97bbe0964c2b9ca78b5bb662163a7fe",
+      "sha256": "246e8ca50ad0c3c6bce759da6030ae3676f3af1a1b479943f39fb37f4a31826e"
+    },
+    {
+      "path": "tests/support/ControllerLifetimeOffPathStub.cpp",
+      "mode": "100644",
+      "git_blob": "b33d1daef249d9f3a42eddedf21ef663bfdaa718",
+      "sha256": "6b8dcc3be9f76b1a0f21ccdffa500ba8f9852c206f14b6e850b55f6cc3fd4ed8"
     },
     {
       "path": "tests/support/HardwareInterfaceStub.cpp",
@@ -6717,10 +6855,22 @@
       "sha256": "c93e1189466b69a12af8380d39601a26aef644edb77edabbeb377b85071588ed"
     },
     {
+      "path": "tests/support/HostOwnershipTests.cpp",
+      "mode": "100644",
+      "git_blob": "fa82645fbe6a4906911d82d5a24c1cefdf5cf03f",
+      "sha256": "c451541c9a2276660537fc36b3fd125de74e3993aaef7298426310977242bf53"
+    },
+    {
       "path": "tests/support/LoggingStubs.cpp",
       "mode": "100644",
       "git_blob": "eb52dc8691dd523dcb2ced697f4fc592479f2e27",
       "sha256": "3de6f04a2b457815ff083fc62e444a58e039ef1bce3f0a7263ba3135b3ccf92e"
+    },
+    {
+      "path": "tests/support/PostedWorkEpochTests.cpp",
+      "mode": "100644",
+      "git_blob": "583bce9f214d1c52d877228b9e727b52edc9ed4d",
+      "sha256": "6e5cb9a5ea5e5b1507e69b7b32dc98ab2f43b71150f200bc4f93be6a4030428d"
     },
     {
       "path": "tests/support/ResponseSenderProductionDependenciesStub.cpp",
@@ -6739,6 +6889,12 @@
       "mode": "100644",
       "git_blob": "a6adf40375cf552a15bf99295493fb0690655921",
       "sha256": "5fd2f5f6df1dc926eda9114bdb8ddac834245982cb5edd798d33bec70bb61173"
+    },
+    {
+      "path": "tests/support/SanitizerFailureProbe.cpp",
+      "mode": "100644",
+      "git_blob": "f10007d6105ab45c312d8ea194637bb39fc6f74a",
+      "sha256": "bbd32fdbd5725ef9b134e0de2ede96030a4a1f500a5b1f17d0cc298508f13014"
     }
   ]
 }

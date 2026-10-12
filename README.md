@@ -20,7 +20,7 @@ application and driver source, engineering downloads, documentation, issues and
 contributions. Visit [rewinddv.com](https://rewinddv.com) for the project website.
 
 <!-- project-status:start -->
-**Current development:** rewindDV 0.1.13 (Beta). App build 203; driver build 203. [Reviewed public source](https://github.com/rewinddv/rewindDV/tree/28a500cb57f9f3f1ffeab16386cf9f1943d4d8ab).
+**Current development:** rewindDV 0.1.22 (Beta). App build 212; driver build 203. [Reviewed public source](https://github.com/rewinddv/rewindDV/tree/1b715b2a7e8f0b7d15e8caa48cdb7c0abae53554).
 
 **Latest public download:** [Beta 0.1.13 / Driver B203](https://github.com/rewinddv/rewindDV/releases/tag/beta-0.1.13) — engineering prerelease, Developer ID-signed and notarized. App build 203 retains Driver B203 (driver version 0.1.11) unchanged. Use normal macOS approval; no SIP change is required. Offline playback, Surgery and inspection require no driver activation. Hardware qualification remains bounded.
 

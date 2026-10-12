@@ -1,5 +1,11 @@
 # Development and releases
 
+## Beta 0.1.22 — App212 / retained Driver203
+
+This release completes the camera and supplemental metadata decoder, human-readable field names and searchable inspector browser in Capture and Playback. Inspector tabs, filters and searches survive resizing; the file chooser supports repeated cancel and reopen. The accepted capture, recovery, archive and playback implementation is included. Reserved, absent, manufacturer-specific and disputed values remain explicit; catalog coverage is not a claim of complete IEC certification. See [recorded metadata](Foundation/Docs/RecordedMetadata.md) and [decoding limits](Foundation/Docs/MetadataDecodingLimits.md).
+
+App212 retains the exact signed public-source Driver203, original driver version 0.1.11, without compiling or re-signing it. The host and normal 66-tool CLI are rebuilt from the reviewed public source. Offline validation and historical physical capture results remain separately scoped.
+
 ## Beta 0.1.13 — App203 / retained Driver203
 
 This host-only update fixes two inspector and file-opening issues: Capture and Playback now keep the selected inspector view and metadata search while the window is resized, and the recorded-DV file chooser can be cancelled and reopened reliably. Capture and playback inspector state remain independent. No driver source or binary changed; App203 retains the exact signed public Driver203 (original driver version 0.1.11) byte for byte.
@@ -7,7 +13,7 @@ This host-only update fixes two inspector and file-opening issues: Capture and P
 This is a software/UI update only. It does not add physical capture qualification. PAL and whole-tape results remain tied to the earlier builds listed in [COMPATIBILITY.md](COMPATIBILITY.md#successful-pal-and-whole-tape-captures).
 
 <!-- project-status:start -->
-**Current development:** rewindDV 0.1.13 (Beta). App build 203; driver build 203. [Reviewed public source](https://github.com/rewinddv/rewindDV/tree/28a500cb57f9f3f1ffeab16386cf9f1943d4d8ab).
+**Current development:** rewindDV 0.1.22 (Beta). App build 212; driver build 203. [Reviewed public source](https://github.com/rewinddv/rewindDV/tree/1b715b2a7e8f0b7d15e8caa48cdb7c0abae53554).
 
 **Latest public download:** [Beta 0.1.13 / Driver B203](https://github.com/rewinddv/rewindDV/releases/tag/beta-0.1.13) — engineering prerelease, Developer ID-signed and notarized. App build 203 retains Driver B203 (driver version 0.1.11) unchanged. Use normal macOS approval; no SIP change is required. Offline playback, Surgery and inspection require no driver activation. Hardware qualification remains bounded.
 

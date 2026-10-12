@@ -1,12 +1,12 @@
 {
   "schema_version": 1,
   "development": {
-    "application_version": "0.1.13",
+    "application_version": "0.1.22",
     "driver_build": 203,
-    "source_revision": "28a500cb57f9f3f1ffeab16386cf9f1943d4d8ab",
-    "state": "Current reviewed public source is Beta 0.1.13 / App203 with retained public Driver203. Application and driver identities remain independently versioned.",
-    "updated_utc": "2026-10-12T17:29:17+00:00",
-    "application_build": 203,
+    "source_revision": "1b715b2a7e8f0b7d15e8caa48cdb7c0abae53554",
+    "state": "Complete reviewed Beta 0.1.22 / App212 feature source, with exact retained signed Driver203 (original 0.1.11). New public package signing and validation are in progress.",
+    "updated_utc": "2026-10-12T19:01:54.685260+00:00",
+    "application_build": 212,
     "release_channel": "beta"
   },
   "public_release": {
