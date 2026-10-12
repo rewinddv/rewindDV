@@ -102,6 +102,19 @@
         "bundle_manifest_sha256": "48282aa966126575550b88a02e9a9634d175950736825c12c574e6b4bbfc87e7"
       },
       "meaning": "Published public Beta App202; exact signed public-source Driver203 (0.1.11) retained byte for byte."
+    },
+    {
+      "product_version": "0.1.13",
+      "channel": "beta",
+      "app_build": 203,
+      "driver_build": 203,
+      "driver_reuse": {
+        "product_version": "0.1.11",
+        "channel": "beta",
+        "source_revision": "1e9688fb882ea0b249f36fb1c8500a9789a0c3ff",
+        "bundle_manifest_sha256": "48282aa966126575550b88a02e9a9634d175950736825c12c574e6b4bbfc87e7"
+      },
+      "meaning": "Preserved previously circulated identity; immutable original component artifacts remain retained."
     }
   ]
 }

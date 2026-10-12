@@ -5,7 +5,7 @@ set -euo pipefail
 xcrun swiftc -swift-version 6 -parse-as-library -O \
   Foundation/Tools/FrameLoupeRegression.swift \
   Foundation/Tools/MultiPassUIRegression.swift \
-  Foundation/App/{RewindDVSection,TapeEvidenceMapView,DVFrameForensicsView,GentleRecoveryView,MultiPassView,LiveDVFrameDecoder,DVMetalFieldProcessor}.swift \
+  Foundation/App/{RewindDVSection,TapeEvidenceMapView,DVArchiveVisualReview,DVFrameForensicsView,GentleRecoveryView,MultiPassView,LiveDVFrameDecoder,DVMetalFieldProcessor}.swift \
   Foundation/Sources/RewindDVArchiveCore/*.swift \
   Foundation/Sources/RewindDVMonitorCore/*.swift \
   -o "$1/FrameLoupeRegression"

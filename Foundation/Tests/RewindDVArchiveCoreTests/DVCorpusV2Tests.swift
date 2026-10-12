@@ -235,7 +235,7 @@ private func corpusReport(_ pack: [UInt8], offset: Int = 253, tfInvalid: Bool = 
   }
   for type: UInt8 in [0x14,0x54,0x64] {
     let r = try corpusReport([type,0x21,0x43,0x65,0x87],offset:type == 0x14 ? 86 : type == 0x54 ? 483 : 253)
-    #expect(r.packs.first { $0.typeHex == String(format:"0x%02X",type) }?.fields.map(\.rawValue) == [1,2,3,4,5,6,7,8])
+    #expect(r.packs.first { $0.typeHex == String(format:"0x%02X",type) }?.fields.filter{$0.id.hasPrefix("BG")}.map(\.rawValue) == [1,2,3,4,5,6,7,8])
   }
   let text = try corpusReport([0x08,255,1,2,3],offset:86)
   #expect(text.packs.first { $0.typeHex == "0x08" }?.fields.first { $0.id == "TDP" }?.rawValue == 511)
@@ -307,8 +307,8 @@ private func corpusReport(_ pack: [UInt8], offset: Int = 253, tfInvalid: Bool = 
     let offset = h == 0x14 ? 86 : h == 0x54 ? 483 : 253
     let report = try corpusReport([h,255,255,255,255], offset: offset)
     let pack = try #require(report.packs.first { $0.typeHex == String(format: "0x%02X", h) })
-    #expect(pack.fields.count == 8)
-    #expect(pack.fields.allSatisfy { $0.rawValue == 15 && $0.status == "uninterpreted" })
+    #expect(pack.fields.filter{$0.id.hasPrefix("BG")}.count == 8)
+    #expect(pack.fields.filter{$0.id.hasPrefix("BG")}.allSatisfy { $0.rawValue == 15 && $0.status == "uninterpreted" })
   }
   for h: UInt8 in [0x08,0x56,0x66] {
     let fields = DVCorpusSemantics.enrich([], pack: [h,255,255,255,255], isPAL: false)

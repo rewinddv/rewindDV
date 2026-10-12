@@ -2,6 +2,9 @@
 import Foundation
 
 extension DVIEC61834 {
+  public static func characterSetName(_ code: UInt8) -> String {
+    textCodeLabels[Int(code)] ?? String(format:"Unspecified character set 0x%02X",code)
+  }
   // Code labels, independently phrased for presentation. These do not implement
   // the referenced character encodings or identify people depicted on tape.
   static let textCodeLabels: [Int:String] = [

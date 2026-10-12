@@ -250,17 +250,17 @@ private func geometryFixture(pal: Bool = false, apertureWidth: Double? = 704,
   for pal in [false, true] {
     let specs = DVTechnicalSpecifications.make(path: "/fixture.dv", byteCount: pal ? 144_000 : 120_000,
       inventory: try techFixture(pal: pal, camera: [0x70, 0xc0, 0x40, 0x64, 0x80]))
-    #expect(value(specs, "Recorded camera settings", "Exposure mode") == "Manual — Confirmed")
-    #expect(value(specs, "Recorded camera settings", "White-balance preset") == "Sunlight — Confirmed")
-    #expect(value(specs, "Recorded camera settings", "Gain code") == "0 — Confirmed")
+    #expect(value(specs, "Recorded camera settings", "Auto exposure mode") == "Manual — Confirmed")
+    #expect(value(specs, "Recorded camera settings", "White balance preset") == "Sunlight — Confirmed")
+    #expect(value(specs, "Recorded camera settings", "Automatic gain control") == "Recorded gain code 0; dB conversion not established — Confirmed")
     let live = specs.liveReport(progress: [])
-    #expect(value(live, "Recorded camera settings", "Exposure mode") == "Manual — Confirmed")
+    #expect(value(live, "Recorded camera settings", "Auto exposure mode") == "Manual — Confirmed")
     let row = try #require(specs.sections.first { $0.title == "Recorded camera settings" }?.rows.first)
     #expect(row.evidence.contains("PRIMARY_STANDARD") && row.evidence.contains("SHA-256") && row.evidence.contains("70 C0 40 64 80"))
   }
   let invalid = DVTechnicalSpecifications.make(path: "/fixture.dv", byteCount: 120_000,
     inventory: try techFixture(invalidVAUX: true, camera: [0x70, 0xc0, 0x40, 0x64, 0x80]))
-  #expect(value(invalid, "Recorded camera settings", "Exposure mode")?.hasPrefix("Invalid") == true)
+  #expect(value(invalid, "Recorded camera settings", "Auto exposure mode")?.hasPrefix("Invalid") == true)
 }
 
 @Test func techSpecsMatchRequestedOrderAndExactNTSCArithmetic() throws {
@@ -783,4 +783,105 @@ private func withClockIssue(_ source: Data, kind: Int) -> Data {
   let rule = try #require(numeric.numeric?.rule)
   #expect(!rule.isEmpty)
   #expect(DVMetadataPresentation.fieldCaption(numeric).contains(rule))
+}
+
+@Test func readableCameraOverviewMatchesLiveAndPlaybackAndDoesNotCarryMissingValues() throws {
+  let inventory = try techFixture(camera:[0x70,0xd0,0x37,0x64,0xaa])
+  let report = DVPackSemanticReport.inspect(inventory)
+  let file = DVTechnicalSpecifications.make(path:"synthetic.dv",byteCount:120_000,inventory:inventory)
+  let expected = DVMetadataPresentation.cameraSections(report)
+  #expect(expected == DVMetadataPresentation.cameraSections(file.liveReport(progress:[]).semanticReport))
+  #expect(expected == DVMetadataPresentation.cameraSections(file.playbackReport(sampledFrame:file).semanticReport))
+  let rows = expected.flatMap(\.rows)
+  #expect(rows.contains { $0.label == "Auto exposure mode" && $0.value == "Iris priority" })
+  #expect(rows.contains { $0.label == "White balance preset" && $0.value == "Sunlight" })
+  #expect(rows.contains { $0.label == "Iris aperture" && $0.value == "4 f-number" })
+  #expect(!rows.contains { $0.label.contains("Required format bits") })
+  let packs = report.packs.filter { $0.typeHex == "0x70" }
+  #expect(!packs.isEmpty)
+  for query in ["auto exposure", "automatic gain control", "white balance", "focus distance", "AE_MODE"] {
+    #expect(packs.allSatisfy { DVMetadataPresentation.matches($0,query:query) })
+  }
+  let absent = DVMetadataPresentation.cameraSections(DVPackSemanticReport.inspect(try techFixture()))
+  #expect(absent.flatMap(\.rows).count == 1)
+  #expect(absent[0].rows[0].value == "No camera packs recorded in this sampled frame")
+}
+@Test func readableCameraOverviewRetainsUnavailabilityAndDistinctObservations() throws {
+  var frame = frameBytes(try techFixture(camera:[0x70,0xd0,0x37,0x64,0xaa]))
+  // A different white-balance value in another actual pack remains visible.
+  frame[3*80+26] = 0x65
+  let report = DVPackSemanticReport.inspect(try DVMetadataInventory.inspect(frame:frame,ordinal:0,byteOffset:0))
+  let rows = DVMetadataPresentation.cameraSections(report).flatMap(\.rows)
+  let wb = try #require(rows.first { $0.label == "White balance preset" })
+  #expect(wb.value.contains("Sunlight") && wb.value.contains("Cloudy"))
+  let unavailable = DVMetadataPresentation.cameraSections(DVPackSemanticReport.inspect(try techFixture(camera:[0x70,255,255,255,255]))).flatMap(\.rows)
+  #expect(unavailable.contains { $0.label == "Iris aperture" && $0.value.contains("Unavailable") })
+}
+
+@Test func readableProfessionalLensAndUnqualifiedVariantsRemainVisible() throws {
+  var frame = frameBytes(try techFixture(camera:[0x73,0xaa,0x40,0x28,0xd2]))
+  // A camera pack in AAUX is out of scope. Keep its status alongside valid VAUX.
+  frame.replaceSubrange(6*80+3..<6*80+8,with:[0x73,0,0,0,0])
+  let report = DVPackSemanticReport.inspect(try DVMetadataInventory.inspect(frame:frame,ordinal:0,byteOffset:0))
+  let rows = DVMetadataPresentation.cameraSections(report).flatMap(\.rows)
+  #expect(rows.contains { $0.label == "Iris aperture" && $0.value == "4 f-number" })
+  #expect(rows.contains { $0.label == "Focus mode" && $0.value == "Manual" })
+  #expect(rows.contains { $0.label == "Lens extender magnification" && $0.value == "1×" })
+  #expect(rows.contains { $0.label.hasPrefix("Unqualified observation") && $0.value.contains("out-of-scope") })
+}
+
+@Test func overviewOrdersPrimarySectionsAndExposesEveryObservedField() throws {
+  let inventory = try techFixture(camera: [0x70,0xd0,0x37,0x64,0xaa])
+  let report = DVPackSemanticReport.inspect(inventory)
+  let input: [DVTechnicalSpecifications.Section] = ["Source error summary", "Audio", "General", "Recorded motion / lens", "Video", "Apple presentation geometry", "Exact source audio · channel 1"].map {
+    .init(title: $0, rows: [.init(label: "Synthetic scope", value: $0, evidence: "Test")])
+  }
+  let output = DVMetadataPresentation.overviewSections(input, metadata: report)
+  #expect(Array(output.prefix(9).map(\.title)) == ["General", "Video", "Apple presentation geometry", "Audio", "Recorded Camera - 0x70", "Recorded Camera - 0x71", "Recorded Camera - 0x7f", "Recorded motion / lens", "Source error summary"])
+  #expect(output[9].title == "Exact source audio · channel 1")
+  #expect(Set(output.map(\.id)).count == output.count)
+  for (index, pack) in report.packs.enumerated() {
+    let section = try #require(output.first { $0.title.hasSuffix("observation \(index + 1)") })
+    #expect(Set(section.rows.map(\.id)).count == section.rows.count)
+    for field in pack.fields {
+      #expect(section.rows.contains { $0.label == DVMetadataPresentation.packFieldLabel(field.name, packID: pack.typeHex) && $0.value.contains("recorded code \(field.rawValue)") && $0.evidence.contains(field.reference) })
+    }
+  }
+  for item in report.structuralMetadata ?? [] {
+    let section = try #require(output.first { $0.title == "Source structure - " + item.name })
+    #expect(section.rows.count == item.fields.count)
+    #expect(section.rows.allSatisfy { $0.value.contains("recorded code") })
+  }
+  #expect(output.last?.title == "Metadata coverage & interpretation")
+}
+@Test func overviewNeverCarriesForwardMissingCameraSettings() throws {
+  let report = DVPackSemanticReport.inspect(try techFixture())
+  let output = DVMetadataPresentation.overviewSections([], metadata: report)
+  let cameras = output.filter { $0.title.hasPrefix("Recorded Camera - ") }
+  #expect(cameras.count == 3)
+  #expect(cameras.allSatisfy { $0.rows.count == 1 && $0.rows[0].value == "No pack recorded in this sampled frame" })
+  #expect(output.first { $0.title == "Source error summary" }?.rows[0].value.contains("not performed") == true)
+}
+@Test func overviewIncludesSequenceLengthsCharacterSetsAndComponentCounts() throws {
+  var report = DVPackSemanticReport.inspect(try techFixture())
+  typealias O = DVIECSequences.Observation
+  report.sequences = DVIECSequences.assemble([
+    O([0x18,1,0x0e,0x42,255]), O([0x19,65,66,67,68]),
+    O([0x80,20,0xc8,3,128]), O([0x81,1,2,3,255])])
+  let sequences = try #require(report.sequences)
+  #expect(sequences.count == 2)
+  let output = DVMetadataPresentation.overviewSections([], metadata: report)
+  for (index, sequence) in sequences.enumerated() {
+    let rows = try #require(output.first { $0.title == "Recorded sequences - \(sequence.kind.capitalized) \(index + 1)" }).rows
+    #expect(rows.contains { $0.label == "Sequence status" && $0.value == sequence.status })
+    #expect(rows.contains { $0.label == "Expected length" && $0.value == "\(sequence.expectedCount) \(sequence.countUnit)" })
+    for (key, code) in sequence.characterSets ?? [:] {
+      #expect(rows.contains { $0.label == "Character set - " + key && $0.value.contains(String(format: "0x%02X", code)) })
+    }
+    for component in sequence.components ?? [] {
+      #expect(rows.contains { $0.value.contains("\(component.samples.count) observed samples; \(component.padding.count) padding samples") })
+    }
+  }
+  #expect(sequences.first?.characterSets?.isEmpty == false)
+  #expect(sequences.last?.components?.isEmpty == false)
 }

@@ -4,7 +4,7 @@ import Foundation
 /// Part 4 interpretation of preserved pack bytes. Context is supplied by the
 /// caller; a byte pattern never establishes the recording format or MIC identity.
 public enum DVIEC61834 {
-  public static let interpretationVersion = 4
+  public static let interpretationVersion = 6
   public struct Context: Sendable {
     public var isPAL = false
     public var mic = false
@@ -180,6 +180,7 @@ public enum DVIEC61834 {
     if low == 8 && h < 0xa0 {
       r.add("TDP",[.init(1),.init(2,0,1)],unit:context.mic ? "text bytes after PC3":"following text packs")
       r.field("OPN",2,1,3,encoding:"opaque",note:"EBU SPB 492 option; seven also indicates unused.")
+      if (bytes[2] >> 1)&7 == 7 { r.qualify("OPN",meaning:"Option unused, or all-ones option under the applicable text profile",note:"Part 4 permits all ones when unused; EBU SPB 492 option interpretation needs its profile.") }
       var types = [0:"Name",1:"Memo",2:"Station",3:"Model",6:"Operator",8:"Outline",9:"Full screen",12:"One-byte font",13:"Two-byte font",14:"Graphic"]
       if ![0x08,0x78,0x88].contains(h) { types[7] = "Subtitle" }
       if [0x28,0x38].contains(h) { types.removeValue(forKey:2); types.removeValue(forKey:3) }
@@ -217,7 +218,7 @@ public enum DVIEC61834 {
         if h == 0x4f {
           r.micFlag("PY",4,5,"Already played","Not yet played")
           r.micFlag("RP",4,6,"Overrecording prohibited","Overrecording allowed")
-          r.field("SR",4,7,1,encoding:"opaque",note:"Track-pitch-dependent SP/reserved selector.")
+          r.recordingPitch(4)
         } else { r.field("PC4_FIXED",4,5,3,fixed:7) }
       }
     } else {
@@ -317,7 +318,8 @@ public enum DVIEC61834 {
       case 0x80:
         r.add("LINES",[.init(1),.init(2,0,3)],range:1...1250)
         r.field("CM",2,3,1,labels:[0:"Common to both fields",1:"Frame line number"])
-        r.field("CLF",2,4,2,encoding:"opaque",note:"Valid only with EN=0; colour-frame system is required.")
+        r.field("CLF",2,4,2,labels:context.isPAL ? [0:"Fields 1/2",1:"Fields 3/4",2:"Fields 5/6",3:"Fields 7/8"]:[0:"Colour frame A",1:"Colour frame B"])
+        if bytes[2]&0xc0 != 0x80 { r.qualify("CLF",meaning:"Colour-frame identification not applicable",status:"unavailable") }
         r.field("EN",2,6,1,labels:[0:"Colour-frame code valid",1:"Colour-frame code invalid"])
         r.field("BW",2,7,1,labels:[0:"Monochrome",1:"Colour"])
         r.add("TSD",[.init(3),.init(4,0,3)],range:1...2047)
@@ -344,6 +346,22 @@ public enum DVIEC61834 {
       default: if !r.additional() { return nil }
       }
     }
+    if context.binaryCompanion == true && [0x13,0x53,0x63,0x93].contains(h), let usage = DVTimecodeUserBits.usage(bytes,isPAL:context.isPAL) {
+      r.fields += DVTimecodeUserBits.usageFields(usage)
+      r.fields.append(.init(id:"COLOUR_SYNCHRONIZATION",name:"Colour-frame synchronization",rawValue:bytes[1]>>7,meaning:bytes[1]&0x80 == 0 ? "Not synchronized":"Synchronized",status:"interpreted",reference:reference(h)+"; PRIMARY_STANDARD: SMPTE ST 12-1:2014 Tables 3/7",confidence:.normativeConfirmed))
+      if !context.isPAL {
+        r.fields.append(.init(id:"DROP_FRAME_SEQUENCE",name:"Drop-frame sequence",rawValue:(bytes[1]>>6)&1,meaning:bytes[1]&0x40 == 0 ? "Non-drop-frame":"Drop-frame",status:"interpreted",reference:reference(h)+"; PRIMARY_STANDARD: SMPTE ST 12-1:2014 Tables 3/7",confidence:.normativeConfirmed))
+      }
+    }
+    if h == 0x0d, let key = keyDigits(bytes) {
+      r.fields.append(.init(id:"RECORDED_KEY_DIGITS",name:"Recorded access-key digits",rawValue:UInt32(bytes[1]) | UInt32(bytes[2])<<8 | UInt32(bytes[3])<<16 | UInt32(bytes[4])<<24,meaning:key.isEmpty ? "Unused":key,status:key.isEmpty ? "unavailable":"interpreted",reference:reference(h),confidence:.normativeConfirmed,qualifier:"Recorded metadata only; no key is sent to a deck."))
+    }
+    if h == 0x17, bytes[1]&15 == 15, !r.fields.contains(where:{$0.status == "invalid"}), (6...12).allSatisfy({ n in r.fields.contains(where:{$0.id == "I\(n)" && $0.status == "interpreted"}) }) {
+      func digit(_ n:Int)->UInt32 { r.fields.first{$0.id == "I\(n)"}!.rawValue }
+      let year=digit(6)*10+digit(7),serial=(8...12).reduce(UInt32(0)){$0*10+digit($1)}
+      r.fields.append(.init(id:"ISRC_YEAR_SUFFIX",name:"Recorded recording-code year",rawValue:year,meaning:String(format:"%02u",year),status:"interpreted",reference:reference(h),confidence:.normativeConfirmed,qualifier:"Recorded two-digit year; century is unknown. This is only part of the ISRC."))
+      r.fields.append(.init(id:"ISRC_DESIGNATION",name:"Recorded recording-code serial",rawValue:serial,meaning:String(format:"%05u",serial),status:"interpreted",reference:reference(h),confidence:.normativeConfirmed,qualifier:"Five recorded designation digits; country/owner character mapping remains unresolved."))
+    }
     // Preserve report field identities used by old journals and the timeline.
     var aliases: [String:String] = [:]
     if h == 0x13 { for id in ["HOURS","MINUTES","SECONDS","FRAMES"] { aliases[id] = "TC_"+id } }
@@ -351,7 +369,7 @@ public enum DVIEC61834 {
     if [0x52,0x62,0x92].contains(h) { for id in ["YEAR","MONTH","DAY"] { aliases[id] = "REC_"+id } }
     if h == 0x70 { aliases["FCM"] = "FOCUS_MODE" }
     let fields = r.fields.map { f in
-      DVPackSemanticReport.Field(id:aliases[f.id] ?? f.id,name:f.name,rawValue:f.rawValue,
+      DVPackSemanticReport.Field(id:aliases[f.id] ?? f.id,name:fieldName(aliases[f.id] ?? f.id, header:h),rawValue:f.rawValue,
         meaning:f.meaning,status:f.status,reference:f.reference,confidence:f.confidence,
         qualifier:f.qualifier,numeric:f.numeric)
     }
@@ -371,6 +389,7 @@ private extension DVIEC61834.Reader {
       field("CAMERA_FIXED",1,6,2,fixed:3)
       field("AGC",2,0,4,range:0...13,sentinel:15,note:"The supplied final publication has an empty equation after 'where'; no IEC dB conversion can be verified.")
       if p[2]&15 < 14 {
+        qualify("AGC",meaning:"Recorded gain code \(p[2]&15); dB conversion not established",status:"interpreted")
         field("AGC_DB_CANDIDATE",2,0,4,unit:"dB",rule:"-3+3*G",convert:{-3+3*$0})
         qualify("AGC_DB_CANDIDATE",meaning:"\(Int(p[2]&15)*3-3) dB (patent candidate)",confidence:.provisional,
           source:"MANUFACTURER_REFERENCE: Sony US5845044A, col.6; final IEC §10.1 equation missing",note:"Secondary conversion; not device calibration.")
@@ -514,7 +533,7 @@ private extension DVIEC61834.Reader {
       add("TAPE_LENGTH",[.init(1,1,7),.init(2),.init(3)],unit:"10-µm tracks")
       field("PC4_FIXED",4,fixed:255)
     case 0x02:
-      field("SR",1,7,1,encoding:"opaque",note:"Recording pitch selector; requires recording profile.")
+      recordingPitch(1)
       field("RP",2,7,1,labels:[0:"Overrecording prohibited",1:"Overrecording allowed"])
       field("TCF",2,5,2,labels:[0:"Weekly",1:"One-time weekdays",3:"Year/month/day"])
       field("MONTH",2,0,5,encoding:"BCD",range:1...12,sentinel:31)
@@ -590,8 +609,8 @@ private extension DVIEC61834.Reader {
         for b in 2...4 { for n in 0...1 { field("I\(7+(b-2)*2+n)",b,n*4,4,encoding:"BCD",range:0...9) } }
       }
     case 0x1f:
-      atn(); field("SR",4,7,1,encoding:"opaque",note:"Track pitch profile required.")
-      field("RE",4,6,1,note:"Renewal toggle; previous observation needed."); field("PC4_FIXED",4,0,6,fixed:63)
+      atn(); recordingPitch(4)
+      micFlag("RE",4,6,"Recording-protection events present","No recording-protection events"); field("PC4_FIXED",4,0,6,fixed:63)
     case 0x50:
       field("LF",1,7,1,labels:[0:"Locked",1:"Unlocked"]); field("PC1_FIXED",1,6,1,fixed:1)
       let rate = Int((p[4]>>3)&7), pal = p[3]&32 != 0
@@ -745,5 +764,88 @@ private extension DVIEC61834.Reader {
       field("PRESSURE_FORMAT",3,2,1,labels:[0:"hPa",1:"atm"])
       add("PRESSURE",[.init(3,4,4),.init(4),.init(3,3,1)],encoding:"BCD",range:0...1999,unit:p[3]&4 == 0 ? "hPa":"atm",rule:p[3]&4 == 0 ? "BCD":"BCD/10",convert:{$0/(p[3]&4 == 0 ? 1:10)})
     }
+  }
+}
+
+// Presentation vocabulary is shared by journals, Capture, Playback and Archives.
+// Stable field IDs, original codes, uncertainty and source references stay intact.
+public extension DVIEC61834 {
+  static func fieldName(_ id: String, header: UInt8) -> String {
+    if let name = ["BGF_USAGE":"Binary user-data format", "CLOCK_REFERENCE":"Timecode clock reference", "COLOUR_SYNCHRONIZATION":"Colour-frame synchronization", "DROP_FRAME_SEQUENCE":"Drop-frame sequence", "RECORDED_KEY_DIGITS":"Recorded access-key digits", "ISRC_YEAR_SUFFIX":"Recorded recording-code year", "ISRC_DESIGNATION":"Recorded recording-code serial"][id] { return name }
+    if id == "RE" { return header == 0x1f ? "Recording-protection events" : "Renewal flag" }
+    if id == "CATEGORY" { return header == 0x6c ? "Environment category" : "Programme genre category" }
+    if id == "BF" { return header == 0x13 ? "Blank flag" : "Blank / track continuity flag" }
+    if id.hasPrefix("CC_F") {
+      return id.replacingOccurrences(of:"CC_F",with:"Closed-caption field ").replacingOccurrences(of:"_BYTE",with:", byte ")
+    }
+    if id.hasPrefix("I"), let n = Int(id.dropFirst()), (1...12).contains(n) {
+      let role = n <= 2 ? "country" : n <= 5 ? "owner" : n <= 7 ? "recording year" : "recording serial"
+      return "International Standard Recording Code — " + role + " character \(n)"
+    }
+    if let name = readableNames[id] { return name }
+    if id.contains("FIXED") { return "Required format bits (\(id.replacingOccurrences(of: "_", with: " ")))" }
+    if id.contains("RESERVED") { return "Reserved payload bits (\(id.replacingOccurrences(of: "_", with: " ")))" }
+    for (prefix, name) in [("TC_", "Timecode"), ("REC_", "Recorded"), ("PROGRAMME_", "Programme"), ("START_", "Start"), ("STOP_", "Stop")] where id.hasPrefix(prefix) {
+      return name + " " + id.dropFirst(prefix.count).lowercased().replacingOccurrences(of: "_", with: " ")
+    }
+    for (prefix, name) in [("G_", "Green"), ("R_", "Red"), ("B_", "Blue"), ("H_", "Horizontal"), ("V_", "Vertical"), ("MASTER_", "Master")] where id.hasPrefix(prefix) {
+      return name + " " + id.dropFirst(prefix.count).lowercased().replacingOccurrences(of: "_", with: " ")
+    }
+    if id.hasPrefix("SHADING_AREA_") { return "Shading correction — grid area " + id.dropFirst(13) }
+    if id.hasPrefix("DAY_"), let n = Int(id.dropFirst(4)), let day = weekdays[n] { return day + " recording schedule" }
+    for (prefix, name) in [("BG", "Binary user-bits group"), ("KEY", "Access-key digit"), ("N", "Catalogue-number digit"), ("I", "International Standard Recording Code character"), ("C", "Reel identifier character"), ("S", "Timecode companion flag"), ("PC", "Payload byte")] {
+      if id.hasPrefix(prefix), Int(id.dropFirst(prefix.count)) != nil { return name + " " + id.dropFirst(prefix.count) }
+    }
+    if id.hasPrefix("NO_INFO_PC") { return "No-information padding byte " + id.dropFirst(10) }
+    return id.lowercased().replacingOccurrences(of: "_", with: " ").prefix(1).uppercased()
+      + id.lowercased().replacingOccurrences(of: "_", with: " ").dropFirst()
+  }
+  private static let readableNames: [String:String] = [
+    "IRIS":"Iris aperture", "AE_MODE":"Auto exposure mode", "AGC":"Automatic gain control",
+    "AGC_DB_CANDIDATE":"Automatic gain control — provisional dB conversion",
+    "WB_MODE":"White balance mode", "WB_PRESET":"White balance preset", "FOCUS_MODE":"Focus mode", "FCM":"Focus mode", "FOCUS":"Focus distance",
+    "VP_SPEED":"Vertical panning speed", "VPD":"Vertical panning direction", "HP_SPEED":"Horizontal panning speed", "HPD":"Horizontal panning direction",
+    "IS":"Image stabilization", "FOCAL_LENGTH":"Focal length (35 mm equivalent)", "ZEN":"Electronic zoom", "ZOOM_MAGNITUDE":"Electronic zoom magnification",
+    "ZOOM":"Lens zoom position (recorded metres)", "EXTENDER":"Lens extender magnification", "IRIS_CONT":"Iris control mode",
+    "GM":"Gain control mode", "MASTER_GAIN":"Master gain", "R_GAIN":"Red-channel gain", "B_GAIN":"Blue-channel gain",
+    "ND_FILTER":"Neutral-density filter transmission", "CC_FILTER":"Colour-correction filter", "QF":"Camera value precision",
+    "SHADING_FORM":"Shading grid positions", "CHANNEL":"Colour channel", "WB":"White / black shading", "KNEE_POINT":"Knee point", "KNEE_SLOPE":"Knee slope",
+    "SSP1":"Shutter speed — upper line", "SSP2":"Shutter speed — lower line", "CONSUMER_SHUTTER":"Shutter exposure duration",
+    "ME":"Memory-in-cassette event reliability", "MULTI_BYTES":"Memory transaction size", "MEMORY_TYPE":"Memory type",
+    "LAST_BANK_SIZE":"Last memory bank size", "SPACE0_SIZE":"Memory space 0 size", "SPACE1_BANK_COUNT":"Memory space 1 bank count",
+    "TAPE_LENGTH":"Tape length", "TAPE_THICKNESS":"Tape thickness", "SR":"Recording speed / track pitch",
+    "RP":"Overrecording permission", "TCF":"Timer calendar format", "TEXT":"Associated text", "GEN":"Programme genre",
+    "REC_TYPE":"Recording content type", "PR":"Playback / recording start", "HL":"Track-number hold / renewal",
+    "FORM":"Genre / tag-number form", "TAG_ID":"Event tag type", "TAG_ID_NUMBER":"Event tag number", "SITUATION":"Live / prerecorded programme",
+    "SUBCATEGORY":"Programme genre subcategory", "OT0":"Genre ornament group", "ORN0":"Genre description 0", "ORN1":"Genre description 1", "ORN2":"Competition format",
+    "LANGUAGE_TAG":"Text language selection", "TOPIC_TAG":"Text topic", "LPU":"Last page number", "DM":"Text density", "SCRL":"Text scrolling",
+    "HV":"Text scroll direction", "CL":"Clear previous text page", "RASTER_COLOR":"Text background colour", "PU":"Text page number",
+    "TDP":"Text data length", "OPN":"Text display option", "TEXT_TYPE":"Text content type", "TEXT_CODE":"Text character encoding", "AREA_NO":"Text target recording area",
+    "MIC_TEXT_BYTE0":"First memory-in-cassette text byte", "ATN":"Absolute track number", "TT":"Event presence on tape", "TAG_CONT":"Event playback control",
+    "FMODE":"Forward playback mode", "RMODE":"Reverse playback mode", "TCHNO":"Total chapter count", "CHNO":"Chapter number", "TPNO":"Total part count", "PNO":"Part number",
+    "CNO":"Cassette number", "RANDOM_NO":"Cassette random identifier", "CATALOGUE_FORM":"Catalogue-number segment", "ISRC_FORM":"Recording-code segment",
+    "REC_MODE":"Programme recording mode", "YEAR7":"Recorded year (last two digits)", "ZONE_CODE":"Recorded time-zone code", "TM":"Half-hour time-zone component", "DS":"Daylight-saving time",
+    "LF":"Audio lock mode", "AF_SIZE":"Audio samples per frame", "SM":"Stereo channel organization", "CHN":"Audio channels per block", "PA":"Audio channel pairing", "AM":"Audio channel assignment",
+    "ML":"Multiple-language audio", "FIELD_SYSTEM":"Recording field system", "STYPE":"Recording signal type", "EF":"Audio emphasis", "TC":"Audio emphasis time constant", "SMP":"Audio sampling frequency", "QU":"Audio quantization",
+    "CGMS":"Copy-generation management", "ISR":"Previous recording input source", "CMP":"Compression generation count", "SS":"Source access / scrambling status",
+    "REC_S":"Recording-start marker", "REC_E":"Recording-end marker", "REC_M":"Recording mode", "ICH":"Insert audio channel", "DRF":"Recorded tape direction", "SPD":"Recorded tape speed",
+    "DISP":"Recorded display format", "FF":"Frame / field delivery", "FS":"First field", "FC":"Picture change", "IL":"Interlace flag", "SF":"Still-field timing", "SC":"Still-camera flag", "BCS":"Broadcast signalling system",
+    "TV_CHANNEL":"Television channel", "BW":"Colour / monochrome", "EN":"Colour-frame identification validity", "CLF":"Colour-frame identification", "SRC":"Video source", "TUN":"Tuner category",
+    "DATA_TYPE":"Transparent signal type", "DATA28":"Transparent signal payload", "COORDINATE_FORM":"Geographic coordinate type", "ENV_FORM":"Environmental measurement type",
+    "FM":"Height / depth units", "CF":"Temperature units", "NP":"Measurement sign", "PRESSURE_FORMAT":"Pressure units",
+    "CM":"Line numbering mode", "TSD":"Samples per line", "SMPL":"Line sampling frequency", "QUL":"Line sample precision", "LINES":"Line number",
+    "TNT":"Total number of text events", "DF":"Drop-frame sequence flag", "MAKER_CODE":"Manufacturer code", "OPTION_COUNT":"Manufacturer option pack count",
+    "MAKER_PC3":"Manufacturer-defined payload (byte 3)", "MAKER_PC4":"Manufacturer-defined payload (byte 4)", "PC1_UPPER":"Payload byte 1 upper bits",
+    "SERVICE_ID":"MPEG service identifier container", "TPH":"High-priority data repetitions", "TPL":"Low-priority data repetitions", "MR":"Multiple-service recording",
+    "HD_SD":"High / standard-definition recording", "AUD_MODE":"MPEG audio coding mode", "SB_SIZE":"Short smoothing-buffer size code", "SB_LEAK_RATE":"Short smoothing-buffer leak-rate code",
+    "PID":"MPEG packet identifier", "PID_TYPE":"MPEG packet identifier type", "ETN":"Extended track number", "SF1":"Extended-track flag 1", "SF2":"Extended-track flag 2",
+    "SPH":"Extended-track field SPH (profile required)", "REE":"Extended-track field REE (profile required)", "PT":"Extended-track field PT (profile required)"
+  ]
+}
+private extension DVIEC61834.Reader {
+  mutating func recordingPitch(_ byte: Int) {
+    field("SR",byte,7,1,labels:[0:"Reserved mode; selects track-pitch code 1 where the 0/1 profile applies",1:"Standard play for track-pitch code 0; required for codes 2 and 3"],
+      note:"PRIMARY_STANDARD: §§3.3, 4.16, 7.16. Recording track-pitch context is not established; conditional meanings are retained, not a selected transport speed.")
+    qualify("SR",meaning:fields.last!.meaning,status:"uninterpreted")
   }
 }

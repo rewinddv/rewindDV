@@ -50,9 +50,11 @@ def validate(identity, history):
             if reuse['channel'] not in ('alpha', 'beta') or type(reuse['source_revision']) is not str or type(reuse['bundle_manifest_sha256']) is not str or not re.fullmatch(r'[a-f0-9]{40}', reuse['source_revision']) or not re.fullmatch(r'[a-f0-9]{64}', reuse['bundle_manifest_sha256']):
                 raise ValueError('Invalid retained driver provenance')
             highest = max(build(row[key]) for row in history)
-            prior = [row for row in history if row[key] == highest]
-            if identity[key] != highest:
-                raise ValueError('Reuse requires the latest reserved driver build')
+            prior = [row for row in history if row[key] == identity[key]]
+            if identity[key] != highest and not any(row.get('driver_reuse') == reuse for row in prior):
+                raise ValueError('Older reuse requires an identical previously pinned driver binding')
+            if not prior:
+                raise ValueError('Retained driver build has no prior reservation')
             for row in prior:
                 origin = row.get('driver_reuse', row)
                 if reuse['product_version'] != origin['product_version'] or reuse['channel'] != origin.get('channel', 'alpha'):

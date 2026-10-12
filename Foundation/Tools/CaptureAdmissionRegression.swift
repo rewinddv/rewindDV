@@ -30,6 +30,8 @@ actor Barrier {
   func release() { continuation?.resume(); continuation = nil }
 }
 actor DriverBridge {
+  // This fixture supplies only a fresh unlocked bridge; no actual driver exists.
+  nonisolated let controlSessionLockedOut = false
   var liveConnection: Bool?
   var commandInFlight = false, inspectionInFlight = false, permanentlyLockedOut = false
   var starts = 0, ends = 0, diagnosticWrites = 0, inspections = 0
@@ -106,7 +108,7 @@ actor DriverBridge {
   var isBusy = false, wholeTapeActive = false, controlLockedOut = false
   var requiresSupervisedStop = false, externalTransportObservationActive = false
   var windObservationActive = false
-  var passiveObservationFailureRoute: FoundationRoute?
+  var passiveRecovery = PassiveObservationRecoveryGate()
   var monitorSource = MonitorSource.deck
   var headline = "", detail = "", handshakeFeedback = ""
   var plays = 0

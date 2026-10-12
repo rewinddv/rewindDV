@@ -14,6 +14,13 @@ struct DVMetadataInspector: View {
   var ordinalIsEstimated = false
   var searchQuery: Binding<String>? = nil
   @State private var localQuery = ""
+  @State private var expandedPacks = Set<String>()
+  @State private var collapsedPacks = Set<String>()
+  @State private var showAllFields = true
+  init(report:DVPackSemanticReport,ordinalIsEstimated:Bool=false,searchQuery:Binding<String>?=nil,expandsFieldsByDefault:Bool=true) {
+    self.report=report;self.ordinalIsEstimated=ordinalIsEstimated;self.searchQuery=searchQuery
+    _showAllFields=State(initialValue:expandsFieldsByDefault)
+  }
   private var query: Binding<String> { searchQuery ?? $localQuery }
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
@@ -22,7 +29,7 @@ struct DVMetadataInspector: View {
         Text("Source byte offsets identify this frame. Frame numbers are preview estimates; the whole-file timeline has not been assessed.").font(.caption)
       }
       Text(report.format).font(.caption).textSelection(.enabled)
-      Text("Every observed pack is listed by ID and name. Known fields have labels; unknown or unqualified payloads retain labelled raw bytes. Packs absent from this sampled frame are not invented.")
+      Text("Every observed pack is listed by ID and name. Recorded settings are spelled out below. Expand field details for source codes and qualifications; unknown payloads remain explicit. Packs absent from this sampled frame are not invented.")
         .font(.caption).foregroundStyle(.secondary)
       if !DVMetadataPresentation.unresolvedVAUX61(report).isEmpty {
         DisclosureGroup("Unresolved VAUX 0x61 interpretation") {
@@ -36,13 +43,21 @@ struct DVMetadataInspector: View {
       }
       TextField("Find a pack ID, name or field", text: query)
         .textFieldStyle(.roundedBorder).accessibilityIdentifier("metadata-search")
+      Toggle("Show all recorded fields", isOn: $showAllFields)
+        .accessibilityIdentifier("metadata-show-all-fields")
       ForEach(DVMetadataPresentation.groups(report).filter { $0.packs.contains { DVMetadataPresentation.matches($0, query: query.wrappedValue) } }) { group in
         VStack(alignment: .leading, spacing: 8) {
           Text(group.title).font(.headline)
           ForEach(group.packs.filter { DVMetadataPresentation.matches($0, query: query.wrappedValue) }, id: \.id) { pack in
-            DisclosureGroup(DVMetadataPresentation.packFieldLabel(pack.name, packID: pack.typeHex)) {
-              ForEach(pack.fields, id: \.id) { field in fieldRow(field, source: pack.typeHex) }
-              packEvidence(pack)
+            DisclosureGroup(DVMetadataPresentation.packFieldLabel(pack.name, packID: pack.typeHex), isExpanded: Binding(
+              get: { !query.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || expandedPacks.contains(pack.id) || (showAllFields && !collapsedPacks.contains(pack.id)) },
+              set: { if $0 { expandedPacks.insert(pack.id); collapsedPacks.remove(pack.id) } else { expandedPacks.remove(pack.id); collapsedPacks.insert(pack.id) } })) {
+              ForEach(pack.fields.filter { !DVMetadataPresentation.isFormatDetail($0) }, id: \.id) { field in fieldRow(field, source: pack.typeHex) }
+              if pack.fields.isEmpty { Text(pack.status).font(.caption) }
+              DisclosureGroup("Raw bytes, format checks & source locations") {
+                ForEach(pack.fields.filter(DVMetadataPresentation.isFormatDetail), id: \.id) { field in fieldRow(field, source: pack.typeHex) }
+                packEvidence(pack)
+              }
             }.accessibilityIdentifier("metadata-pack-" + pack.id)
           }
         }
@@ -90,12 +105,14 @@ struct DVMetadataInspector: View {
   private func fieldRow(_ field: DVPackSemanticReport.Field, source: String) -> some View {
     VStack(alignment: .leading, spacing: 3) {
       Text(DVMetadataPresentation.packFieldLabel(field.name, packID: source)).font(.caption.bold())
-      Text(field.meaning).foregroundStyle(color(field))
+      Text(DVMetadataPresentation.fieldValue(field)).foregroundStyle(color(field)).fixedSize(horizontal: false, vertical: true)
+      DisclosureGroup("Field details") {
       Text(DVMetadataPresentation.fieldCaption(field))
         .font(.caption).foregroundStyle(color(field))
       Text(field.reference).font(.caption2).foregroundStyle(.secondary)
       if let qualifier = field.qualifier { Text(qualifier).font(.caption2).foregroundStyle(.secondary) }
-    }.padding(.vertical, 3).accessibilityElement(children: .combine)
+      }
+    }.padding(.vertical, 3).accessibilityElement(children: .contain)
   }
   private func packEvidence(_ pack: DVPackSemanticReport.Pack) -> some View {
     VStack(alignment: .leading, spacing: 6) {
@@ -126,9 +143,15 @@ struct DVMetadataInspector: View {
     DisclosureGroup("\(sequence.kind.capitalized) sequence \(index + 1) · \(sequence.status)") {
       Text("Expected \(sequence.expectedCount) \(sequence.countUnit) · \(sequence.payload.count) payload bytes · \(sequence.observations.count) observed packs").font(.caption)
       Text(sequence.reference).font(.caption2)
+      if let text=sequence.decodedText { Text("Recorded text: "+text).textSelection(.enabled) }
+      if let status=sequence.textInterpretation { Text(status).font(.caption) }
+      if let first=sequence.firstTeletextID {
+        Text("First teletext identifier: system \(first.system), \(first.secondField ? "second":"first") field, line \(first.lineNumber.map(String.init) ?? "unresolved") · \(first.status)").font(.caption)
+      }
+      ForEach(sequence.teletextInformation ?? [],id:\.id) { field in fieldRow(field,source:"0x0C") }
       if let sets = sequence.characterSets {
         ForEach(sets.keys.sorted(), id: \.self) { key in
-          Text("Character set \(key): \(String(format: "0x%02X", sets[key]!)) · raw identifier").font(.caption)
+          Text("Character set \(key): \(DVIEC61834.characterSetName(sets[key]!)) · \(String(format: "0x%02X", sets[key]!))").font(.caption)
         }
       }
       DisclosureGroup("Payload bytes") { MetadataByteEvidence(bytes: sequence.payload) }

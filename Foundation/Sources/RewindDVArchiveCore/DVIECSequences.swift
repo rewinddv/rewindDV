@@ -29,12 +29,16 @@ public enum DVIECSequences {
     public let reference: String
     public var characterSets: [String:UInt8]? = nil
     public var components: [Component]? = nil
+    public var decodedText: String? = nil
+    public var textInterpretation: String? = nil
+    public var firstTeletextID: TeletextID? = nil
+    public var teletextInformation: [DVPackSemanticReport.Field]? = nil
   }
   public enum ChromaPlan: Sendable { case paired, alternating, unknown }
 
   /// The caller supplies an ordered queue from one recording area. Invalid or
   /// truncated observations interrupt it; they are never skipped to fill a hole.
-  public static func assemble(_ input: [Observation], chroma: ChromaPlan = .unknown) -> [Sequence] {
+  public static func assemble(_ input: [Observation], chroma: ChromaPlan = .unknown, isPAL: Bool = false) -> [Sequence] {
     guard input.count <= 1800 else { return [] }
     var result: [Sequence] = [], i = 0
     while i < input.count {
@@ -65,6 +69,25 @@ public enum DVIECSequences {
         reference:DVIEC61834.reference(p[0]))
       if text {
         sequence.characterSets = DVIEC61834.characterSets(code:p[3],option:(p[2]>>1)&7)
+        var headerContext=DVIEC61834.Context();headerContext.isPAL=isPAL
+        let headerFields=DVIEC61834.decode(p,context:headerContext)?.fields ?? []
+        let headerValid = !headerFields.isEmpty && !headerFields.contains(where:{$0.status == "invalid"}) && headerFields.contains(where:{$0.id == "TEXT_TYPE" && $0.status == "interpreted"})
+        if headerValid && !teletext && p[2]>>4 <= 9 && sequence.characterSets?["GL"] == 0x42 && data.count == expected {
+          if payload.allSatisfy({ (0x20...0x7e).contains($0) }) {
+            sequence.decodedText=String(bytes:payload,encoding:.ascii)
+            sequence.textInterpretation="PRIMARY_STANDARD: IEC 61834-4:1998 §3.9, USA primary designation; complete printable ASCII queue, bytes unchanged."
+          } else { sequence.textInterpretation="Unresolved controls, shifts, escapes, padding or non-ASCII bytes; no characters substituted or trimmed." }
+        }
+        if headerValid && teletext, let first=payload.first {
+          let identifier=teletextID(first,isPAL:isPAL);sequence.firstTeletextID=identifier
+          if identifier.status == "interpreted", let info=observations.first(where:{$0.bytes[0] == 0x0c}) {
+            var context=DVIEC61834.Context();context.isPAL=isPAL;context.teletextSystem=Int(identifier.system)
+            sequence.teletextInformation=DVIEC61834.decode(info.bytes,context:context)?.fields
+          }
+        }
+        if !teletext && sequence.decodedText == nil && sequence.textInterpretation == nil {
+          sequence.textInterpretation = "Readable text is unresolved: incomplete or invalid header/queue, unsupported character set, or font/graphic payload. Original bytes are preserved."
+        }
       } else {
         let q = p[4]>>6
         let width = q < 3 ? [2,4,8][Int(q)]:0
@@ -154,6 +177,21 @@ public enum DVIECSequences {
         let x = a.location!, y = b.location!
         return (x.sequence,x.block,x.localByteOffset) < (y.sequence,y.block,y.localByteOffset)
       }
+      let catalogue=queue.filter{$0.qualified && $0.bytes[0] == 0x16}
+      let unique=Dictionary(grouping:catalogue,by:{$0.bytes})
+      var catalogueSequence:[Sequence]=[]
+      if unique.count == 2 {
+        let keys=unique.keys.sorted{$0.lexicographicallyPrecedes($1)}
+        if let first=keys.first(where:{$0[1]&15 == 14}),let second=keys.first(where:{$0[1]&15 == 15}) {
+          let fields=[first,second].flatMap{DVIEC61834.decode($0)?.fields ?? []}
+          if !fields.contains(where:{$0.status == "invalid"}), (1...13).allSatisfy({ n in fields.contains(where:{$0.id == "N\(n)" && $0.status == "interpreted"}) }) {
+            let digits=(1...13).map{ n in String(fields.first{$0.id == "N\(n)"}!.rawValue) }.joined()
+            var joined=Sequence(kind:"catalogue number",observations:(unique[first] ?? [])+(unique[second] ?? []),payload:Array(first.dropFirst())+Array(second.dropFirst()),expectedCount:2,countUnit:"pack forms",status:"complete qualified catalogue pair",reference:"PRIMARY_STANDARD: IEC 61834-4:1998 §4.7")
+            joined.decodedText=digits;joined.textInterpretation="All 13 recorded decimal digits; leading zeros preserved. Same-frame, same-area unique pair; no ownership or product identity inferred."
+            catalogueSequence=[joined]
+          }
+        }
+      }
       let chroma: ChromaPlan = sd ? (isPAL ? .alternating:.paired):.unknown
       // Inventory/report input may omit a rejected extent. A sorted queue is
       // not evidence that every intervening slot was observed. Keep those gaps
@@ -161,12 +199,12 @@ public enum DVIECSequences {
       var sequences: [Sequence] = [], run: [Observation] = []
       for observation in queue {
         if let previous = run.last, !consecutive(previous.location!, observation.location!) {
-          sequences += assemble(run, chroma: chroma)
+          sequences += assemble(run, chroma: chroma, isPAL: isPAL)
           run.removeAll(keepingCapacity: true)
         }
         run.append(observation)
       }
-      return sequences + assemble(run, chroma: chroma)
+      return sequences + assemble(run, chroma: chroma, isPAL: isPAL) + catalogueSequence
     }
   }
 

@@ -335,3 +335,36 @@ private func value(_ d: DVIEC61834.Decoded, _ id: String) throws -> DVPackSemant
   let legacy = try decoder.decode(DVPackSemanticReport.self,from:JSONSerialization.data(withJSONObject:json))
   #expect(legacy.schemaVersion == 2 && legacy.sequences == nil)
 }
+
+@Test func iecReadableCameraNamesAndValuesRetainSourceCodes() throws {
+  // Independently assembled §10.1 vector: aperture code16=>f/4, AE3 iris priority,
+  // gain7, WB3 preset/sunlight4, focus manual code42=>10*100cm.
+  let d = try iec([0x70,0xd0,0x37,0x64,0xaa])
+  for (id,name) in [("IRIS","Iris aperture"),("AE_MODE","Auto exposure mode"),("AGC","Automatic gain control"),("WB_MODE","White balance mode"),("WB_PRESET","White balance preset"),("FOCUS_MODE","Focus mode"),("FOCUS","Focus distance")] {
+    #expect(try value(d,id).name == name)
+  }
+  #expect(try value(d,"IRIS").meaning == "4 f-number")
+  #expect(try value(d,"AE_MODE").meaning == "Iris priority")
+  #expect(try value(d,"AGC").rawValue == 7)
+  #expect(try value(d,"AGC").meaning.contains("dB conversion not established"))
+  #expect(try value(d,"WB_MODE").meaning == "Preset")
+  #expect(try value(d,"WB_PRESET").meaning == "Sunlight")
+  #expect(try value(d,"FOCUS_MODE").meaning == "Manual")
+  #expect(try value(d,"FOCUS").meaning == "1000 cm")
+  #expect(try value(iec([0x70,255,255,255,255]),"WB_MODE").status == "unavailable")
+  #expect(try value(iec([0x70,0xc0,0x50,0x80,0]),"AE_MODE").status == "reserved")
+}
+@Test func iecTitleEndRecordingProtectionIsMICOnly() throws {
+  var c = DVIEC61834.Context(); c.mic = true
+  for (byte,meaning): (UInt8,String) in [(0xbf,"Recording-protection events present"),(0xff,"No recording-protection events")] {
+    let f = try #require(DVIEC61834.decode([0x1f,255,255,255,byte],context:c)?.fields.first { $0.id == "RE" })
+    #expect(f.name == "Recording-protection events")
+    #expect(f.meaning == meaning)
+    #expect(f.status == "interpreted")
+  }
+  #expect(try value(iec([0x1f,255,255,255,0xbf]),"RE").status == "invalid")
+  #expect(try value(iec([0x1f,255,255,255,0xff]),"RE").meaning == "Required bits conform")
+  let pitch = try value(iec([0x1f,255,255,255,0xff]),"SR")
+  #expect(pitch.status == "uninterpreted")
+  #expect(pitch.meaning.contains("track-pitch"))
+}

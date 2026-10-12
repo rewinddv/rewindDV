@@ -11,56 +11,96 @@ import UniformTypeIdentifiers
 
 /// In-view hover help avoids the system tooltip delay. It never takes focus,
 /// participates in layout, or intercepts a click intended for the control.
-private struct InspectorPresentationState {
-  var showingPacks = false
-  var packQuery = ""
-}
-
 private struct TechnicalSpecificationRows: View {
   let sections: [DVTechnicalSpecifications.Section]
   let coverage: String
   var metadata: DVPackSemanticReport? = nil
   var metadataOrdinalIsEstimated = false
-  @Binding var presentation: InspectorPresentationState
+  @Binding var presentation: DVInspectorPresentationState
+  @State private var detailRow: DVTechnicalSpecifications.Row? = nil
+  @ViewBuilder private func rows(_ section: DVTechnicalSpecifications.Section) -> some View {
+    ForEach(section.rows) { row in
+      VStack(alignment: .leading, spacing: 2) {
+        HStack(alignment:.firstTextBaseline,spacing:8) {
+          Text(row.label).font(.caption).foregroundStyle(.secondary)
+            .frame(width:112,alignment:.leading)
+          Text(summaryValue(row)).font(.callout.weight(.medium))
+          .foregroundStyle(row.value.hasPrefix("Invalid") || row.value.hasPrefix("Conflicting") ? Color.red : row.isWarning ? Color.secondary : Color.primary)
+          .textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+          .frame(maxWidth:.infinity,alignment:.leading)
+          Button { detailRow=row } label:{ Image(systemName:"info.circle") }
+            .buttonStyle(.plain).foregroundStyle(.tertiary).accessibilityLabel("Details for \(row.label)")
+        }
+      }.frame(maxWidth: .infinity, alignment: .leading)
+        .help(row.evidence).accessibilityElement(children: .contain)
+        .accessibilityIdentifier("spec-" + section.title + "-" + row.label)
+    }
+  }
+  private func summaryValue(_ row:DVTechnicalSpecifications.Row) -> String {
+    if row.label == "Complete name" { return URL(fileURLWithPath:row.value).lastPathComponent }
+    if row.value == "Unavailable — No information" { return "Not recorded" }
+    if row.value.hasSuffix(" f-number") { return "f/"+row.value.replacingOccurrences(of:" f-number",with:"") }
+    return row.value
+  }
   var body: some View {
     VStack(alignment: .leading, spacing: 10) {
-      Picker("Inspector view", selection: $presentation.showingPacks) {
-        Text("Overview").tag(false)
-        Text("Metadata & packs").tag(true)
+      Picker("Inspector view", selection: $presentation.tab) {
+        Text("Overview").tag(0)
+        Text("Metadata").tag(1)
+        Text("Evidence").tag(2)
       }.pickerStyle(.segmented).labelsHidden().accessibilityIdentifier("inspector-view")
     ScrollView(.vertical) {
-      // A live sample can contain hundreds of pack/field rows. Keep offscreen
-      // evidence out of the capture window's layout pass; it remains available
-      // when the operator scrolls to it. Raw preservation never consults this UI.
-      LazyVStack(alignment: .leading, spacing: 16) {
-        if !presentation.showingPacks {
-        ForEach(DVMetadataPresentation.summarySections(sections)) { section in
-          VStack(alignment: .leading, spacing: 9) {
-            Text(section.title).font(.headline)
-            ForEach(section.rows) { row in
-              VStack(alignment: .leading, spacing: 2) {
-                Text(DVMetadataPresentation.inspectorLabel(row.label, section: section.title).uppercased())
-                  .font(.caption2.bold()).foregroundStyle(.yellow)
-                Text(row.value).font(.callout)
-                  .foregroundStyle(row.isWarning ? Color.red : Color.primary)
-                  .textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
-                  .lineLimit(row.label == "Recorded date & time" ? 3 : nil)
-                  .frame(height: row.label == "Recorded date & time" ? 66 : nil, alignment: .topLeading)
-              }.frame(maxWidth: .infinity, alignment: .leading)
-                .help(row.evidence).accessibilityElement(children: .combine)
-                .accessibilityIdentifier("spec-" + section.title + "-" + row.label)
+      // Frame-local metadata is bounded by the scanner. Materialize this stack
+      // so macOS accessibility can locate its final child when jumping to the
+      // bottom; lazy stacks trap in SwiftUICore on that action on macOS 27.
+      // Raw preservation never consults this display-only layout.
+      VStack(alignment: .leading, spacing: 16) {
+        if presentation.tab == 0 {
+        ForEach(DVMetadataPresentation.overviewSections(sections, metadata: metadata)) { section in
+          if !section.title.hasPrefix("Recorded metadata - ") && !section.title.hasPrefix("Source structure - ") && !section.title.hasPrefix("Recorded sequences - ") && section.title != "Metadata coverage & interpretation" {
+          if ["General", "Video", "Apple presentation geometry", "Audio", "Audio 1", "Audio 2", "Recorded motion / lens", "Source error summary", "HDV transport"].contains(section.title) || section.title.hasPrefix("Recorded Camera - ") {
+            VStack(alignment: .leading, spacing: 9) {
+              Text(section.title).font(.headline)
+              rows(section)
             }
+          } else {
+            DisclosureGroup(section.title) { rows(section) }
+              .font(.headline).accessibilityIdentifier("overview-section-" + section.title)
           }
           Divider()
+          }
+        }
+        if let metadata {
+          DisclosureGroup("All recorded metadata") {
+            DVInspectorBrowserView(report:metadata,query:$presentation.query,
+              category:$presentation.category,showFormatChecks:$presentation.showFormatChecks,page:$presentation.page)
+          }.font(.subheadline.weight(.semibold)).accessibilityIdentifier("overview-all-metadata")
+          Button("Explore metadata and source details") { presentation.tab=1 }
+            .buttonStyle(.borderless).accessibilityIdentifier("explore-metadata")
         }
         } else if let metadata {
-          DVMetadataInspector(report: metadata, ordinalIsEstimated: metadataOrdinalIsEstimated, searchQuery: $presentation.packQuery)
+          if presentation.tab == 1 {
+            DVInspectorBrowserView(report:metadata,query:$presentation.query,
+              category:$presentation.category,showFormatChecks:$presentation.showFormatChecks,page:$presentation.page)
+          } else {
+            DVMetadataInspector(report: metadata, ordinalIsEstimated: metadataOrdinalIsEstimated, searchQuery: $presentation.query, expandsFieldsByDefault:false)
+          }
         } else {
           Text("No complete DV frame sampled yet. Metadata will appear here when a frame is available.").font(.callout)
         }
         Text(coverage).font(.caption).foregroundStyle(.secondary)
-      }.frame(maxWidth: .infinity, alignment: .leading).padding(.trailing, 5)
+      }.accessibilityElement(children: .contain)
+        .frame(maxWidth: .infinity, alignment: .leading).padding(.trailing, 5)
     }.frame(height: 360)
+    }.popover(item:$detailRow) { row in
+      ScrollView {
+        VStack(alignment:.leading,spacing:10) {
+          Text(row.label).font(.headline)
+          Text(row.value).textSelection(.enabled)
+          Divider()
+          Text(row.evidence).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+        }.padding(16)
+      }.frame(width:360,height:260)
     }
   }
 }
@@ -68,7 +108,7 @@ private struct TechnicalSpecificationRows: View {
 private struct LiveTechnicalSpecificationsPanel: View {
   @ObservedObject var live: LiveMonitorModel
   @ObservedObject var metadata: LiveDVMetadata
-  @Binding var presentation: InspectorPresentationState
+  @Binding var presentation: DVInspectorPresentationState
 
   private func progress() -> [DVTechnicalSpecifications.Row] {
     var rows: [DVTechnicalSpecifications.Row] = []
@@ -130,7 +170,7 @@ private struct LiveTechnicalSpecificationsPanel: View {
 private struct PlaybackTechnicalSpecificationsPanel: View {
   @ObservedObject var playback: OfflineDVPlaybackModel
   @ObservedObject var metadata: PlaybackDVMetadata
-  @Binding var presentation: InspectorPresentationState
+  @Binding var presentation: DVInspectorPresentationState
   var body: some View {
     VStack(alignment: .leading, spacing: 8) {
       TimelineView(.periodic(from: .now, by: 1)) { _ in
@@ -324,65 +364,6 @@ private struct LivePictureSurface: View {
 
 // AppKit gives both segments equal, explicit hit areas. SwiftUI's segmented
 // Picker otherwise keeps its small intrinsic control centered in a wider frame.
-/// A workspace-owned sheet keeps one reliable lifecycle across view changes.
-@MainActor private final class PlaybackFilePicker: NSObject, ObservableObject {
-  weak var ownerWindow: NSWindow?
-  private var panel: NSOpenPanel?
-
-  func present(selection: @escaping (URL) -> Void) {
-    if let existing = panel {
-      if existing.isVisible || existing.sheetParent != nil {
-        existing.makeKeyAndOrderFront(nil)
-        return
-      }
-      panel = nil
-      existing.cancel(nil)
-    }
-    guard let ownerWindow else { return }
-    if let sheet = ownerWindow.attachedSheet {
-      sheet.makeKeyAndOrderFront(nil)
-      return
-    }
-    let chooser = NSOpenPanel()
-    chooser.title = "Open recorded DV"
-    chooser.message = "The original file is opened read-only and is never rewritten."
-    if let type = UTType(filenameExtension: "dv") { chooser.allowedContentTypes = [type] }
-    chooser.canChooseFiles = true
-    chooser.canChooseDirectories = false
-    chooser.allowsMultipleSelection = false
-    panel = chooser
-    chooser.beginSheetModal(for: ownerWindow) { [weak self, weak chooser] response in
-      guard let self, let chooser, self.panel === chooser else { return }
-      let url = response == .OK ? chooser.url : nil
-      self.panel = nil
-      if let url { selection(url) }
-    }
-  }
-
-  func cancel() {
-    let existing = panel
-    panel = nil
-    existing?.cancel(nil)
-  }
-}
-
-/// Resolve the workspace window instead of whichever auxiliary window is key.
-private struct PlaybackPickerWindow: NSViewRepresentable {
-  let picker: PlaybackFilePicker
-  func makeNSView(context: Context) -> WindowView { WindowView(picker: picker) }
-  func updateNSView(_ view: WindowView, context: Context) { picker.ownerWindow = view.window }
-
-  final class WindowView: NSView {
-    let picker: PlaybackFilePicker
-    init(picker: PlaybackFilePicker) { self.picker = picker; super.init(frame: .zero) }
-    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-    override func viewDidMoveToWindow() {
-      super.viewDidMoveToWindow()
-      picker.ownerWindow = window
-    }
-  }
-}
-
 private struct WorkspaceModeSelector: NSViewRepresentable {
   @Binding var selection: MonitorSource
   var isEnabled: Bool
@@ -423,6 +404,69 @@ private struct WorkspaceModeSelector: NSViewRepresentable {
   }
 }
 
+/// A workspace-owned sheet has one lifecycle, independent of SwiftUI's layout.
+/// Do not resize the native chooser after presentation: AppKit owns its geometry.
+@MainActor private final class PlaybackFilePicker: NSObject, ObservableObject {
+  weak var ownerWindow: NSWindow?
+  private var panel: NSOpenPanel?
+
+  func present(selection: @escaping (URL) -> Void) {
+    if let existing = panel {
+      if existing.isVisible || existing.sheetParent != nil {
+        existing.makeKeyAndOrderFront(nil)
+        return
+      }
+      // A closed panel must not permanently suppress later Open requests.
+      panel = nil
+      existing.cancel(nil)
+    }
+    guard let ownerWindow else { return }
+    if let sheet = ownerWindow.attachedSheet {
+      sheet.makeKeyAndOrderFront(nil)
+      return
+    }
+    let chooser = NSOpenPanel()
+    chooser.title = "Open recorded DV"
+    chooser.message = "The original file is opened read-only and is never rewritten."
+    if let type = UTType(filenameExtension: "dv") { chooser.allowedContentTypes = [type] }
+    chooser.canChooseFiles = true
+    chooser.canChooseDirectories = false
+    chooser.allowsMultipleSelection = false
+    panel = chooser
+    chooser.beginSheetModal(for: ownerWindow) { [weak self, weak chooser] response in
+      guard let self, let chooser, self.panel === chooser else { return }
+      let url = response == .OK ? chooser.url : nil
+      self.panel = nil
+      if let url { selection(url) }
+    }
+  }
+
+  func cancel() {
+    let existing = panel
+    panel = nil
+    existing?.cancel(nil)
+  }
+
+
+}
+
+/// Resolve the actual workspace window, never an unrelated About/Help window.
+private struct PlaybackPickerWindow: NSViewRepresentable {
+  let picker: PlaybackFilePicker
+  func makeNSView(context: Context) -> WindowView { WindowView(picker: picker) }
+  func updateNSView(_ view: WindowView, context: Context) { picker.ownerWindow = view.window }
+
+  final class WindowView: NSView {
+    let picker: PlaybackFilePicker
+    init(picker: PlaybackFilePicker) { self.picker = picker; super.init(frame: .zero) }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    override func viewDidMoveToWindow() {
+      super.viewDidMoveToWindow()
+      picker.ownerWindow = window
+    }
+  }
+}
+
 struct UnifiedMonitorWorkspace: View {
   @ObservedObject var model: RewindDVModel
   @ObservedObject var installer: SystemExtensionInstaller
@@ -434,8 +478,8 @@ struct UnifiedMonitorWorkspace: View {
   @State private var viewingMode: DVViewingMode = .standard
   @State private var confirmPhysicalStop = false
   @StateObject private var playbackFilePicker = PlaybackFilePicker()
-  @State private var captureInspector = InspectorPresentationState()
-  @State private var playbackInspector = InspectorPresentationState()
+  @State private var captureInspector = DVInspectorPresentationState()
+  @State private var playbackInspector = DVInspectorPresentationState()
   @StateObject private var rangeReview = ReviewedRangeModel()
   @ObservedObject var surgery: SurgeryModel
 
@@ -1302,6 +1346,7 @@ struct UnifiedMonitorWorkspace: View {
       playback.open(url: url)
     }
   }
+
 }
 
 /// Read-only presentation of both modules; navigation does not trigger queries

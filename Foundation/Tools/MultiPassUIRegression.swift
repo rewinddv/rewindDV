@@ -18,7 +18,8 @@ enum MultiPassUIRegression {
           block.replaceSubrange(8..<13, with: [0x61,0,0xc8,0xf0,0xff])
         }
         if section == 3 && number < 2 {
-          block.replaceSubrange(3..<8, with: number == 0 ? [0x50,20,0,0x80,0xc0] : [0x51,0,7,0x80,0xff])
+          // IEC 61834-4 §8.1 requires PC1 bit 6; AF_SIZE remains 20 samples.
+          block.replaceSubrange(3..<8, with: number == 0 ? [0x50,0x40 | 20,0,0x80,0xc0] : [0x51,0,7,0x80,0xff])
         }
         if section == 4 {
           block[3] = damaged && sequence == 0 && number == 0 ? 0x10 : 0
@@ -36,6 +37,15 @@ enum MultiPassUIRegression {
       guard value() else { throw NSError(domain: "MultiPassUIRegression", code: 1, userInfo: [NSLocalizedDescriptionKey: message]) }
       print("PASS: \(message)")
     }
+    for damaged in [false, true] {
+      let source = fixture(4, damaged: damaged)
+      let evidence = try DVFrameForensics.inspect(frame: source, ordinal: 4, offset: 0)
+      try require(evidence.summary.invalidMetadataValues == 0, "synthetic replacement fixture has valid recorded metadata")
+    }
+    var invalid = fixture(4, damaged: false)
+    for sequence in 0..<10 { invalid[sequence * 12_000 + 6 * 80 + 4] &= ~UInt8(0x40) }
+    let rejected = try DVFrameForensics.inspect(frame: invalid, ordinal: 4, offset: 0)
+    try require(rejected.summary.invalidMetadataValues == 2, "clearing the required AAUX bit remains invalid in both audio halves")
     let root = parent.appendingPathComponent("synthetic-multipass-ui")
     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)
     var files: [URL] = [], maps: [URL] = []

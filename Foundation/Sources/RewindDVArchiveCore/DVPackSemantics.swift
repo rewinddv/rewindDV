@@ -113,9 +113,11 @@ public struct DVPackSemanticReport: Codable, Equatable, Sendable {
 
   public static func inspect(_ inventory: DVMetadataInventory, absoluteOffsetsKnown: Bool = true) -> Self {
     let assessment = assessHeaders(inventory)
-    let observations = collectPacks(inventory, headers: assessment.headers)
+    let structural = DVStructuralMetadata.inspect(inventory, absoluteOffsetsKnown: absoluteOffsetsKnown, consumerQualified: assessment.format == .iec61834, smpteQualified:assessment.format == .smpte314M)
+    let validSyncOffsets=Set(structural.filter { $0.id.hasPrefix("sync-") }.flatMap(\.locations).filter { $0.transmission == "valid" }.map { inventory.frameByteOffset + UInt64($0.localByteOffset) + 3 })
+    let observations = collectPacks(inventory, headers: assessment.headers, format:assessment.format, validSyncOffsets:validSyncOffsets)
     let isPAL = inventory.frameByteCount == 144_000
-    var decoded = observations.map { decode($0, format: assessment.format, isPAL: isPAL) }
+    var decoded = observations.map { decode($0, format: assessment.format, isPAL: isPAL, observations: observations) }
     decoded = flagConflicts(decoded)
     var report = Self(
       schemaVersion: 3,
@@ -128,7 +130,7 @@ public struct DVPackSemanticReport: Codable, Equatable, Sendable {
       missingPrincipalPacks: missingPrincipalPacks(observations))
     report.absoluteOffsetsKnown = absoluteOffsetsKnown
     report.interpretationVersion = DVIEC61834.interpretationVersion
-    report.structuralMetadata = DVStructuralMetadata.inspect(inventory, absoluteOffsetsKnown: absoluteOffsetsKnown, consumerQualified: assessment.format == .iec61834)
+    report.structuralMetadata = structural
     report = report.attachingLocations(inventory, absoluteOffsetsKnown: absoluteOffsetsKnown)
     let sequences = DVIECSequences.inspect(report,isPAL:isPAL)
     report.sequences = sequences.isEmpty ? nil:sequences
@@ -166,6 +168,7 @@ private extension DVPackSemanticReport {
     let raw: [UInt8]
     let offsets: [UInt64]
     let transmission: Transmission
+    let associationQualified:Bool
   }
 
   static let iecAS = "IEC 61834 AAUX source pack; Video Demystified (2007), ch. 11, Table 11.1"
@@ -227,7 +230,7 @@ private extension DVPackSemanticReport {
 
   static func collectPacks(
     _ inventory: DVMetadataInventory,
-    headers: [UInt8: [UInt8]]
+    headers: [UInt8: [UInt8]], format:FormatIdentity, validSyncOffsets:Set<UInt64>
   ) -> [Observation] {
     guard inventory.extents.count <= 1_800,
       inventory.frameByteCount == 120_000 || inventory.frameByteCount == 144_000
@@ -239,6 +242,7 @@ private extension DVPackSemanticReport {
       let type: UInt8
       let raw: [UInt8]
       let transmission: Transmission
+      let associationQualified:Bool
     }
     var grouped: [Key: [UInt64]] = [:]
     var seenExtents = Set<String>()
@@ -289,26 +293,40 @@ private extension DVPackSemanticReport {
         else { continue }
         let raw = Array(bytes[slot..<(slot + 5)])
         let key = Key(context: context, contextName: contextName,
-          type: raw[0], raw: raw, transmission: transmission)
+          type: raw[0], raw: raw, transmission: transmission, associationQualified: extent.section != 1 ? transmission == .valid : format == .iec61834 ? validSyncOffsets.contains(offset) : format == .smpte314M && smpteSyncQualified(bytes,slot:slot,sequence:extent.sequence,block:extent.block,half:half,header:headers[extent.sequence],type:raw[0]))
         grouped[key, default: []].append(offset)
       }
     }
     return grouped.map { key, offsets in
       Observation(context: key.context, contextName: key.contextName,
         type: key.type, raw: key.raw, offsets: offsets.sorted(),
-        transmission: key.transmission)
+        transmission: key.transmission, associationQualified:key.associationQualified)
     }.sorted {
       if $0.context != $1.context { return $0.context < $1.context }
       if $0.type != $1.type { return $0.type < $1.type }
       if $0.raw != $1.raw { return $0.raw.lexicographicallyPrecedes($1.raw) }
-      return $0.transmission.rawValue < $1.transmission.rawValue
+      if $0.transmission != $1.transmission { return $0.transmission.rawValue < $1.transmission.rawValue }
+      return !$0.associationQualified && $1.associationQualified
     }
   }
 
-  static func decode(_ observation: Observation, format: FormatIdentity, isPAL: Bool) -> Pack {
+  // ST 314M §4.4.2.1/Table 7 IDs and §4.4.2.2/Table 9 placement.
+  // Arbitrary SMPTE ID bits are not consumer track-number fragments.
+  static func smpteSyncQualified(_ bytes:[UInt8],slot:Int,sequence:UInt8,block:UInt8,half:UInt8,header:[UInt8]?,type:UInt8) -> Bool {
+    guard let header, header[7]&128 == 0, header[3]&127 == 63, header[4]&248 == 248, (5...7).allSatisfy({header[$0]&120 == 120}) else { return false }
+    let local=slot-3,number=Int(block)*6+(slot-6)/8,x=bytes[local],y=bytes[local+1]
+    let first=sequence<half, app=(x>>4)&7
+    guard y&15 == number, (x&128 != 0) == first, bytes[local+2] == 255,
+      app == ([0,6,11].contains(number) ? header[number == 11 ? 4:7]&7:7) else { return false }
+    if type == 0x13 { return (first ? [3,5,9,11]:[3,9]).contains(number) }
+    if type == 0x14 { return first && [4,10].contains(number) }
+    return false
+  }
+
+  static func decode(_ observation: Observation, format: FormatIdentity, isPAL: Bool, observations: [Observation]) -> Pack {
     let rawHex = observation.raw.map { String(format: "%02X", $0) }.joined(separator: " ")
     let typeHex = String(format: "0x%02X", observation.type)
-    let id = "\(observation.context):\(typeHex):\(rawHex.replacingOccurrences(of: " ", with: "").lowercased()):\(observation.transmission.rawValue)"
+    let id = "\(observation.context):\(typeHex):\(rawHex.replacingOccurrences(of: " ", with: "").lowercased()):\(observation.transmission.rawValue):\(observation.associationQualified ? "associated":"unqualified")"
     let baseName = packName(observation.type)
     if observation.type == 0xff {
       guard format == .smpte314M else {
@@ -355,12 +373,46 @@ private extension DVPackSemanticReport {
         fields: [])
     }
     var fields: [Field]
+    var normativeLayout:[DVIEC61834.LayoutField]? = nil
     if format == .iec61834 {
       var context = DVIEC61834.Context()
       context.isPAL = isPAL
-      fields = DVIEC61834.decode(observation.raw, context: context)?.fields ?? []
+      let companions: [UInt8:UInt8] = [0x13:0x14,0x53:0x54,0x63:0x64]
+      let sameArea = observations.filter { $0.context == observation.context && $0.transmission == .valid && $0.associationQualified && DVPackCatalog.permitsSDObservation($0.type,context:$0.context) }
+      if let binary = companions[observation.type], observation.associationQualified && sameArea.contains(where:{$0.type == binary}) { context.binaryCompanion=true }
+      if observation.type == 0x06 {
+        let genreCodes = sameArea.filter { [0x51,0x61,0x04,0x44,0x4f].contains($0.type) }.compactMap { item -> Int? in
+          guard let decoded=DVIEC61834.decode(item.raw,context:context), !decoded.fields.contains(where:{$0.status == "invalid"}), let genre=decoded.fields.first(where:{$0.id == "GEN"}), genre.status == "interpreted",genre.rawValue>>4 < 8 else { return nil }
+          return Int(genre.rawValue)
+        }
+        if Set(genreCodes).count == 1, let code=genreCodes.first, code&15 == 15 { context.genreBasicCategory=code>>4 }
+      }
+      if [0x7b,0x7f].contains(observation.type) {
+        let sources=observations.filter { $0.context == "vaux-frame" && $0.type == 0x60 }
+        if !sources.isEmpty && sources.allSatisfy({ $0.transmission == .valid && $0.raw[3]&31 == 0 && ($0.raw[3]>>5)&1 == (isPAL ? 1:0) && !(DVIEC61834.decode($0.raw,context:context)?.fields.contains(where: { $0.status == "invalid" }) ?? true) }) {
+          context.horizontalPeriodSeconds=Double(isPAL ? 864:858)/13_500_000
+        }
+      }
+      let interpretation = DVIEC61834.decode(observation.raw, context: context)
+      fields = interpretation?.fields ?? []
+      normativeLayout=interpretation?.layout
+      if context.horizontalPeriodSeconds != nil, let i=fields.firstIndex(where:{$0.id == "CONSUMER_SHUTTER" && $0.status == "interpreted"}) {
+        let f=fields[i];fields[i] = .init(id:f.id,name:f.name,rawValue:f.rawValue,meaning:f.meaning,status:f.status,reference:f.reference + "; PRIMARY_STANDARD: SMPTE ST 314M-2005 §5.1.1/Table 20",confidence:.provisional,qualifier:"INFERENCE: Derived using a matching SD source profile and SMPTE sampling period; IEC Part 2 timing was not independently acquired. Raw period code remains authoritative.",numeric:f.numeric)
+      }
     } else {
       fields = decodeFields(observation.raw, format: format, isPAL: isPAL)
+      fields += smpteRequiredBits(observation.raw)
+      if !observation.associationQualified {
+        fields=fields.map { f in
+          guard ["BGF_USAGE","CLOCK_REFERENCE","RECORDED_COLOUR_PAIR"].contains(f.id) else { return f }
+          return .init(id:f.id,name:f.name,rawValue:f.rawValue,meaning:"Sync identifier or pack placement is unqualified; "+f.meaning,status:"uninterpreted",reference:f.reference,confidence:f.confidence,qualifier:"Rejected association; this observation does not establish a companion meaning.",numeric:f.numeric)
+        }
+      }
+    }
+    let binaryToClock:[UInt8:UInt8] = [0x14:0x13,0x54:0x53,0x64:0x63]
+    if let clock=binaryToClock[observation.type], format == .iec61834 || observation.type == 0x14 {
+      let usages=observations.filter { observation.associationQualified && $0.associationQualified && $0.type == clock && $0.context == observation.context && $0.transmission == .valid }.compactMap { DVTimecodeUserBits.usage($0.raw,isPAL:isPAL) }
+      fields += DVTimecodeUserBits.binaryFields(observation.raw,usage:Set(usages).count == 1 ? usages.first:nil)
     }
     guard !fields.isEmpty else {
       return Pack(id: id, typeHex: typeHex, name: "\(baseName) — \(observation.contextName)",
@@ -383,7 +435,7 @@ private extension DVPackSemanticReport {
     let fixedMismatch = format == .iec61834
       ? fields.contains { $0.id.contains("FIXED") && $0.status == "invalid" }
       : fixedLayoutMismatch(observation.raw, format: format)
-    return Pack(id: id, typeHex: typeHex, name: "\(baseName) — \(observation.contextName)",
+    var pack=Pack(id: id, typeHex: typeHex, name: "\(baseName) — \(observation.contextName)",
       rawHex: rawHex, sourceByteOffsets: observation.offsets,
       status: fixedMismatch
         ? "Fields interpreted independently; fixed/reserved layout bits differ from the cited table defaults."
@@ -391,18 +443,29 @@ private extension DVPackSemanticReport {
           ? "Field layout identified; numeric codes retained without semantic interpretation."
           : "Fields assessed independently within \(observation.contextName); descriptive evidence only.",
       fields: fields)
+    pack.normativeLayout=normativeLayout
+    return pack
   }
 
   static func flagConflicts(_ packs: [Pack]) -> [Pack] {
-    func scope(_ id: String) -> String { id.split(separator: ":", maxSplits: 2).prefix(2).joined(separator: ":") }
+    func scope(_ pack:Pack) -> String {
+      var key=pack.id.split(separator:":",maxSplits:2).prefix(2).joined(separator:":")
+      // Complementary catalogue/ISRC forms describe different digit groups.
+      // Contradictory copies remain conflicts within their recorded form.
+      let selectors:[String]=["0x16":["CATALOGUE_FORM"],"0x17":["ISRC_FORM"],"0x6D":["COORDINATE_FORM"],"0x7D":["SHADING_FORM","CHANNEL","WB"]][pack.typeHex] ?? []
+      for selector in selectors {
+        if let form=pack.fields.first(where:{$0.id == selector && $0.status == "interpreted"}) { key += ":\(selector)=\(form.rawValue)" }
+      }
+      return key
+    }
     var values: [String: [String: Set<UInt32>]] = [:]
     for pack in packs {
       for field in pack.fields where field.status == "interpreted" {
-        values[scope(pack.id), default: [:]][field.id, default: []].insert(field.rawValue)
+        values[scope(pack), default: [:]][field.id, default: []].insert(field.rawValue)
       }
     }
     return packs.map { pack in
-      let conflicts = Set(values[scope(pack.id), default: [:]].compactMap { $0.value.count > 1 ? $0.key : nil })
+      let conflicts = Set(values[scope(pack), default: [:]].compactMap { $0.value.count > 1 ? $0.key : nil })
       guard !conflicts.isEmpty else { return pack }
       var changed = false
       let fields = pack.fields.map { field -> Field in
@@ -413,10 +476,12 @@ private extension DVPackSemanticReport {
           status: "conflicting", reference: field.reference, confidence: field.confidence, qualifier: field.qualifier, numeric: field.numeric)
       }
       guard changed else { return pack }
-      return Pack(id: pack.id, typeHex: pack.typeHex, name: pack.name,
+      var changedPack=Pack(id: pack.id, typeHex: pack.typeHex, name: pack.name,
         rawHex: pack.rawHex, sourceByteOffsets: pack.sourceByteOffsets,
         status: "Conflicting field values in the same scope (\(conflicts.sorted().joined(separator: ", "))); no majority or selection applied.",
         fields: fields)
+      changedPack.normativeLayout=pack.normativeLayout
+      return changedPack
     }
   }
 
@@ -424,6 +489,9 @@ private extension DVPackSemanticReport {
     guard p.count == 5 else { return [] }
     switch (format, p[0]) {
     case (.smpte314M, 0x13): return smpte13(p, isPAL: isPAL)
+    case (.smpte314M, 0x14): return (1...8).map { n in
+      raw("BG\(n)","Binary user-data digit \(n)",(p[(n+1)/2] >> (n%2 == 1 ? 0:4)) & 15,"PRIMARY_STANDARD: SMPTE ST 314M-2005 Table 11")
+    }
     case (.iec61834, 0x50): return iec50(p)
     case (.iec61834, 0x51): return iec51(p)
     case (.iec61834, 0x60): return iec60(p)
@@ -433,7 +501,7 @@ private extension DVPackSemanticReport {
          (.iec61834, 0x70), (.iec61834, 0x71):
       return DVSupplementalPackSemantics.decode(p, isPAL: isPAL)
     case (.smpte314M, 0x50): return smpte50(p)
-    case (.smpte314M, 0x51): return smpte51(p)
+    case (.smpte314M, 0x51): return smpte51(p,isPAL:isPAL)
     case (.smpte314M, 0x60): return smpte60(p)
     case (.smpte314M, 0x61): return smpte61(p)
     default: return []
@@ -469,6 +537,12 @@ private extension DVPackSemanticReport {
       result.append(raw("BGF2", "Binary-group flag 2", p[4] >> 7, smpteTC))
     }
     result.append(raw("BGF1", "Binary-group flag 1", (p[4] >> 6) & 1, smpteTC))
+    if let usage=DVTimecodeUserBits.usage(p,isPAL:isPAL) { result += DVTimecodeUserBits.usageFields(usage) }
+    if p[1]&128 != 0, result.filter({$0.id.hasPrefix("TC_")}).allSatisfy({$0.status == "interpreted"}) {
+      let frames=Int(p[1]&15)+10*Int((p[1]>>4)&3),seconds=Int(p[2]&15)+10*Int((p[2]>>4)&7)
+      let pair=isPAL ? ["Fields 7/8","Fields 1/2","Fields 3/4","Fields 5/6"][(seconds+frames)%4] : frames%2 == 0 ? "Fields 1/2":"Fields 3/4"
+      result.append(.init(id:"RECORDED_COLOUR_PAIR",name:"Recorded colour-frame pair",rawValue:isPAL ? (seconds+frames)%4:frames%2,meaning:pair,status:"interpreted",reference:"PRIMARY_STANDARD: SMPTE ST 12-1:2014 §§5.3/6.3.2",confidence:.normativeConfirmed,qualifier:"Derived from valid recorded time address with colour synchronization asserted; not a live-deck measurement."))
+    }
     return result
   }
 
@@ -568,7 +642,7 @@ private extension DVPackSemanticReport {
     return mapped("AF_SIZE", "Audio samples per frame", value, meanings, smpteAS)
   }
 
-  static func smpte51(_ p: [UInt8]) -> [Field] {
+  static func smpte51(_ p: [UInt8],isPAL:Bool) -> [Field] {
     let recS = p[2] >> 7
     let recE = (p[2] >> 6) & 1
     return [mapped("CGMS", "Copy-generation management", p[1] >> 6, [0: "Copy free"], smpteASC),
@@ -578,7 +652,7 @@ private extension DVPackSemanticReport {
       conditionalFlag("FADE_S", "Recording-start fade flag", (p[2] >> 5) & 1, applicable: recS == 0, smpteASC),
       conditionalFlag("FADE_E", "Recording-end fade flag", (p[2] >> 4) & 1, applicable: recE == 0, smpteASC),
       booleanFlag("DRF", "Direction flag", p[3] >> 7, zero: "Recorded direction: reverse", one: "Recorded direction: forward", smpteASC),
-      speedField(p[3] & 0x7f)]
+      speedField(p[3] & 0x7f,isPAL:isPAL)]
   }
 
   static func smpte60(_ p: [UInt8]) -> [Field] {
@@ -664,7 +738,7 @@ private extension DVPackSemanticReport {
     if (0x79...0x7e).contains(value) || (0x80...0x87).contains(value) {
       return Field(id: "VISC", name: "VISC code", rawValue: value, meaning: "Reserved code", status: "reserved", reference: smpteVS)
     }
-    return raw("VISC", "VISC code", value, smpteVS)
+    return .init(id:"VISC",name:"Recorded VISC value",rawValue:value,meaning:String(format:"%.12g",Double(Int8(bitPattern:value))*1.5),status:"interpreted",reference:smpteVS,confidence:.provisional,qualifier:"Linear interpolation of the recorded signed mapping in Table 13; physical unit is not established by the retained source.")
   }
 
   static func tunerField(_ value: UInt8) -> Field {
@@ -675,9 +749,16 @@ private extension DVPackSemanticReport {
     return raw("TUN", "Tuner-category code", value, iecVS)
   }
 
-  static func speedField(_ value: UInt8) -> Field {
+  static func speedField(_ value: UInt8,isPAL:Bool) -> Field {
     if value == 0x7f { return Field(id: "SPD", name: "Shuttle-speed code", rawValue: value, meaning: "Data invalid", status: "invalid", reference: smpteASC) }
-    return raw("SPD", "Shuttle-speed code", value, smpteASC)
+    let divisor=isPAL ? 100.0:120.0
+    return .init(id:"SPD",name:"Recorded shuttle speed",rawValue:value,meaning:Double(value)>divisor ? "Reserved speed code":String(format:"%.12g×",Double(value)/divisor),status:Double(value)>divisor ? "reserved":"interpreted",reference:smpteASC,confidence:.normativeConfirmed,qualifier:"Recorded ratio; direction is a separate flag. No deck operation is inferred.")
+  }
+  static func smpteRequiredBits(_ p:[UInt8]) -> [Field] {
+    let masks:[UInt8:[(Int,UInt8,UInt8)]]=[0x50:[(1,0x40,0x40),(2,0x90,0x10),(3,0xc0,0xc0),(4,0xc0,0xc0)],0x51:[(1,0x3c,0x3c),(2,0x0f,0x0f),(4,0xff,0xff)],0x60:[(1,0xff,0xff),(2,0x0f,0x0f),(3,0xc0,0xc0)],0x61:[(1,0x3f,0x3f),(2,0xf8,0xc8),(3,0x0f,0x0c),(4,0xff,0xff)]]
+    return (masks[p[0]] ?? []).map { byte,mask,expected in
+      .init(id:"PC\(byte)_FIXED",name:"Required format bits in payload byte \(byte)",rawValue:p[byte]&mask,meaning:p[byte]&mask == expected ? "Required bits conform":"Required bits differ; source retained",status:p[byte]&mask == expected ? "interpreted":"invalid",reference:"PRIMARY_STANDARD: SMPTE ST 314M-2005 Tables 13/14/16/17",confidence:.normativeConfirmed)
+    }
   }
 
   static func fixedLayoutMismatch(_ p: [UInt8], format: FormatIdentity) -> Bool {

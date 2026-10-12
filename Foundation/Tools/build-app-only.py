@@ -12,6 +12,7 @@ import json
 import os
 from pathlib import Path
 import plistlib
+import shlex
 import shutil
 import subprocess
 import sys
@@ -21,6 +22,24 @@ from driver_reuse import DEXT, bundle_manifest, verify_retained, app_only_projec
 
 TOOLS = Path(__file__).resolve().parent
 REPO = TOOLS.parents[1]
+
+
+def mapped_compiler_flags(source, output):
+    """Map compiler-emitted source/build paths without changing source provenance."""
+    maps = []
+    for root, destination in [(source, '/rewindDV/source'),
+                              (output, '/rewindDV/build')]:
+        for prefix in (str(root.absolute()), str(root.resolve())):
+            if (prefix, destination) not in maps:
+                maps.append((prefix, destination))
+    clang = ' '.join(shlex.quote('-f' + kind + '-prefix-map=' + old + '=' + new)
+                     for old, new in maps for kind in ('file', 'debug'))
+    swift = ' '.join('-' + kind + '-prefix-map ' + shlex.quote(old + '=' + new)
+                     for old, new in maps for kind in ('file', 'debug'))
+    swift += ' -prefix-serialized-debugging-options'
+    return ['OTHER_CFLAGS=$(inherited) ' + clang,
+            'OTHER_CPLUSPLUSFLAGS=$(inherited) ' + clang,
+            'OTHER_SWIFT_FLAGS=$(inherited) ' + swift]
 
 
 def main():
@@ -84,7 +103,7 @@ def main():
         'SRCROOT='+str(REPO/'Foundation'),'PROJECT_DIR='+str(REPO/'Foundation'),
         'SYMROOT='+str(out/'products'),'OBJROOT='+str(out/'objects'),
         'CLANG_MODULE_CACHE_PATH='+str(out/'clang'),'SWIFT_MODULECACHE_PATH='+str(out/'swift'),
-        'CODE_SIGNING_ALLOWED=NO','build'])
+        *mapped_compiler_flags(REPO, out), 'CODE_SIGNING_ALLOWED=NO','build'])
     app=out/'products/Release/RewindDV.app'
     if not app.is_dir() or (app/DEXT).exists():raise SystemExit('App-only graph unexpectedly produced a driver')
     (app/DEXT).parent.mkdir(parents=True,exist_ok=True)

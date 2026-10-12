@@ -9,7 +9,7 @@ public struct DVStructuralMetadata: Codable, Equatable, Sendable, Identifiable {
   public let locations: [DVMetadataLocation]
   public let fields: [DVPackSemanticReport.Field]
 
-  static func inspect(_ inventory: DVMetadataInventory, absoluteOffsetsKnown: Bool, consumerQualified: Bool) -> [Self] {
+  static func inspect(_ inventory: DVMetadataInventory, absoluteOffsetsKnown: Bool, consumerQualified: Bool, smpteQualified:Bool=false) -> [Self] {
     guard inventory.extents.count <= 1800, [120000,144000].contains(inventory.frameByteCount) else { return [] }
     var result: [Self] = []
     let half = inventory.frameByteCount == 144_000 ? 6 : 5
@@ -26,19 +26,24 @@ public struct DVStructuralMetadata: Codable, Equatable, Sendable, Identifiable {
         confidence: DVMetadataConfidence = .implementationCorroborated) -> DVPackSemanticReport.Field {
         .init(id: id, name: id, rawValue: raw, meaning: meaning,
           status: valid ? "interpreted" : "invalid",
-          reference: "DV corpus v2 non-pack fields; DIF header/subcode geometry; structural evidence only",
-          confidence: confidence, numeric: id == "ATN" ? .init(bitWidth: 23, unit: "unknown physical position", relation: "raw", rule: "subcode ATN fragments: low7 | middle8<<7 | high8<<15") : nil)
+          reference: smpteQualified ? "PRIMARY_STANDARD: SMPTE ST 314M-2005 Tables 6/7" : "DV corpus v2 non-pack fields; DIF header/subcode geometry; structural evidence only",
+          confidence: smpteQualified ? .normativeConfirmed:confidence, numeric: id == "ATN" ? .init(bitWidth: 23, unit: "unknown physical position", relation: "raw", rule: "subcode ATN fragments: low7 | middle8<<7 | high8<<15") : nil)
       }
       if extent.section == 0 {
         var fields: [DVPackSemanticReport.Field] = [
           field("DSF", UInt32(b[3] >> 7), b[3] & 0x80 == 0 ? "525/60 system" : "625/50 system"),
-          field("DFTIA", UInt32(b[4] >> 4), "Raw track/pilot application code"),
+          field(smpteQualified ? "HEADER_PC4_RESERVED":"DFTIA", UInt32(smpteQualified ? b[4]&248:b[4]>>4), smpteQualified ? "Required header reserved bits 11111":"Raw track/pilot application code",valid:!smpteQualified || b[4]&248 == 248),
           field("APT", UInt32(b[4] & 7), "Application ID; interpreted with AP1/AP2/AP3")]
+        if smpteQualified {
+          fields.append(field("HEADER_PC3_FIXED",UInt32(b[3]&127),"Required header bits 0111111",valid:b[3]&127 == 63))
+          for byte in 5...7 { fields.append(field("HEADER_PC\(byte)_RESERVED",UInt32(b[byte]&120),"Required reserved bits 1111",valid:b[byte]&120 == 120)) }
+          fields.append(field("HEADER_FILLER",UInt32(b[8...79].filter{$0 != 255}.count),"Reserved header bytes differing from FF",valid:b[8...79].allSatisfy{$0 == 255}))
+        }
         for i in 1...3 {
           fields.append(field("TF\(i)", UInt32(b[4+i] >> 7), b[4+i] & 0x80 == 0 ? "Section transmission valid" : "Section transmission invalid"))
           fields.append(field("AP\(i)", UInt32(b[4+i] & 7), "Section application ID"))
         }
-        if b[4] >> 4 != 15 {
+        if !smpteQualified && b[4] >> 4 != 15 {
           fields.append(field("TRACK_PITCH", UInt32(b[4] >> 5), "Track pitch raw code; no physical units inferred", confidence: .provisional))
           fields.append(field("PILOT", UInt32((b[4] >> 4) & 1), "Pilot-frame raw indication", confidence: .provisional))
         }
@@ -52,6 +57,17 @@ public struct DVStructuralMetadata: Codable, Equatable, Sendable, Identifiable {
           let header = headers[extent.sequence]
           let transmitted = header?.count == 1 && ((header?.first?.bytes[7] ?? 128) & 128 == 0)
           let applicationMatches = ![0,6,11].contains(number) || (x >> 4) & 7 == (header?.first?.bytes[number == 11 ? 4 : 7] ?? 255) & 7
+          if smpteQualified {
+            let valid=transmitted && applicationMatches && y&15 == number && (x&128 != 0) == firstHalf && parity == 255 && ([0,6,11].contains(number) || (x>>4)&7 == 7)
+            var fields=[field("FR",UInt32(x>>7),firstHalf ? "First DIF-sequence half":"Second DIF-sequence half",valid:valid),
+              field("SYNC",UInt32(y&15),"Sync block number \(number)",valid:valid),
+              field("ID_PARITY",UInt32(parity),"Required FF sync-ID filler byte",valid:valid),
+              field("ID_LOW4",UInt32(x&15),"Arbitrary recorded sync-ID low bits",valid:valid),
+              field("ID1_HIGH4",UInt32(y>>4),"Arbitrary recorded sync-ID high bits",valid:valid)]
+            fields.append(field([0,6,11].contains(number) ? number == 11 ? "APT":"AP3":"ID_RESERVED",UInt32((x>>4)&7),[0,6,11].contains(number) ? "Application identifier":"Required reserved bits 111",valid:valid))
+            result.append(Self(id:"sync-\(extent.sequence)-\(number)",name:"Subcode · sequence \(extent.sequence) · block \(extent.block) · sync \(number)",rawHex:hex(Array(b[local..<(local+3)])),locations:[location(local,number,valid)],fields:fields))
+            continue
+          }
           let valid = consumerQualified && transmitted && applicationMatches && y & 15 == number && (x & 0x80 != 0) == firstHalf && parity == 0xff
           var fields = [field("FR", UInt32(x >> 7), firstHalf ? "First DIF-sequence half" : "Second DIF-sequence half", valid: valid),
             field("SYNC", UInt32(y & 15), "Sync block number \(number)", valid: valid),
@@ -72,7 +88,7 @@ public struct DVStructuralMetadata: Codable, Equatable, Sendable, Identifiable {
           fragments.append((fragment, valid, loc))
           result.append(Self(id: "sync-\(extent.sequence)-\(number)", name: "Subcode · sequence \(extent.sequence) · block \(extent.block) · sync \(number)", rawHex: hex(Array(b[local..<(local+3)])), locations: [loc], fields: fields))
         }
-        for start in [0,3] {
+        for start in fragments.isEmpty ? []:[0,3] {
           let triple = Array(fragments[start..<(start+3)])
           let value = triple[0].0 | triple[1].0 << 7 | triple[2].0 << 15
           result.append(Self(id: "atn-\(extent.sequence)-\(extent.block)-\(start)", name: "ATN observation · sequence \(extent.sequence) · sync \(Int(extent.block)*6+start)", rawHex: hex((start..<(start+3)).flatMap { Array(b[(3+$0*8)..<(6+$0*8)]) }), locations: triple.map(\.2), fields: [field("ATN", value, "Reconstructed fragment observation; repetitions are retained independently, never voted or used as transport authority", valid: triple.allSatisfy(\.1), confidence: .implementationCorroborated)]))
@@ -140,7 +156,8 @@ extension DVPackSemanticReport {
       guard bytes.count == 5 else { return pack }
       let entry = DVPackCatalog.entry(bytes[0])
       let context = String(pack.id.split(separator: ":")[0])
-      let transmission = String(pack.id.split(separator: ":").last ?? "unavailable")
+      let identityParts=pack.id.split(separator:":")
+      let transmission = identityParts.count >= 4 ? String(identityParts[3]):"unavailable"
       pack.locations = pack.sourceByteOffsets.compactMap { offset in
         guard let (extent, local, slot) = coordinates[offset] else { return nil }
         return inventory.location(extent, local: local, slot: slot, transmission: transmission, absolute: absoluteOffsetsKnown)
@@ -150,7 +167,7 @@ extension DVPackSemanticReport {
       if format == "IEC 61834 consumer DV", DVPackCatalog.permitsSDObservation(bytes[0], context: context) {
         var context = DVIEC61834.Context()
         context.isPAL = inventory.frameByteCount == 144_000
-        pack.normativeLayout = DVIEC61834.decode(bytes, context: context)?.layout
+        if pack.normativeLayout == nil { pack.normativeLayout = DVIEC61834.decode(bytes, context: context)?.layout }
       }
       // Historical component IDs remain a compatibility view, not canonical
       // source interpretation. The versioned normativeLayout is authoritative.

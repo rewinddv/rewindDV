@@ -18,8 +18,15 @@ public enum DVMetadataPresentation {
   /// Presentation-only provenance. Labels/IDs used by consumers stay unchanged.
   /// A format constant or calculated value must never acquire a fictitious pack ID.
   public static func inspectorLabel(_ label: String, section: String) -> String {
+    if label.hasPrefix("[") { return label }
     let source: String
-    if section == "Apple presentation geometry" {
+    if section.hasPrefix("Recorded camera · ") {
+      source = String(section.split(separator: "·").last ?? "CAMERA").trimmingCharacters(in: .whitespaces)
+    } else if section.hasPrefix("Recorded Camera - ") {
+      source = String(section.dropFirst("Recorded Camera - ".count))
+    } else if section == "Recorded camera settings" {
+      source = "0x70–0x7F"
+    } else if section == "Apple presentation geometry" {
       source = label == "Aspect comparison" ? "0x61 + APPLE" : label == "Preview aspect — display only" ? "PREVIEW" : "APPLE"
     } else if section == "Recorded motion / lens" {
       source = label == "Recorded speed" ? "0x51" : "0x71"
@@ -67,6 +74,134 @@ public enum DVMetadataPresentation {
   /// Retain format-specific transport rows as well as compact DV summaries.
   public static func summarySections(_ sections: [DVTechnicalSpecifications.Section]) -> [DVTechnicalSpecifications.Section] {
     sections.filter { ["General", "Video", "Audio", "Audio 1", "Audio 2", "Apple presentation geometry", "HDV transport", "Source error summary", "Recorded motion / lens"].contains($0.title) || $0.title.hasPrefix("Exact source audio · channel ") }
+  }
+  /// Ordered overview plus every available report field. Presentation never
+  /// chooses between conflicting observations or invents absent pack contents.
+  public static func overviewSections(_ sections: [DVTechnicalSpecifications.Section],
+    metadata: DVPackSemanticReport?) -> [DVTechnicalSpecifications.Section] {
+    let cameras = cameraSections(metadata)
+    var result: [DVTechnicalSpecifications.Section] = []
+    var used = Set<String>()
+    func append(_ title: String) {
+      let matches = sections.filter { $0.title == title }
+      result += matches
+      if !matches.isEmpty { used.insert(title) }
+    }
+    append("General")
+    append("Video")
+    append("Apple presentation geometry")
+    append("Audio"); append("Audio 1"); append("Audio 2")
+    for type in ["0x70", "0x71", "0x7F"] {
+      let title = "Recorded Camera - " + type.lowercased()
+      result.append(cameras.first { $0.title == "Recorded camera · " + type } .map {
+        .init(title: title, rows: $0.rows)
+      } ?? .init(title: title, rows: [.init(label: "Camera metadata",
+        value: metadata == nil ? "Waiting for a sampled DV frame" : "No pack recorded in this sampled frame",
+        evidence: "Optional recorded metadata; settings are never inferred from the deck or another frame.")]))
+    }
+    append("Recorded motion / lens")
+    if sections.contains(where: { $0.title == "Source error summary" }) {
+      append("Source error summary")
+    } else {
+      result.append(.init(title: "Source error summary", rows: [.init(label: "Source audit",
+        value: "Unavailable — whole-source error assessment not performed",
+        evidence: "Sampled metadata does not establish whole-source integrity or capture loss.")]))
+    }
+    // Retain every other technical section, including exact source-audio audits
+    // and qualified format observations that the compact summary used to hide.
+    result += sections.filter { !used.contains($0.title) && $0.title != "Recorded camera settings" }
+    result += cameras.filter { !["Recorded camera · 0x70", "Recorded camera · 0x71", "Recorded camera · 0x7F", "Recorded camera settings"].contains($0.title) }
+    guard let metadata else { return result }
+    for (index, pack) in metadata.packs.enumerated() {
+      // Camera summaries above aggregate meanings. Retain every original
+      // field here too so equal wording cannot hide distinct codes or contexts.
+      let fields = pack.fields
+      var rows = fields.map { overviewField($0, source: pack.typeHex, observation: pack.rawHex + "; " + pack.status) }
+      if rows.isEmpty {
+        rows.append(.init(label: "Interpretation", value: pack.status,
+          evidence: (pack.catalogEvidence ?? pack.name) + "; " + pack.rawHex))
+        rows += rawPayloadFields(pack).map { overviewField($0, source: pack.typeHex, observation: pack.rawHex) }
+      }
+      result.append(.init(title: "Recorded metadata - \(pack.typeHex.lowercased()) - \(pack.name) - observation \(index + 1)", rows: rows))
+    }
+    for item in metadata.structuralMetadata ?? [] {
+      result.append(.init(title: "Source structure - " + item.name, rows: item.fields.map {
+        overviewField($0, source: "DIF STRUCTURE", observation: item.rawHex, structural: true)
+      }))
+    }
+    for (index, sequence) in (metadata.sequences ?? []).enumerated() {
+      var rows: [DVTechnicalSpecifications.Row] = [
+        .init(label: "Sequence status", value: sequence.status, evidence: sequence.reference),
+        .init(label: "Expected length", value: "\(sequence.expectedCount) \(sequence.countUnit)", evidence: sequence.reference),
+        .init(label: "Observed payload", value: "\(sequence.payload.count) bytes in \(sequence.observations.count) observed packs", evidence: sequence.reference)]
+      for key in (sequence.characterSets ?? [:]).keys.sorted() {
+        rows.append(.init(label: "Character set - " + key,
+          value: String(format: "Recorded identifier 0x%02X; glyph interpretation unresolved", sequence.characterSets![key]!), evidence: sequence.reference))
+      }
+      for (componentIndex, component) in (sequence.components ?? []).enumerated() {
+        rows.append(.init(label: "Line component \(componentIndex + 1)", value: String(format: "0x%02X", component.header) + " — \(component.status); \(component.samples.count) observed samples; \(component.padding.count) padding samples; expected \(component.expectedSamples.map(String.init) ?? "unknown")", evidence: sequence.reference))
+      }
+      result.append(.init(title: "Recorded sequences - \(sequence.kind.capitalized) \(index + 1)", rows: rows))
+    }
+    result.append(.init(title: "Metadata coverage & interpretation", rows: [
+      .init(label: "Decoded field coverage", value: "Every available decoded field in this sampled frame is available in this Overview. Expand additional sections to read their fields. Original bytes and locations are available in Metadata & packs.", evidence: metadata.formatEvidence),
+      .init(label: "Interpretation limits", value: "Unrecorded settings, vendor payloads and external profiles are not inferred. Unresolved or disputed meanings remain qualified; this is not 100% universal semantic decoding.", evidence: "IEC 61834-4:1998 + AMD1:2010; applicable external profiles and manufacturer evidence are required."),
+      .init(label: "Principal packs not observed", value: metadata.missingPrincipalPacks.isEmpty ? "None" : metadata.missingPrincipalPacks.joined(separator: ", "), evidence: "Frame-local coverage; absence does not establish tape loss."),
+      .init(label: "Frame fingerprint", value: metadata.frameSHA256, evidence: "SHA-256 of the sampled original DV frame.")]))
+    return result
+  }
+  private static func overviewField(_ field: DVPackSemanticReport.Field, source: String,
+    observation: String, structural: Bool = false) -> DVTechnicalSpecifications.Row {
+    let structuralNames = ["DSF": "DV system flag", "DFTIA": "Track and pilot application code", "APT": "Track application identifier",
+      "FR": "DIF sequence half", "SYNC": "Sync block number", "ID_PARITY": "Sync identifier parity", "ATN_HIGH_NIBBLE": "Absolute track number high fragment",
+      "ATN_FRAGMENT": "Absolute track number fragment", "ATN": "Absolute track number observation", "BF": "Blank flag", "TRACK_PITCH": "Track pitch code", "PILOT": "Pilot frame indication",
+      "INDEX": "Index identifier", "SKIP": "Skip identifier", "PP": "Picture identifier",
+      "ATN_LOW3": "Absolute track number low three fragment bits", "ATN_LOW4": "Absolute track number low four fragment bits"]
+    var name = structural ? structuralNames[field.id] ?? field.name : field.name
+    if structural && field.id.hasPrefix("TF") { name = "Section \(field.id.dropFirst(2)) transmission flag" }
+    if structural && field.id.hasPrefix("AP") && field.id != "APT" { name = "Section \(field.id.dropFirst(2)) application identifier" }
+    var value = fieldValue(field)
+    value += " (recorded code \(field.rawValue))"
+    if let qualifier = field.qualifier, !qualifier.isEmpty { value += "; " + qualifier }
+    return .init(label: packFieldLabel(name, packID: source), value: value,
+      evidence: fieldCaption(field) + "; " + field.reference + "; " + observation)
+  }
+  /// All recorded camera fields, not a hand-maintained subset of consumer settings.
+  /// Distinct observations remain visible; no value is voted or carried across frames.
+  public static func cameraSections(_ report: DVPackSemanticReport?) -> [DVTechnicalSpecifications.Section] {
+    let packs = report?.packs.filter { pack in
+      guard let id = UInt8(pack.typeHex.dropFirst(2), radix:16) else { return false }
+      return (0x70...0x7f).contains(id)
+    } ?? []
+    guard !packs.isEmpty else {
+      return [.init(title: "Recorded camera settings", rows: [.init(label: "Camera metadata", value: report == nil ? "Waiting for a sampled DV frame" : "No camera packs recorded in this sampled frame", evidence: "Camera settings are optional source metadata; the playback deck cannot supply settings that were not recorded.")])]
+    }
+    return Dictionary(grouping:packs, by: \.typeHex).keys.sorted().map { type in
+      let observed = packs.filter { $0.typeHex == type }
+      var ids = Set<String>()
+      let fields = observed.flatMap(\.fields).filter { !isFormatDetail($0) && ids.insert($0.id).inserted }
+      var rows = fields.map { field -> DVTechnicalSpecifications.Row in
+        let alternatives = observed.flatMap(\.fields).filter { $0.id == field.id }
+        let values = Set(alternatives.map(fieldValue)).sorted()
+        return .init(label:field.name, value:values.count == 1 ? values[0] : "Multiple recorded values: " + values.joined(separator:" / "),
+          evidence: alternatives.map { $0.reference + "; " + ($0.qualifier ?? "") }.joined(separator:"; ") + "; original packs: " + observed.map(\.rawHex).joined(separator:"; "))
+      }
+      for (index, pack) in observed.enumerated() where pack.fields.isEmpty {
+        rows.append(.init(label:"Unqualified observation \(index + 1)",value:pack.status,evidence:pack.rawHex + "; " + pack.name))
+      }
+      return .init(title:"Recorded camera · " + type, rows:rows.isEmpty ? [.init(label:"Camera pack",value:"Observed; interpretation unavailable for this format or context",evidence:observed.map(\.status).joined(separator:"; "))] : rows)
+    }
+  }
+  public static func isFormatDetail(_ field: DVPackSemanticReport.Field) -> Bool {
+    field.id.contains("FIXED") || field.id.contains("RESERVED") || field.id.contains("EXTENSION_UNUSED")
+  }
+  public static func fieldValue(_ field: DVPackSemanticReport.Field) -> String {
+    if field.status == "unavailable" { return "Unavailable — " + field.meaning }
+    if field.status == "reserved" { return "Reserved — " + field.meaning }
+    if field.status == "invalid" { return "Invalid — " + field.meaning }
+    if field.confidence == .conflictingEvidence { return "Unresolved — " + field.meaning }
+    if field.status == "uninterpreted" { return "Unresolved — " + field.meaning }
+    return field.meaning
   }
   public struct Group: Identifiable {
     public let title: String

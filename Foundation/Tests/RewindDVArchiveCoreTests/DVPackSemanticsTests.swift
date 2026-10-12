@@ -231,7 +231,7 @@ private func fields(_ report: DVPackSemanticReport, pack: String, id: String) ->
   #expect(timecode.fields.first { $0.id == "TC_FRAMES" }?.meaning == "12")
   #expect(timecode.fields.first { $0.id == "DF" }?.meaning == "Drop-frame timecode")
   #expect(timecode.fields.first { $0.id == "PC" }?.meaning == "Odd")
-  #expect(timecode.fields.filter { $0.id.hasPrefix("BGF") }.allSatisfy {
+  #expect(timecode.fields.filter { ["BGF0","BGF1","BGF2"].contains($0.id) }.allSatisfy {
     $0.status == "uninterpreted"
   })
   #expect(!timecode.fields.contains { $0.id == "ARB" })
@@ -278,7 +278,7 @@ private func fields(_ report: DVPackSemanticReport, pack: String, id: String) ->
 @Test func semanticUnapprovedCandidatePacksRemainRaw() throws {
   var binaryGroup = semanticFrame(smpte: true)
   binaryGroup.replaceSubrange(86..<91, with: [0x14, 1, 2, 3, 4])
-  #expect(try semantics(binaryGroup).packs.first { $0.typeHex == "0x14" }?.fields.isEmpty == true)
+  #expect(try semantics(binaryGroup).packs.first { $0.typeHex == "0x14" }?.fields.filter{$0.id.hasPrefix("BG")}.count == 8)
 
   for type in [UInt8(0x52), 0x53] {
     var frame = semanticFrame(smpte: true)

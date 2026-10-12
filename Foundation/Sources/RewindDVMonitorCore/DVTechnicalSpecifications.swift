@@ -430,7 +430,7 @@ public struct DVTechnicalSpecifications: Sendable, Equatable {
     // Optional packs are shown only when actually observed. The same
     // source-bound rows serve playback and the independently sampled live UI.
     let optional: [(String, String, [(String, String)])] = [
-      ("Recorded camera settings", "0x70", [("AE_MODE", "Exposure mode"), ("WB_MODE", "White-balance mode"), ("WB_PRESET", "White-balance preset"), ("FOCUS_MODE", "Focus mode"), ("IRIS", "Iris code"), ("AGC", "Gain code"), ("FOCUS", "Focus position code")]),
+      ("Recorded camera settings", "0x70", [("AE_MODE", "Auto exposure mode"), ("WB_MODE", "White balance mode"), ("WB_PRESET", "White balance preset"), ("FOCUS_MODE", "Focus mode"), ("IRIS", "Iris aperture"), ("AGC", "Automatic gain control"), ("FOCUS", "Focus distance")]),
       ("Recorded camera motion / lens codes", "0x71", [("VPD", "Vertical pan direction code"), ("VP_SPEED", "Vertical pan speed code"), ("IS", "Image stabilizer code"), ("HPD", "Horizontal pan direction code"), ("HP_SPEED", "Horizontal pan speed code"), ("FOCAL_LENGTH", "Focal length code"), ("ZEN", "Electronic zoom enable code"), ("ZOOM_MAGNITUDE", "Electronic zoom magnitude")]),
       ("User bits — encoding unspecified", "0x14", (1...8).map { ("BG\($0)", "User bits group \($0)") }),
       ("Caption payload — not decoded text", "0x65", [("CC_F1_BYTE1", "Field 1 byte 1"), ("CC_F1_BYTE2", "Field 1 byte 2"), ("CC_F2_BYTE1", "Field 2 byte 1"), ("CC_F2_BYTE2", "Field 2 byte 2")])

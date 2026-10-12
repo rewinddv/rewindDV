@@ -58,10 +58,10 @@ private func supplementalFields(_ report: DVPackSemanticReport, _ type: UInt8) -
     let expected = type == 0x14 ? 86 : [0x52, 0x53].contains(type) ? 483 : 253
     let payload: [UInt8] = [type, 0xc0, 0x12, 0x01, 0x24]
     let (unsupported, _) = try supplemental(payload, smpte: true, offset: expected)
-    #expect(supplementalFields(unsupported, type).isEmpty)
+    #expect(type == 0x14 ? supplementalFields(unsupported,type).filter{$0.id.hasPrefix("BG")}.count == 8 : supplementalFields(unsupported, type).isEmpty)
     let (wrong, _) = try supplemental(payload, offset: expected == 483 ? 253 : 483)
     if type != 0x14 { #expect(supplementalFields(wrong, type).isEmpty) }
-    else { #expect(supplementalFields(wrong,type).count == 8) }
+    else { #expect(supplementalFields(wrong,type).filter{$0.id.hasPrefix("BG")}.count == 8) }
     let (invalid, _) = try supplemental(payload, offset: expected, invalid: true)
     let fields = supplementalFields(invalid, type)
     #expect(!fields.isEmpty && fields.allSatisfy { $0.status == "invalid" })
@@ -71,7 +71,7 @@ private func supplementalFields(_ report: DVPackSemanticReport, _ type: UInt8) -
     if [0x52,0x53,0x62,0x63,0x65].contains(type) {
       #expect(emptyFields.filter { $0.id.hasPrefix("REC_") || $0.id.hasPrefix("CC_") }.allSatisfy { $0.status == "unavailable" })
     } else if type == 0x14 {
-      #expect(emptyFields.allSatisfy { $0.rawValue == 15 && $0.status == "uninterpreted" })
+      #expect(emptyFields.filter{$0.id.hasPrefix("BG")}.allSatisfy { $0.rawValue == 15 && $0.status == "uninterpreted" })
     } else {
       #expect(emptyFields.contains { $0.status != "unavailable" })
     }
@@ -95,8 +95,8 @@ private func supplementalFields(_ report: DVPackSemanticReport, _ type: UInt8) -
 @Test func binaryUserBitsStayOrderedAndDoNotGuessTextEncoding() throws {
   let (report, _) = try supplemental([0x14, 0x21, 0x43, 0x65, 0x87], offset: 86)
   let fields = supplementalFields(report, 0x14)
-  #expect(fields.map(\.rawValue) == [1, 2, 3, 4, 5, 6, 7, 8])
-  #expect(fields.allSatisfy { $0.status == "uninterpreted" && $0.qualifier?.contains("SMPTE/EBU") == true })
+  #expect(fields.filter{$0.id.hasPrefix("BG")}.map(\.rawValue) == [1, 2, 3, 4, 5, 6, 7, 8])
+  #expect(fields.filter{$0.id.hasPrefix("BG")}.allSatisfy { $0.status == "uninterpreted" && $0.qualifier?.contains("SMPTE/EBU") == true })
 }
 
 @Test func recordingClockComponentsRespectBCDCalendarAndSystem() throws {

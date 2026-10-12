@@ -12,9 +12,14 @@ model = pathlib.Path('Foundation/App/RewindDVApp.swift').read_text()
 a = bridge.index('      try Task.checkCancellation()', bridge.index('  func beginLiveReceive'))
 b = bridge.index('      finalLiveStatistics = nil', a)
 guard = bridge[a:b]
-a = model.index('  func pauseExternalTransportObservation()')
-b = model.index('\n  var selectedDeck:', a)
-methods = model[a:b]
+# Preserve the three current scheduling methods without importing adjacent UI
+# and passive-log archive methods outside this isolated admission fixture.
+methods = ''
+for declaration in ['  func pauseExternalTransportObservation()',
+                    '  func startIngest(', '  func observeExternalTransport(']:
+    a = model.index(declaration)
+    b = model.index('\n  }\n', a) + len('\n  }')
+    methods += model[a:b] + '\n\n'
 # Test-only suspension after the real join, before production admission.
 methods = methods.replace("    await externalTransportObserver.stopAndJoin()",
   "    await externalTransportObserver.stopAndJoin()\n    if let joinBoundary { await joinBoundary.wait() }", 1)

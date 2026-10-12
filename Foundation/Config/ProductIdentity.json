@@ -1,7 +1,7 @@
 {
-  "product_version": "0.1.13",
+  "product_version": "0.1.22",
   "channel": "beta",
-  "app_build": 203,
+  "app_build": 212,
   "driver_build": 203,
   "driver_reuse": {
     "product_version": "0.1.11",

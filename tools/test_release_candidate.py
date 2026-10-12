@@ -50,7 +50,7 @@ class IdentityTests(unittest.TestCase):
         r.destination(r.REPOSITORY, r.REPOSITORY_ID)
 
     def test_wrong_destinations(self):
-        for dest in ["rewinddv/rewindDV-LAB", "rewinddv/rewindDV-source-history", "rewinddv/rewindDV-private", "someone/rewindDV"]:
+        for dest in ["rewinddv/rewindDV-LAB", "rewinddv/rewindDV-source-history", "rewinddv/noncanonical-test-repository", "someone/rewindDV"]:
             with self.subTest(destination=dest), self.assertRaises(r.GateError):
                 r.destination(dest, r.REPOSITORY_ID)
 
@@ -300,8 +300,8 @@ class SourceTests(unittest.TestCase):
         with self.assertRaises(r.GateError):
             r.source_guard(self.root, self.g("rev-parse", "HEAD"))
 
-    def test_private_origin(self):
-        self.g("remote", "set-url", "origin", "https://github.com/rewinddv/rewindDV-private.git")
+    def test_noncanonical_origin(self):
+        self.g("remote", "set-url", "origin", "https://github.com/rewinddv/noncanonical-test-repository.git")
         with self.assertRaises(r.GateError):
             r.source_guard(self.root, self.base)
 
@@ -409,15 +409,15 @@ class PreparationTests(unittest.TestCase):
 
     def test_build_settings_derive_versions_and_check_duplicate_consistency(self):
         root = Path(__file__).resolve().parents[1]
-        app = {"PRODUCT_BUNDLE_IDENTIFIER": r.APP_ID, "CURRENT_PROJECT_VERSION": "203", "MARKETING_VERSION": "0.1.13"}
+        app = {"PRODUCT_BUNDLE_IDENTIFIER": r.APP_ID, "CURRENT_PROJECT_VERSION": "212", "MARKETING_VERSION": "0.1.22"}
         driver = {"PRODUCT_BUNDLE_IDENTIFIER": r.DRIVER_ID, "CURRENT_PROJECT_VERSION": "203", "MARKETING_VERSION": "0.1.11"}
         settings = [{"buildSettings": b} for b in [app, driver, driver.copy()]]
-        expected = {"product_version":"0.1.13", "release_channel":"beta", "application_version":"0.1.13", "app_bundle_build":"203", "driver_build":"203", "app_bundle_version":"0.1.13", "driver_bundle_version":"0.1.11", "driver_reuse":{'product_version': '0.1.11', 'channel': 'beta', 'source_revision': '1e9688fb882ea0b249f36fb1c8500a9789a0c3ff', 'bundle_manifest_sha256': '48282aa966126575550b88a02e9a9634d175950736825c12c574e6b4bbfc87e7'}}
+        expected = {"product_version":"0.1.22", "release_channel":"beta", "application_version":"0.1.22", "app_bundle_build":"212", "driver_build":"203", "app_bundle_version":"0.1.22", "driver_bundle_version":"0.1.11", "driver_reuse":{'product_version': '0.1.11', 'channel': 'beta', 'source_revision': '1e9688fb882ea0b249f36fb1c8500a9789a0c3ff', 'bundle_manifest_sha256': '48282aa966126575550b88a02e9a9634d175950736825c12c574e6b4bbfc87e7'}}
         self.assertEqual(r.versions_from_settings(root, settings), expected)
         for field, value in [("CURRENT_PROJECT_VERSION", "193"), ("MARKETING_VERSION", "0.1.0")]:
             bad = copy.deepcopy(settings); bad[-1]["buildSettings"][field] = value
             with self.assertRaises(r.GateError): r.versions_from_settings(root, bad)
-        with self.assertRaises(r.GateError): r.release_identity(expected, "alpha", "alpha-0.1.13")
+        with self.assertRaises(r.GateError): r.release_identity(expected, "alpha", "alpha-0.1.22")
 
     def test_retained_driver_version_is_independent_and_bound(self):
         with tempfile.TemporaryDirectory() as tmp:

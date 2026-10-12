@@ -2,13 +2,13 @@
 import Foundation
 
 public enum ProductIdentity {
-  public static let version = "0.1.13"
+  public static let version = "0.1.22"
   public static let channel = "beta"
   public static let channelLabel = "Beta"
-  public static let appBuild = "203"
+  public static let appBuild = "212"
   public static let driverBuild = "203"
   public static let driverVersion = "0.1.11"
-  public static let display = "rewindDV 0.1.13 (Beta)"
+  public static let display = "rewindDV 0.1.22 (Beta)"
 
   public static func matchesHost(_ info: [String: Any]) -> Bool {
     info["CFBundleShortVersionString"] as? String == version &&
