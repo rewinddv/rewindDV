@@ -70,9 +70,13 @@ def status_block(status):
     development_channel = d['release_channel'].capitalize()
     download_channel = r['tag'].split('-')[0].capitalize()
     if r.get('signing') == 'developer-id':
+        driver_scope = (f"App build {r['application_build']} retains Driver B{r['driver_build']} "
+                        f"(driver version {r['driver_version']}) unchanged. "
+                        if r.get('driver_version') and r['driver_version'] != r['application_version']
+                        else f"App build {r['application_build']} includes the matching driver. ")
         download = (f"**Latest public download:** [{download_channel} {r['application_version']} / Driver B{r['driver_build']}]"
                     f"({status['links']['release']}) — engineering prerelease, Developer ID-signed and notarized. "
-                    f"App build {r['application_build']} includes the matching driver. Use normal macOS approval; no SIP change is required. "
+                    + driver_scope + "Use normal macOS approval; no SIP change is required. "
                     "Offline playback, Surgery and inspection require no driver activation. Hardware qualification remains bounded.\n\n")
     elif r.get('offline_only', False):
         download = (f"**Latest public download:** [{download_channel} {r['application_version']} offline-only / app build {r['application_build']}]"

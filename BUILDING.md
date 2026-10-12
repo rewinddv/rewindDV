@@ -3,7 +3,7 @@
 Use Xcode 27 and its installed Apple SDKs on macOS. Preserve the project's
 per-target architectures and deployment settings. The app deployment floor is
 macOS 26.0; that setting alone is not a qualification claim for every OS release.
-Beta 0.1.12 uses an app-only identity that retains signed Driver203. Source
+Beta 0.1.13 uses an app-only identity that retains signed Driver203. Source
 verification therefore compiles only the host. The driver target rejects this
 reuse reservation rather than rebuilding an unchanged driver. A fresh driver
 uses a separately reserved component identity and the full archive workflow.

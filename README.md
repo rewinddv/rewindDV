@@ -20,7 +20,7 @@ application and driver source, engineering downloads, documentation, issues and
 contributions. Visit [rewinddv.com](https://rewinddv.com) for the project website.
 
 <!-- project-status:start -->
-**Current development:** rewindDV 0.1.12 (Beta). App build 202; driver build 203. [Reviewed public source](https://github.com/rewinddv/rewindDV/tree/2ed7245de91358331156a316e5652ad14ed7fcfa).
+**Current development:** rewindDV 0.1.13 (Beta). App build 203; retained driver build 203. [Reviewed public source](https://github.com/rewinddv/rewindDV/tree/beta-0.1.13).
 
 **Latest public download:** [Beta 0.1.12 / Driver B203](https://github.com/rewinddv/rewindDV/releases/tag/beta-0.1.12) — engineering prerelease, Developer ID-signed and notarized. App build 202 includes the matching driver. Use normal macOS approval; no SIP change is required. Offline playback, Surgery and inspection require no driver activation. Hardware qualification remains bounded.
 
@@ -31,7 +31,7 @@ Development source and downloads have separate identities and qualification. App
 
 The current Beta source includes the accepted reconnection and app-readiness fixes, bounded evidence retention, held-timecode classification, capture startup/tail classification and source-bound viewing ranges. Captured source bytes and damage evidence remain preserved; playback does not repair the tape. The cassette icon, preferred 16:9 initial window, inspector navigation and Beta naming are integrated.
 
-The capture and playback inspectors show every observed pack using a classifier/catalog covering 256 allocations and 274 layout variants, with decoded labels, field validity, interpretation provenance, references and raw bytes. Inventory coverage includes reserved, unassigned and opaque entries; it is not a claim of complete semantic decoding or IEC certification. Mixed NTSC/PAL recording epochs and lossless segmented exports preserve source ordering and unknown regions. HDV remains separately represented and physically unqualified.
+The capture and playback inspectors show every observed pack using a classifier/catalog covering 256 allocations and 274 layout variants, with decoded labels, field validity, interpretation provenance, references and raw bytes. Inspector tabs, search and filters persist while resizing, and the playback chooser can be dismissed and opened again without relaunching. Inventory coverage includes reserved, unassigned and opaque entries; it is not a claim of complete semantic decoding or IEC certification. Mixed NTSC/PAL recording epochs and lossless segmented exports preserve source ordering and unknown regions. HDV remains separately represented and physically unqualified.
 
 Successful PAL captures and a completed whole-tape workflow are documented below with their actual earlier builds. Later Driver199 reconnect/capture and Driver200 reread checks, plus Driver202 idle stability, have separate bounded evidence. The current public package has its own software, signing and distribution validation; these earlier results do not establish a fresh physical test of Driver203.
 

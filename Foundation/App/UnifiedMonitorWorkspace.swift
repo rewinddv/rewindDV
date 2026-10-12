@@ -11,16 +11,20 @@ import UniformTypeIdentifiers
 
 /// In-view hover help avoids the system tooltip delay. It never takes focus,
 /// participates in layout, or intercepts a click intended for the control.
+private struct InspectorPresentationState {
+  var showingPacks = false
+  var packQuery = ""
+}
+
 private struct TechnicalSpecificationRows: View {
   let sections: [DVTechnicalSpecifications.Section]
   let coverage: String
   var metadata: DVPackSemanticReport? = nil
   var metadataOrdinalIsEstimated = false
-  @State private var showingPacks = false
-  @State private var packQuery = ""
+  @Binding var presentation: InspectorPresentationState
   var body: some View {
     VStack(alignment: .leading, spacing: 10) {
-      Picker("Inspector view", selection: $showingPacks) {
+      Picker("Inspector view", selection: $presentation.showingPacks) {
         Text("Overview").tag(false)
         Text("Metadata & packs").tag(true)
       }.pickerStyle(.segmented).labelsHidden().accessibilityIdentifier("inspector-view")
@@ -29,7 +33,7 @@ private struct TechnicalSpecificationRows: View {
       // evidence out of the capture window's layout pass; it remains available
       // when the operator scrolls to it. Raw preservation never consults this UI.
       LazyVStack(alignment: .leading, spacing: 16) {
-        if !showingPacks {
+        if !presentation.showingPacks {
         ForEach(DVMetadataPresentation.summarySections(sections)) { section in
           VStack(alignment: .leading, spacing: 9) {
             Text(section.title).font(.headline)
@@ -50,7 +54,7 @@ private struct TechnicalSpecificationRows: View {
           Divider()
         }
         } else if let metadata {
-          DVMetadataInspector(report: metadata, ordinalIsEstimated: metadataOrdinalIsEstimated, searchQuery: $packQuery)
+          DVMetadataInspector(report: metadata, ordinalIsEstimated: metadataOrdinalIsEstimated, searchQuery: $presentation.packQuery)
         } else {
           Text("No complete DV frame sampled yet. Metadata will appear here when a frame is available.").font(.callout)
         }
@@ -64,6 +68,7 @@ private struct TechnicalSpecificationRows: View {
 private struct LiveTechnicalSpecificationsPanel: View {
   @ObservedObject var live: LiveMonitorModel
   @ObservedObject var metadata: LiveDVMetadata
+  @Binding var presentation: InspectorPresentationState
 
   private func progress() -> [DVTechnicalSpecifications.Row] {
     var rows: [DVTechnicalSpecifications.Row] = []
@@ -99,7 +104,7 @@ private struct LiveTechnicalSpecificationsPanel: View {
               .init(label: "Capture", value: live.ingestDetail, evidence: "Raw preservation is independent of picture/audio decoding."),
               .init(label: "Preview", value: "HDV picture/audio preview not yet qualified", evidence: "DV preview tools and DIF metadata do not apply to HDV. The original transport stream is retained without transcoding.")
             ])
-          ], coverage: "Experimental HDV ingest. Real 50 Hz and 60 Hz tape qualification is pending. No DV metadata is inferred from MPEG packets.")
+          ], coverage: "Experimental HDV ingest. Real 50 Hz and 60 Hz tape qualification is pending. No DV metadata is inferred from MPEG packets.", presentation: $presentation)
         } else {
         Text(metadata.presentationStatus).font(.caption)
           .foregroundStyle(metadata.staleNow || metadata.report == nil ? .orange : .secondary)
@@ -113,7 +118,7 @@ private struct LiveTechnicalSpecificationsPanel: View {
           .init(title: "General", rows: progress),
           .init(title: "Video", rows: [.init(label: "Metadata", value: "Unavailable — waiting for complete DV frame", evidence: "No values synthesized from the deck name.")]),
           .init(title: "Audio", rows: [.init(label: "Metadata", value: "Unavailable — waiting for complete DV frame", evidence: "No values synthesized from decoded monitor settings.")])
-        ]) + DVTechnicalSpecifications.recordedMotionSections(report?.semanticReport), coverage: report?.coverage ?? "Metadata inspection never controls or blocks capture.", metadata: report?.semanticReport)
+        ]) + DVTechnicalSpecifications.recordedMotionSections(report?.semanticReport), coverage: report?.coverage ?? "Metadata inspection never controls or blocks capture.", metadata: report?.semanticReport, presentation: $presentation)
         .accessibilityIdentifier("capture-technical-specifications")
         }
       }
@@ -125,6 +130,7 @@ private struct LiveTechnicalSpecificationsPanel: View {
 private struct PlaybackTechnicalSpecificationsPanel: View {
   @ObservedObject var playback: OfflineDVPlaybackModel
   @ObservedObject var metadata: PlaybackDVMetadata
+  @Binding var presentation: InspectorPresentationState
   var body: some View {
     VStack(alignment: .leading, spacing: 8) {
       TimelineView(.periodic(from: .now, by: 1)) { _ in
@@ -143,7 +149,7 @@ private struct PlaybackTechnicalSpecificationsPanel: View {
           preview: playback.displayAspect == .standard ? "4:3" : "16:9",
           appleScope: "Apple decoder output for the selected source frame; whole-file position \(playback.frameCounterIsEstimated ? "is estimated" : "is indexed").")
             + (playback.sourceFileAudit?.sections ?? [.init(title: "Source error summary", rows: [.init(label: "Source audit", value: playback.sourceFileAuditStatus, evidence: "Background read-only assessment; never blocks playback.")])]),
-          coverage: current.coverage, metadata: metadata.report, metadataOrdinalIsEstimated: playback.frameCounterIsEstimated)
+          coverage: current.coverage, metadata: metadata.report, metadataOrdinalIsEstimated: playback.frameCounterIsEstimated, presentation: $presentation)
           .accessibilityIdentifier("playback-technical-specifications")
       } else { Text(playback.technicalSpecificationsStatus).font(.caption) }
       if playback.sourceFileAudit == nil {
@@ -318,6 +324,65 @@ private struct LivePictureSurface: View {
 
 // AppKit gives both segments equal, explicit hit areas. SwiftUI's segmented
 // Picker otherwise keeps its small intrinsic control centered in a wider frame.
+/// A workspace-owned sheet keeps one reliable lifecycle across view changes.
+@MainActor private final class PlaybackFilePicker: NSObject, ObservableObject {
+  weak var ownerWindow: NSWindow?
+  private var panel: NSOpenPanel?
+
+  func present(selection: @escaping (URL) -> Void) {
+    if let existing = panel {
+      if existing.isVisible || existing.sheetParent != nil {
+        existing.makeKeyAndOrderFront(nil)
+        return
+      }
+      panel = nil
+      existing.cancel(nil)
+    }
+    guard let ownerWindow else { return }
+    if let sheet = ownerWindow.attachedSheet {
+      sheet.makeKeyAndOrderFront(nil)
+      return
+    }
+    let chooser = NSOpenPanel()
+    chooser.title = "Open recorded DV"
+    chooser.message = "The original file is opened read-only and is never rewritten."
+    if let type = UTType(filenameExtension: "dv") { chooser.allowedContentTypes = [type] }
+    chooser.canChooseFiles = true
+    chooser.canChooseDirectories = false
+    chooser.allowsMultipleSelection = false
+    panel = chooser
+    chooser.beginSheetModal(for: ownerWindow) { [weak self, weak chooser] response in
+      guard let self, let chooser, self.panel === chooser else { return }
+      let url = response == .OK ? chooser.url : nil
+      self.panel = nil
+      if let url { selection(url) }
+    }
+  }
+
+  func cancel() {
+    let existing = panel
+    panel = nil
+    existing?.cancel(nil)
+  }
+}
+
+/// Resolve the workspace window instead of whichever auxiliary window is key.
+private struct PlaybackPickerWindow: NSViewRepresentable {
+  let picker: PlaybackFilePicker
+  func makeNSView(context: Context) -> WindowView { WindowView(picker: picker) }
+  func updateNSView(_ view: WindowView, context: Context) { picker.ownerWindow = view.window }
+
+  final class WindowView: NSView {
+    let picker: PlaybackFilePicker
+    init(picker: PlaybackFilePicker) { self.picker = picker; super.init(frame: .zero) }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    override func viewDidMoveToWindow() {
+      super.viewDidMoveToWindow()
+      picker.ownerWindow = window
+    }
+  }
+}
+
 private struct WorkspaceModeSelector: NSViewRepresentable {
   @Binding var selection: MonitorSource
   var isEnabled: Bool
@@ -368,7 +433,9 @@ struct UnifiedMonitorWorkspace: View {
   @State private var liveRasterHeight = 480
   @State private var viewingMode: DVViewingMode = .standard
   @State private var confirmPhysicalStop = false
-  @State private var playbackOpenPanel: NSOpenPanel?
+  @StateObject private var playbackFilePicker = PlaybackFilePicker()
+  @State private var captureInspector = InspectorPresentationState()
+  @State private var playbackInspector = InspectorPresentationState()
   @StateObject private var rangeReview = ReviewedRangeModel()
   @ObservedObject var surgery: SurgeryModel
 
@@ -457,6 +524,7 @@ struct UnifiedMonitorWorkspace: View {
     }
     }
     .background(Color(nsColor: .windowBackgroundColor))
+    .background(PlaybackPickerWindow(picker: playbackFilePicker))
     .accessibilityIdentifier("workspace-page")
     .onAppear { viewingMode = playback.viewingMode }
     .onReceive(live.preview.$rasterHeight) { liveRasterHeight = $0 }
@@ -470,6 +538,7 @@ struct UnifiedMonitorWorkspace: View {
     }
     .onChange(of: playback.sourceURL) { _, _ in rangeReview.reset() }
     .onDisappear {
+      playbackFilePicker.cancel()
       rangeReview.reset()
       playback.pause()
       // Navigation/layout disappearance is not operator STOP or a receive fault.
@@ -1017,9 +1086,9 @@ struct UnifiedMonitorWorkspace: View {
     RewindDVSection {
       VStack(alignment: .leading, spacing: 12) {
         if source == .deck {
-          LiveTechnicalSpecificationsPanel(live: live, metadata: live.preview.metadata)
+          LiveTechnicalSpecificationsPanel(live: live, metadata: live.preview.metadata, presentation: $captureInspector)
         } else {
-          PlaybackTechnicalSpecificationsPanel(playback: playback, metadata: playback.metadata)
+          PlaybackTechnicalSpecificationsPanel(playback: playback, metadata: playback.metadata, presentation: $playbackInspector)
         }
         Divider()
         Text("Source facts, decoder output and operator observations remain separate.")
@@ -1227,35 +1296,10 @@ struct UnifiedMonitorWorkspace: View {
   }
 
   private func chooseFile() {
-    guard source == .file, !sourceChangeLocked, !playback.isLoading, playbackOpenPanel == nil else { return }
-    let owner = NSApp.mainWindow ?? NSApp.keyWindow
-    let panel = NSOpenPanel()
-    playbackOpenPanel = panel
-    panel.title = "Open recorded DV"
-    panel.message = "The original file is opened read-only and is never rewritten."
-    if let type = UTType(filenameExtension: "dv") { panel.allowedContentTypes = [type] }
-    panel.canChooseDirectories = false
-    panel.allowsMultipleSelection = false
-    panel.setContentSize(NSSize(width: 720, height: 500))
-    panel.begin { response in
-      playbackOpenPanel = nil
-      if response == .OK, let url = panel.url, source == .file, !sourceChangeLocked {
-        playback.open(url: url)
-      }
-    }
-    // AppKit restores shared panel geometry during presentation. Position after
-    // that restoration, not before it, and keep the chooser on the owner's screen.
-    DispatchQueue.main.async {
-      guard panel.isVisible else { return }
-      panel.setContentSize(NSSize(width: 720, height: 500))
-      if let owner {
-        let visible = (owner.screen ?? NSScreen.main)?.visibleFrame ?? owner.frame
-        let x = min(max(owner.frame.midX - panel.frame.width / 2, visible.minX),
-                    max(visible.minX, visible.maxX - panel.frame.width))
-        let y = min(max(owner.frame.midY - panel.frame.height / 2, visible.minY),
-                    max(visible.minY, visible.maxY - panel.frame.height))
-        panel.setFrameOrigin(NSPoint(x: x, y: y))
-      } else { panel.center() }
+    guard source == .file, !sourceChangeLocked, !playback.isLoading else { return }
+    playbackFilePicker.present { url in
+      guard source == .file, !sourceChangeLocked, !playback.isLoading else { return }
+      playback.open(url: url)
     }
   }
 }
