@@ -1292,8 +1292,9 @@ void ASFWDriver::AsyncWatchdogTimerFired_Impl(ASFWDriver_AsyncWatchdogTimerFired
         if (ctx.lifecycle && ctx.lifecycle->AdmitsNormalWork()) {
             // The FW643/M6 stop failure left enabled async events pending while
             // the interrupt thread slept in its kernel wait. Rearm notification
-            // once; let the existing IRQ owner drain both AR queues. Do not
-            // replay an AV/C command or process DMA from a second owner here.
+            // once. The async watchdog below also services both AR queues on
+            // this SAME serialized workQueue when notifications remain lost.
+            // Neither path replays an AV/C command or clears uncertainty.
             const uint64_t nowNs = ASFW::Timing::hostTicksToNanos(mach_absolute_time());
             if (nowNs - ctx.interruptProbeTimeNs >= 50'000'000 && ctx.deps.hardware && ctx.deps.interrupts) {
                 ctx.interruptProbeTimeNs = nowNs;

@@ -15,6 +15,12 @@ public enum MonitorAction: CaseIterable, Sendable {
 }
 
 public struct WorkspaceCapabilities: Equatable, Sendable {
+  /// A retained capture result is not an active ingest. Keep finalization busy
+  /// until it completes, while preserving the capture's historical identity.
+  public static func ingestIsActive(requested: Bool, receiveActive: Bool, busy: Bool) -> Bool {
+    requested && (receiveActive || busy)
+  }
+
   public let source: MonitorSource
   public let fileReady: Bool
   public let filePlaying: Bool

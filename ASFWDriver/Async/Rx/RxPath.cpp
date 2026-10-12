@@ -58,7 +58,7 @@ void RxPath::ProcessARInterrupts(bool isRunning,
     currentBusResetCapture_ = nullptr;
 }
 
-void RxPath::ProcessRequestInterrupts() {
+ARStreamStats RxPath::ProcessRequestInterrupts(std::optional<uint32_t> maxBuffers) {
     const auto stats = ProcessARStream(
         arRequestContext_,
         "ARReq",
@@ -79,10 +79,31 @@ void RxPath::ProcessRequestInterrupts() {
                 packetRouter_.RouteParsedPacket(ARContextType::Request, packet,
                                                  current.requestGeneration);
             }
-        });
+        }, maxBuffers);
 
     ASFW_LOG_V2(Async, "RxPath: Processed %u packets in %u buffers from AR Request",
                 stats.packetsFound, stats.buffersProcessed);
+    return stats;
+}
+
+RxPath::WatchdogReceiveStats RxPath::ProcessWatchdogReceive(
+    bool isRunning, Debug::BusResetPacketCapture* busResetCapture) {
+    WatchdogReceiveStats result{};
+    if (!isRunning) return result;
+    // Inspect memory already owned by the AR rings, even when no low-level
+    // transaction remains: an FCP application reply is an incoming REQUEST.
+    result.requestUnreadBefore = arRequestContext_.SnapshotRingHead().unreadBytes;
+    result.responseUnreadBefore = arResponseContext_.SnapshotRingHead().unreadBytes;
+    currentBusResetCapture_ = busResetCapture;
+    // Always enter the walker: a consumed head can precede a filled successor,
+    // and Dequeue is not a peek (it records an observation of incomplete tails).
+    result.request = ProcessRequestInterrupts(
+        static_cast<uint32_t>(arRequestContext_.GetBufferRing().BufferCount()));
+    // Preserve normal request-before-response ordering and generation checks.
+    result.response = ProcessResponseInterrupts(isRunning, busResetCapture,
+        ResponseBufferCount());
+    currentBusResetCapture_ = nullptr;
+    return result;
 }
 
 ARStreamStats RxPath::ProcessResponseInterrupts(

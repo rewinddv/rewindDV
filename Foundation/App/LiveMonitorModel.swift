@@ -50,6 +50,9 @@ struct LiveReceiveBatch: Sendable {
   @Published private(set) var rejectedPackets: UInt64 = 0
   @Published private(set) var deliverySkips: UInt64 = 0
   @Published private(set) var ingestRequested = false
+  var ingestActive: Bool {
+    WorkspaceCapabilities.ingestIsActive(requested: ingestRequested, receiveActive: active, busy: busy)
+  }
   @Published private(set) var verification: DVIngestVerification?
   @Published private(set) var hdvVerification: HDVIngestVerification?
   @Published private(set) var hdvVerificationProgress: HDVIngestProgress?

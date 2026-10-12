@@ -3,8 +3,8 @@ import Testing
 @testable import RewindDVMonitorCore
 
 @Test func canonicalHostMetadataFailsClosedOnComponentMismatch() {
-  let info: [String: Any] = ["CFBundleShortVersionString":"0.1.22", "CFBundleVersion":"212",
-    "RewindDVProductVersion":"0.1.22", "RewindDVReleaseChannel":"beta", "RewindDVRequiredDriverBuild":"203", "RewindDVRequiredDriverVersion":"0.1.11"]
+  let info: [String: Any] = ["CFBundleShortVersionString":"0.1.23", "CFBundleVersion":"213",
+    "RewindDVProductVersion":"0.1.23", "RewindDVReleaseChannel":"beta", "RewindDVRequiredDriverBuild":"204", "RewindDVRequiredDriverVersion":"0.1.23"]
   #expect(ProductIdentity.matchesHost(info))
   for (key, bad) in [("CFBundleVersion","190"), ("RewindDVRequiredDriverBuild","194"),
     ("RewindDVRequiredDriverVersion","0.1.10"),
@@ -14,6 +14,6 @@ import Testing
     changed.removeValue(forKey: key)
     #expect(!ProductIdentity.matchesHost(changed))
   }
-  #expect(ProductIdentity.display == "rewindDV 0.1.22 (Beta)")
+  #expect(ProductIdentity.display == "rewindDV 0.1.23 (Beta)")
   #expect(ProductIdentity.appBuild != ProductIdentity.driverBuild)
 }

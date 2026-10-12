@@ -10,6 +10,7 @@ struct WindStopEvidenceGate {
   init(route: FoundationRoute) { self.route = route }
 
   mutating func observe(_ report: DeviceInspectionReport) throws -> Bool {
+    if let failure = report.transportFailure { throw ControlWireError.invalid(failure) }
     guard !report.controlLockedOut, report.route == route,
       report.receiptIdentity != previousReceipt else {
       throw ControlWireError.invalid("Wind status unavailable, repeated or from a changed route")
@@ -100,6 +101,7 @@ struct ForwardPlayEvidenceGate {
   init(route: FoundationRoute) { self.route = route }
 
   mutating func observe(_ report: DeviceInspectionReport) throws -> Bool {
+    if let failure = report.transportFailure { throw ControlWireError.invalid(failure) }
     guard !report.controlLockedOut, report.route == route,
       report.receiptURL != previousReceipt else {
       throw ControlWireError.invalid("PLAY status unavailable, repeated or from a changed route")
@@ -193,6 +195,7 @@ struct ExternalDeckTransportGate {
   init(route: FoundationRoute) { self.route = route }
 
   mutating func observe(_ report: DeviceInspectionReport) throws -> ExternalDeckTransportEvent? {
+    if let failure = report.transportFailure { throw ControlWireError.invalid(failure) }
     guard !report.controlLockedOut, report.route == route,
       report.receiptIdentity != previousReceipt else {
       throw ControlWireError.invalid("Transport status unavailable, repeated or from a changed route")

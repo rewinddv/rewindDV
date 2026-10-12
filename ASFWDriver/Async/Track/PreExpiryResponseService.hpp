@@ -2,6 +2,7 @@
 #pragma once
 
 #include <cstddef>
+#include "../../Hardware/RegisterMap.hpp"
 #include <utility>
 
 namespace ASFW::Async {
@@ -9,6 +10,18 @@ namespace ASFW::Async {
 [[nodiscard]] constexpr bool CanServiceResponsesBeforeTimeout(
     bool isRunning, bool busResetInProgress) noexcept {
     return isRunning && !busResetInProgress;
+}
+
+// An unprocessed reset/fault event is not a validated generation boundary.
+// Raw hardware evidence is required even if software has not received its IRQ.
+[[nodiscard]] constexpr bool CanServiceReceiveBeforeTimeout(
+    bool isRunning, bool busResetInProgress, bool eventsAvailable, uint32_t events) noexcept {
+    using Driver::IntEventBits;
+    constexpr uint32_t unsafe = IntEventBits::kBusReset | IntEventBits::kSelfIDComplete |
+        IntEventBits::kSelfIDComplete2 | IntEventBits::kUnrecoverableError |
+        IntEventBits::kRegAccessFail | IntEventBits::kPostedWriteErr;
+    return CanServiceResponsesBeforeTimeout(isRunning, busResetInProgress) &&
+        eventsAvailable && events != UINT32_MAX && (events & unsafe) == 0;
 }
 
 // The watchdog and IRQ callbacks share the driver's serialized workloop. When

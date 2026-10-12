@@ -1,6 +1,23 @@
 import Testing
-
 @testable import RewindDVMonitorCore
+
+@Test func completedCapturePermitsReentryWithoutDiscardingCaptureIdentity() {
+  for active in [false, true] {
+    for busy in [false, true] {
+      let ingest = WorkspaceCapabilities.ingestIsActive(requested: true, receiveActive: active, busy: busy)
+      let policy = WorkspaceCapabilities(source: .deck, deckSelected: true,
+        busy: busy, liveMonitoring: active && !busy, ingestActive: ingest)
+      #expect(policy.allows(.play) == (!active && !busy))
+      #expect(policy.allows(.stop) == !busy)
+    }
+  }
+  #expect(!WorkspaceCapabilities.ingestIsActive(requested: false, receiveActive: true, busy: false))
+  let locked = WorkspaceCapabilities(source: .deck, deckSelected: true, lockedOut: true,
+    ingestActive: WorkspaceCapabilities.ingestIsActive(requested: true, receiveActive: false, busy: false))
+  #expect(!locked.allows(.play))
+  #expect(!locked.allows(.stop))
+}
+
 
 @Test func pictureSearchRequiresLivePreviewSupportAndNeverRunsDuringIngest() {
   for ingest in [false, true] {

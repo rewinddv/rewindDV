@@ -645,7 +645,7 @@ private actor WholeTapeEvidence {
       catch { if recoveryStarted != nil { recoveryForcePhysicalStop = true }; throw error }
       let digest = try await save(report, to: evidence)
       if stopRequested { throw JobError.cancelled }
-      guard !report.controlLockedOut, report.route == route else {
+      guard !report.controlLockedOut, report.transportFailure == nil, report.route == route else {
         if recoveryStarted != nil { recoveryForcePhysicalStop = true }
         throw JobError.attention("Transport observation lost authority. Capture is not declared complete.")
       }
@@ -771,7 +771,7 @@ private actor WholeTapeEvidence {
             do { observationReceipt = try await save(observation, to: recorder) }
             catch { noteAccountingFailure(error) }
           }
-          guard !observation.controlLockedOut, observation.route == route else {
+          guard !observation.controlLockedOut, observation.transportFailure == nil, observation.route == route else {
             throw JobError.attention("STOP observation uncertain")
           }
           let decision = stopped.observe(response: observation.validatedTransportState,

@@ -1,4 +1,3 @@
-// Copyright 2026 Rewind Digital, LLC. SPDX-License-Identifier: Apache-2.0
 // This fixture has no reset coordinator. Any policy unexpectedly requesting a
 // reset is a test failure, not a successful simulated hardware operation.
 #include <cstdlib>

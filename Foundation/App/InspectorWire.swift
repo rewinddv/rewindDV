@@ -22,6 +22,9 @@ struct DeviceInspectionReport: Sendable {
   /// Nil preserves the immutable-per-directory receipt identity of older paths.
   var observationID: UUID? = nil
   var validatedDeckTimecode: [UInt8]? = nil
+  /// A consumed terminal transport failure is not a valid empty observation.
+  /// Observers must stop, rather than repeatedly querying an unavailable path.
+  var transportFailure: String? = nil
   var receiptIdentity: String { receiptURL.absoluteString + "#" + (observationID?.uuidString ?? "") }
 }
 

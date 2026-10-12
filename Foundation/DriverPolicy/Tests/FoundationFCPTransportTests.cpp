@@ -325,17 +325,30 @@ void TestTerminalClassifications() {
 class ResponseInsideWriteBus final : public DeferredFireWireBus {
 public:
     FCPTransport* transport{nullptr};
+    unsigned cancellations{0};
+    bool respondInline{true};
+    bool responseReady{true};
+    uint8_t responseOpcode{0xC3};
+
+    bool Cancel(AsyncHandle handle) override {
+        ++cancellations;
+        return DeferredFireWireBus::Cancel(handle);
+    }
 
     AsyncHandle WriteBlock(ASFW::FW::Generation generation,
                            ASFW::FW::NodeId nodeId,
-                           ASFW::Async::FWAddress,
-                           std::span<const uint8_t>,
-                           ASFW::FW::FwSpeed,
-                           ASFW::Async::InterfaceCompletionCallback) override {
+                           ASFW::Async::FWAddress address,
+                           std::span<const uint8_t> payload,
+                           ASFW::FW::FwSpeed speed,
+                           ASFW::Async::InterfaceCompletionCallback callback) override {
         assert(transport);
-        constexpr std::array<uint8_t, 4> accepted{0x09, 0x20, 0xC3, 0x75};
-        transport->OnFCPResponse(nodeId.value, generation.value, accepted);
-        return AsyncHandle{99};
+        const auto handle = DeferredFireWireBus::WriteBlock(
+            generation, nodeId, address, payload, speed, std::move(callback));
+        const std::array<uint8_t, 4> accepted{0x09, 0x20, responseOpcode, 0x75};
+        if (respondInline) {
+            transport->OnFCPResponse(nodeId.value, generation.value, accepted, responseReady);
+        }
+        return handle;
     }
 };
 
@@ -375,7 +388,7 @@ void TestResponseBeforeWriteReturnPublicationBarrier() {
         }
         if (evidence.stage == FCPAttemptStage::kAsyncTransportAccepted) {
             assert(routeObserved && terminalObserved && !submissionClosed);
-            assert(evidence.asyncHandle == 99);
+            assert(evidence.asyncHandle == bus.WriteAt(0).handle.value);
             asyncAcceptedObserved = true;
             inspectorStages |= 0x04;
         }
@@ -396,7 +409,70 @@ void TestResponseBeforeWriteReturnPublicationBarrier() {
     submissionClosed = true;
     ready = terminalObserved;
     assert(ready); // publication happens only after SubmitCommand returns.
+    assert(bus.cancellations == 0); // A terminal FCP reply is not cancellation.
+    assert(bus.PendingWriteCount() == 1);
+    assert(bus.CompleteNextWrite(AsyncStatus::kSuccess));
+    assert(bus.PendingWriteCount() == 0);
     transport->Shutdown();
+}
+
+// Host-only adversarial ordering: no physical deck or driver activation.
+void TestEarlyResponseKeepsAsyncOwnershipAndRejectsUnprovedReplies() {
+    for (unsigned scenario = 0; scenario < 5; ++scenario) {
+        ResponseInsideWriteBus bus;
+        FakeSessionScheduler scheduler;
+        DeviceRegistry routes;
+        DeviceRecord record{};
+        record.guid = kGuid;
+        record.deviceIncarnation = 1;
+        record.nodeId = 3;
+        record.gen = Generation{7};
+        auto device = FWDevice::Create(record, ConfigROM{});
+        (void)routes.UpsertFromROM(MakeROM(), {});
+        auto transport = std::make_shared<FCPTransport>();
+        assert(transport->init(&bus, &bus, device.get(), routes, scheduler, {}));
+        bus.transport = transport.get();
+        if (scenario == 2) bus.responseOpcode = 0xD0; // wrong command
+        if (scenario == 3) bus.responseReady = false; // local reply ACK not ready
+        unsigned first = 0, second = 0;
+        const bool unproved = scenario == 2 || scenario == 3;
+        (void)transport->SubmitCommand(PlayCommand(), [&](FCPStatus status, const FCPFrame&) {
+            ++first;
+            assert(status == (unproved ? FCPStatus::kTransportError : FCPStatus::kOk));
+        }, FoundationPolicy());
+        if (unproved) {
+            assert(first == 0);
+            transport->Shutdown();
+            assert(first == 1 && bus.cancellations == 1);
+            assert(transport->CopyUncertainResponseEvidence().admissionFenced);
+            continue;
+        }
+        assert(first == 1 && bus.cancellations == 0 && bus.PendingWriteCount() == 1);
+        if (scenario == 0) {
+            bus.respondInline = false;
+            assert(transport->SubmitCommand(StopCommand(), [&](FCPStatus status, const FCPFrame&) {
+                ++second; assert(status == FCPStatus::kOk);
+            }, FoundationPolicy()).IsValid());
+            assert(bus.CompleteNextWrite(AsyncStatus::kSuccess)); // old PLAY write
+            scheduler.Advance(10'000'000'000ULL);
+            assert(second == 0); // old callback cannot arm the STOP timer
+            assert(bus.CompleteNextWrite(AsyncStatus::kSuccess));
+            constexpr std::array<uint8_t, 4> stopped{0x09, 0x20, 0xC4, 0x60};
+            transport->OnFCPResponse(3, 7, stopped);
+            assert(first == 1 && second == 1 && bus.cancellations == 0);
+            transport->Shutdown();
+        } else {
+            transport->Shutdown();
+            std::weak_ptr<FCPTransport> weak = transport;
+            transport.reset();
+            assert(!weak.expired()); // queued callback owns the retired transport
+            assert(bus.CompleteNextWrite(scenario == 4 ? AsyncStatus::kTimeout : AsyncStatus::kSuccess));
+            assert(weak.expired());
+            assert(first == 1 && bus.cancellations == 0);
+            // The fake delivers the async outcome; production async error/label
+            // handling remains untouched and is not claimed by this host test.
+        }
+    }
 }
 
 void TestRetainedTransportShutdownCompletesOnce() {
@@ -550,6 +626,10 @@ void TestTapeTimeCodeUsesOnlyShortPerCommandDeadline() {
         assert(f.bus.CompleteNextWrite(AsyncStatus::kSuccess));
         f.scheduler.Advance(Policy::kTapeTimeCodeResponseDeadlineMs * 1'000'000ULL);
         assert(completions == 0); // Ordinary inspector deadline remains 2000 ms.
+        // Close while callback captures remain alive; Fixture's destructor is
+        // later than the stack counter's lifetime (caught by ASan).
+        f.transport->Shutdown();
+        assert(completions == 1);
     }
 }
 
@@ -759,6 +839,7 @@ int main() {
     TestClassifierAndBoundedInterim();
     TestTerminalClassifications();
     TestResponseBeforeWriteReturnPublicationBarrier();
+    TestEarlyResponseKeepsAsyncOwnershipAndRejectsUnprovedReplies();
     TestRetainedTransportShutdownCompletesOnce();
     TestTransportDoesNotRetainOrDereferenceDeviceOwnerAfterInit();
     TestRegistrySnapshotIsAnImmutableValueCopy();

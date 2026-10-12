@@ -409,10 +409,10 @@ class PreparationTests(unittest.TestCase):
 
     def test_build_settings_derive_versions_and_check_duplicate_consistency(self):
         root = Path(__file__).resolve().parents[1]
-        app = {"PRODUCT_BUNDLE_IDENTIFIER": r.APP_ID, "CURRENT_PROJECT_VERSION": "212", "MARKETING_VERSION": "0.1.22"}
-        driver = {"PRODUCT_BUNDLE_IDENTIFIER": r.DRIVER_ID, "CURRENT_PROJECT_VERSION": "203", "MARKETING_VERSION": "0.1.11"}
+        app = {"PRODUCT_BUNDLE_IDENTIFIER": r.APP_ID, "CURRENT_PROJECT_VERSION": "213", "MARKETING_VERSION": "0.1.23"}
+        driver = {"PRODUCT_BUNDLE_IDENTIFIER": r.DRIVER_ID, "CURRENT_PROJECT_VERSION": "204", "MARKETING_VERSION": "0.1.23"}
         settings = [{"buildSettings": b} for b in [app, driver, driver.copy()]]
-        expected = {"product_version":"0.1.22", "release_channel":"beta", "application_version":"0.1.22", "app_bundle_build":"212", "driver_build":"203", "app_bundle_version":"0.1.22", "driver_bundle_version":"0.1.11", "driver_reuse":{'product_version': '0.1.11', 'channel': 'beta', 'source_revision': '1e9688fb882ea0b249f36fb1c8500a9789a0c3ff', 'bundle_manifest_sha256': '48282aa966126575550b88a02e9a9634d175950736825c12c574e6b4bbfc87e7'}}
+        expected = {"product_version":"0.1.23", "release_channel":"beta", "application_version":"0.1.23", "app_bundle_build":"213", "driver_build":"204", "app_bundle_version":"0.1.23", "driver_bundle_version":"0.1.23"}
         self.assertEqual(r.versions_from_settings(root, settings), expected)
         for field, value in [("CURRENT_PROJECT_VERSION", "193"), ("MARKETING_VERSION", "0.1.0")]:
             bad = copy.deepcopy(settings); bad[-1]["buildSettings"][field] = value

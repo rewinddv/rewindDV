@@ -3,6 +3,9 @@
 
 #include "../FoundationDriverPolicy.hpp"
 #include "../../../ASFWDriver/Async/Rx/ARPacketParser.hpp"
+#include "../../../ASFWDriver/Async/Rx/RxPath.hpp"
+#include "../../../ASFWDriver/Async/AsyncSubsystem.hpp"
+#include "../../../ASFWDriver/Testing/FakeDMAMemory.hpp"
 #include "../../../ASFWDriver/Async/Rx/LocalRequestDispatch.hpp"
 #include "../../../ASFWDriver/Async/Rx/PacketRouter.hpp"
 #include "../../../ASFWDriver/Async/Tx/DescriptorBuilder.hpp"
@@ -147,7 +150,7 @@ struct ResponseRig {
     }
 };
 
-void TestPhysicalWriteQuadletRetainsCanonicalFCPBytes() {
+void TestPhysicalWriteQuadletRetainsCanonicalFCPBytes(bool lostInterrupt = false) {
     DeferredFireWireBus bus;
     FakeSessionScheduler scheduler;
     DeviceRegistry routes;
@@ -167,18 +170,35 @@ void TestPhysicalWriteQuadletRetainsCanonicalFCPBytes() {
     int completions = 0;
     FCPStatus completionStatus = FCPStatus::kTimeout;
     FCPFrame completionResponse{};
+    auto initialFrame = PlayFrame();
+    auto initialAR = kSonyAcceptedPlayAR;
+    auto initialResponse = kAcceptedPlay;
+    if (lostInterrupt) {
+        initialFrame.data[0] = 0x01; initialFrame.data[2] = 0xD0; initialFrame.data[3] = 0x7F;
+        initialAR[12] = 0x0C; initialResponse[0] = 0x0C; // transport STATUS stable reply
+    }
     FCPCommandPolicy policy{};
     policy.retryClass = FCPRetryClass::kNever;
     policy.queuePolicy = FCPQueuePolicy::kReject;
     policy.expectedRoute = routes.CurrentRoute(kGuid);
-    policy.responseClassifier = Classify;
+    policy.responseClassifier = [lostInterrupt](auto command, auto response) {
+        if (!lostInterrupt) return Classify(command, response);
+        using C = Policy::InspectorResponseClassification;
+        switch (Policy::ClassifyInspectorResponse(Policy::InspectorQuery::kTapeTransportState, 0, response)) {
+        case C::kImplementedStable: return FCPResponseClassification::kAccepted;
+        case C::kInterim: return FCPResponseClassification::kInterim;
+        case C::kRejected: case C::kNotImplemented: return FCPResponseClassification::kTerminalRejected;
+        case C::kMismatch: case C::kUnknown: return FCPResponseClassification::kMismatch;
+        default: return FCPResponseClassification::kOtherTerminal;
+        }
+    };
     policy.responseObserver = [&](FCPResponseEvidence evidence) {
         assert(responses.queued == 1); // actual response chain precedes all FCP callbacks
         responseEvidence.push_back(std::move(evidence));
     };
     assert(transport
                ->SubmitCommand(
-                   PlayFrame(),
+                   initialFrame,
                    [&](FCPStatus status, const FCPFrame& response) {
                        ++completions;
                        completionStatus = status;
@@ -202,17 +222,135 @@ void TestPhysicalWriteQuadletRetainsCanonicalFCPBytes() {
     dispatch.AddHandler(std::make_unique<FCPInboundLocalHandler>(&responseRouter));
     router.SetResponseSender(responses.sender.get());
     dispatch.Install(router, responses.sender.get());
-    router.RouteParsedPacket(ARContextType::Request, *packet, kGeneration);
+    if (lostInterrupt) {
+        // No IRQ delivered. The command-write callback already completed and
+        // there are NO expired low-level transactions to trigger the old drain.
+        ASFW::Testing::FakeDMAMemory memory{256 * 1024};
+        ASFW::Shared::BufferRing requestRing, responseRing;
+        constexpr size_t count = 4, bytes = 200;
+        auto initRing = [&](ASFW::Shared::BufferRing& ring) {
+            auto descriptors = memory.AllocateRegion(count * sizeof(ASFW::Async::HW::OHCIDescriptor));
+            auto buffers = memory.AllocateRegion(count * bytes);
+            assert(descriptors && buffers);
+            assert(ring.Initialize({reinterpret_cast<ASFW::Async::HW::OHCIDescriptor*>(descriptors->virtualBase), count},
+                {buffers->virtualBase, count * bytes}, count, bytes));
+            ring.BindDma(&memory);
+            assert(ring.Finalize(descriptors->deviceBase, buffers->deviceBase));
+        };
+        initRing(requestRing); initRing(responseRing);
+        ASFW::Async::ARRequestContext requestContext;
+        ASFW::Async::ARResponseContext responseContext;
+        assert(requestContext.Initialize(responses.hardware, requestRing) == kIOReturnSuccess);
+        assert(responseContext.Initialize(responses.hardware, responseRing) == kIOReturnSuccess);
+        ASFW::Async::LabelAllocator labels;
+        ASFW::Async::TransactionManager transactions;
+        assert(transactions.Initialize());
+        ASFW::Async::CompletionQueue completionsQueue;
+        ASFW::Async::Rx::TrackingActor tracking(&labels, &transactions, completionsQueue);
+        ASFW::Async::Bus::GenerationTracker generations(labels);
+        generations.OnConfirmedBusGeneration(kGeneration);
+        ASFW::Async::AsyncSubsystem async;
+        async.hardware_ = &responses.hardware;
+        async.isRunning_ = true;
+        async.rxPath_ = std::make_unique<ASFW::Async::Rx::RxPath>(
+            requestContext, responseContext, tracking, generations, router);
+        auto& receive = *async.rxPath_;
+        std::memcpy(requestRing.GetBufferAddress(0), initialAR.data(), initialAR.size());
+        ASFW::Async::HW::AR_init_status(*requestRing.GetDescriptor(0), bytes - kSonyAcceptedPlayAR.size());
+        assert(tracking.CopyExpiredSnapshots(UINT64_MAX).empty());
+        assert(completions == 0 && scheduler.PendingCount() == 1);
+        assert(receive.ProcessWatchdogReceive(false, nullptr).request.packetsFound == 0);
+        assert(requestRing.BufferCount() == count);
+        assert(requestContext.GetBufferRing().BufferCount() == count);
+        using ASFW::Driver::Register32;
+        using ASFW::Driver::IntEventBits;
+        // Actual watchdog entry: none of these states may consume queued FCP.
+        async.isRunning_ = false; async.OnTimeoutTick(); async.isRunning_ = true;
+        async.is_bus_reset_in_progress_.store(1); async.OnTimeoutTick();
+        async.is_bus_reset_in_progress_.store(0);
+        async.hardware_ = nullptr; async.OnTimeoutTick(); async.hardware_ = &responses.hardware;
+        for (auto event : {UINT32_MAX, IntEventBits::kBusReset, IntEventBits::kSelfIDComplete,
+                IntEventBits::kSelfIDComplete2, IntEventBits::kUnrecoverableError,
+                IntEventBits::kRegAccessFail, IntEventBits::kPostedWriteErr}) {
+            responses.hardware.SetTestRegister(Register32::kIntEvent, event);
+            async.OnTimeoutTick();
+            assert(completions == 0 && requestContext.SnapshotRingHead().unreadBytes == 20);
+        }
+        responses.hardware.SetTestRegister(Register32::kIntEvent, 0x00300031u);
+        async.OnTimeoutTick();
+        assert(completions == 1 && requestContext.SnapshotRingHead().unreadBytes == 0);
+        assert(async.watchdogTickCount_.load() == 1);
+        assert(receive.ProcessWatchdogReceive(true, nullptr).request.packetsFound == 0);
+        assert(completions == 1 && bus.WriteCount() == 1); // no command replay
+        scheduler.Advance(21'000'000ULL);
+        assert(completions == 1 && !transport->CopyUncertainResponseEvidence().admissionFenced);
+        unsigned followups = 0;
+        size_t used = initialAR.size();
+        for (bool stop : {true, false}) {
+            auto command = PlayFrame();
+            if (stop) { command.data[2] = 0xC4; command.data[3] = 0x60; }
+            FCPCommandPolicy fresh{};
+            fresh.retryClass = FCPRetryClass::kNever;
+            fresh.queuePolicy = FCPQueuePolicy::kReject;
+            fresh.expectedRoute = routes.CurrentRoute(kGuid);
+            fresh.responseClassifier = Classify;
+            assert(transport->SubmitCommand(command, [&](FCPStatus status, const FCPFrame&) {
+                assert(status == FCPStatus::kOk); ++followups;
+            }, fresh).IsValid());
+            assert(bus.CompleteNextWrite(AsyncStatus::kSuccess));
+            assert(tracking.CopyExpiredSnapshots(UINT64_MAX).empty());
+            auto reply = kSonyAcceptedPlayAR;
+            reply[14] = command.data[2]; reply[15] = command.data[3];
+            std::memcpy(requestRing.GetBufferAddress(0) + used, reply.data(), reply.size());
+            used += reply.size();
+            ASFW::Async::HW::AR_init_status(*requestRing.GetDescriptor(0), bytes - used);
+            // Force the next eligible interval without sleeping or inventing an IRQ.
+            async.lastReceiveServiceUsec_ = 0;
+            async.OnTimeoutTick();
+            assert(requestContext.SnapshotRingHead().unreadBytes == 0);
+            assert(receive.ProcessWatchdogReceive(true, nullptr).request.packetsFound == 0);
+        }
+        assert(followups == 2 && bus.WriteCount() == 3); // STATUS, fresh STOP, fresh PLAY
+        assert(!transport->CopyUncertainResponseEvidence().admissionFenced);
+        // Fill/drain the old head, then deliver a fresh STOP only in its
+        // successor. SnapshotHead().unreadBytes is zero at this boundary.
+        while (used < bytes) {
+            std::memcpy(requestRing.GetBufferAddress(0) + used,
+                kSonyAcceptedPlayAR.data(), kSonyAcceptedPlayAR.size());
+            used += kSonyAcceptedPlayAR.size();
+        }
+        ASFW::Async::HW::AR_init_status(*requestRing.GetDescriptor(0), 0);
+        assert(receive.ProcessWatchdogReceive(true, nullptr).request.packetsFound == 7);
+        assert(requestContext.SnapshotRingHead().unreadBytes == 0);
+        auto stopFrame = PlayFrame(); stopFrame.data[2] = 0xC4; stopFrame.data[3] = 0x60;
+        FCPCommandPolicy finalPolicy{};
+        finalPolicy.retryClass = FCPRetryClass::kNever;
+        finalPolicy.queuePolicy = FCPQueuePolicy::kReject;
+        finalPolicy.expectedRoute = routes.CurrentRoute(kGuid);
+        finalPolicy.responseClassifier = Classify;
+        assert(transport->SubmitCommand(stopFrame, [&](FCPStatus status, const FCPFrame&) {
+            assert(status == FCPStatus::kOk); ++followups;
+        }, finalPolicy).IsValid());
+        assert(bus.CompleteNextWrite(AsyncStatus::kSuccess));
+        auto stopAR = kSonyAcceptedPlayAR; stopAR[14] = 0xC4; stopAR[15] = 0x60;
+        std::memcpy(requestRing.GetBufferAddress(1), stopAR.data(), stopAR.size());
+        ASFW::Async::HW::AR_init_status(*requestRing.GetDescriptor(1), bytes - stopAR.size());
+        assert(receive.ProcessWatchdogReceive(true, nullptr).request.packetsFound == 1);
+        assert(followups == 3 && bus.WriteCount() == 4);
+        assert(!transport->CopyUncertainResponseEvidence().admissionFenced);
+    } else {
+        router.RouteParsedPacket(ARContextType::Request, *packet, kGeneration);
+    }
 
     assert(discovery.acquiredNodeID == 0xFFC1);
     assert(completions == 1);
     assert(completionStatus == FCPStatus::kOk);
     assert(completionResponse.length == kAcceptedPlay.size());
-    assert(std::equal(kAcceptedPlay.begin(), kAcceptedPlay.end(),
+    assert(std::equal(initialResponse.begin(), initialResponse.end(),
                       completionResponse.Payload().begin()));
     assert(responseEvidence.size() == 1);
     assert(responseEvidence[0].classification == FCPResponseClassification::kAccepted);
-    assert(std::equal(kAcceptedPlay.begin(), kAcceptedPlay.end(),
+    assert(std::equal(initialResponse.begin(), initialResponse.end(),
                       responseEvidence[0].response.Payload().begin()));
     transport->Shutdown();
 }
@@ -348,6 +486,7 @@ void TestStrictClassifierDoesNotAcceptReversedResponse() {
 
 int main() {
     TestPhysicalWriteQuadletRetainsCanonicalFCPBytes();
+    TestPhysicalWriteQuadletRetainsCanonicalFCPBytes(true);
     TestStrictClassifierDoesNotAcceptReversedResponse();
     TestSubmissionBoundary(0x12, true, 32, false, true, true);
     TestSubmissionBoundary(0x12, true, 32, true, true, true);

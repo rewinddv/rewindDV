@@ -496,7 +496,7 @@ struct UnifiedMonitorWorkspace: View {
       busy: busy || (source == .file && (playback.isLoading || rangeReview.isBusy || rangeReview.isEditingFields)),
       lockedOut: model.controlLockedOut || live.lockedOut, requiresSupervisedStop: model.requiresSupervisedStop,
       fastForwardSupported: model.fastForwardAvailable,
-      liveMonitoring: live.active && !live.busy, ingestActive: live.ingestRequested && (live.active || live.busy),
+      liveMonitoring: live.active && !live.busy, ingestActive: live.ingestActive,
       shuttleForwardSupported: model.capabilityReport?.permits(.shuttleForward, on: model.selectedRoute) == true,
       shuttleReverseSupported: model.capabilityReport?.permits(.shuttleReverse, on: model.selectedRoute) == true)
   }

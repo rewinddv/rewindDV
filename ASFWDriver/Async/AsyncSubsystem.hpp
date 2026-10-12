@@ -333,6 +333,7 @@ class AsyncSubsystem : public IAsyncControllerPort {
     ASFWDiagInboundCSRStats inboundCSRStats_{};
     bool isRunning_{false};
     bool dmaContextsRetired_{true};
+    uint64_t lastReceiveServiceUsec_{0}; // serialized watchdog queue; rate limit, not a wire proof
     ResetRecoveryFence resetRecovery_;
     uint64_t resetRecoveryAcceptedUsec_{0};
     Driver::HardwareInterface* resetRecoveryHardware_{nullptr}; // identity only, retained by root

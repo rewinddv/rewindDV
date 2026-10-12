@@ -303,7 +303,8 @@ bool FCPTransport::StartPendingWrite() {
     if (stillCurrent && !*writeAttempt.completed) {
         pending_->asyncHandle = handle;
     }
-    const bool cancelUncompletedWrite = !stillCurrent && !*writeAttempt.completed;
+    const bool cancelUncompletedWrite = !stillCurrent && !*writeAttempt.completed &&
+                                        !*writeAttempt.terminalResponseReceived;
     IOLockUnlock(lock_);
 
     if (cancelUncompletedWrite && busOps_) {
@@ -857,6 +858,13 @@ void FCPTransport::CompleteCommand(FCPStatus status, const FCPFrame& response,
     }
 
     const bool fenced = status != FCPStatus::kOk && FencePendingResponseLocked();
+    if (status == FCPStatus::kOk && pending_->activeWriteAttempt) {
+        // OnFCPResponse has validated a terminal reply for this exact attempt.
+        // The callback still owns self and must finish the async transaction;
+        // cancelling it solely because FCP completed would quarantine a live
+        // transaction label and can unnecessarily fence the whole controller.
+        *pending_->activeWriteAttempt->terminalResponseReceived = true;
+    }
     const Async::AsyncHandle abandonedWrite = status != FCPStatus::kOk ? pending_->asyncHandle : Async::AsyncHandle{};
     auto completion = std::move(pending_->completion);
     std::deque<std::unique_ptr<OutstandingCommand>> rejected;

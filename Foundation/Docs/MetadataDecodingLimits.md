@@ -1,6 +1,6 @@
 # Recorded metadata decoding boundaries
 
-The current decoder uses PRIMARY_STANDARD IEC 61834-4:1998 with AMD1:2010,
+The 0.1.18 completion pass uses PRIMARY_STANDARD IEC 61834-4:1998 with AMD1:2010,
 SMPTE ST 314M-2005, ST 12-1:2014 and ST 309:2012. The supplied national adoption
 is the effective Part 4 reference. Retained MediaInfoLib d49c3bf and DVRescue
  e32862853120fbefcd8866ea22037fdbec6f4564 are implementation evidence, not primary

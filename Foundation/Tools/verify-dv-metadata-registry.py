@@ -1,11 +1,17 @@
 #!/usr/bin/env python3
-"""Public source geometry audit; no private registry or standards corpus required."""
+"""Read-only reproducibility gate; no Downloads, standards PDFs or network needed."""
 from pathlib import Path
 import hashlib
 import json
 import re
 
 root = Path(__file__).resolve().parents[1]
+research = root / "Qualification/DV-Metadata-v2"
+raw = (research / "registry.json").read_bytes()
+expected = "1b36c773d07c2e9bdec5efe04dcb75127bd87e06ab1beb58a74f44a2a838f063"
+assert hashlib.sha256(raw).hexdigest() == expected, "Registry seal differs"
+registry = json.loads(raw)
+dispositions = json.loads((research / "dispositions.json").read_text())
 source = (root / "Sources/RewindDVArchiveCore/DVPackCatalog.swift").read_text()
 pattern = r'Geometry\(pack: (0x[0-9A-Fa-f]+), byte: (\d+), mask: (0x[0-9A-Fa-f]+), shift: (\d+), width: (\d+), aggregate: (true|false), id: "([^"]+)"'
 actual = {}
@@ -24,6 +30,16 @@ assert added == {
     "68.text_code_raw": (0x68, 3, 0xFF, 0, 8, False),
     "68.pc4_uninterpreted_raw": (0x68, 4, 0xFF, 0, 8, False),
 }
+for component in registry["field_layouts"]:
+    geometry = (int(component["pack_id"], 16), component["pc_byte"], int(component["mask"], 16), component["shift"], component["width"], component["geometry_role"] == "aggregate_observation")
+    assert actual[component["id"]] == geometry, component["id"]
+allowed = {"implemented", "already supported", "provisional", "conflicted/raw-only", "missing with reason"}
+for source_key, reviewed_key, count in [("field_layouts", "components", 210), ("semantic_rules", "semantic_rules", 29), ("non_pack_fields", "non_pack_fields", 20), ("non_pack_assembly", "non_pack_assembly", 3)]:
+    rows = dispositions[reviewed_key]
+    assert len(rows) == count
+    assert len({row["id"] for row in rows}) == count
+    assert {row["id"] for row in rows} == {row["id"] for row in registry[source_key]}
+    assert all(row["disposition"] in allowed and row["note"] for row in rows)
 assert sum(value[-1] for value in actual.values()) == 2
 for pack in {value[0] for value in actual.values()}:
     for byte in range(1, 5):
@@ -35,5 +51,4 @@ for pack in {value[0] for value in actual.values()}:
             assert not covered & mask, f"Overlap {pack:02X} PC{byte}"
             covered |= mask
         assert covered == 0xFF, f"Unaccounted bits {pack:02X} PC{byte}"
-print("PASS: 216 source geometries; complete disjoint payload coverage; six provisional VAUX text coordinates")
-print("Private historical registry seals/dispositions are excluded; this audit establishes software geometry only.")
+print("PASS: sealed registry; 210 sealed geometries + 6 provisional VAUX text coordinates; complete 210/29/20/3 dispositions")

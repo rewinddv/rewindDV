@@ -268,6 +268,10 @@ private:
         // Set before the bus call (which can complete inline); cleared only on
         // synchronous rejection. Cancellation during admission is uncertain.
         std::shared_ptr<bool> issued{std::make_shared<bool>(false)};
+        // A correlated terminal FCP reply can precede WriteBlock's return.
+        // It ends FCP ownership, not the underlying async write's lifetime.
+        // Access is protected by lock_, like completed/issued above.
+        std::shared_ptr<bool> terminalResponseReceived{std::make_shared<bool>(false)};
 
     };
 

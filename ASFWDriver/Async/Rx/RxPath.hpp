@@ -44,8 +44,19 @@ public:
         return static_cast<uint32_t>(arResponseContext_.GetBufferRing().BufferCount());
     }
 
+    struct WatchdogReceiveStats {
+        ARStreamStats request;
+        ARStreamStats response;
+        size_t requestUnreadBefore{};
+        size_t responseUnreadBefore{};
+    };
+    // Same serialized queue as IRQ dispatch. No command replay or fence release.
+    // Each ring is bounded to its allocated buffer count, including refills.
+    [[nodiscard]] WatchdogReceiveStats ProcessWatchdogReceive(
+        bool isRunning, Debug::BusResetPacketCapture* busResetCapture);
+
 private:
-    void ProcessRequestInterrupts();
+    ARStreamStats ProcessRequestInterrupts(std::optional<uint32_t> maxBuffers = std::nullopt);
     void DumpRequestBuffer(uint32_t buffersProcessed,
                            const uint8_t* bufferStart,
                            size_t bufferSize) const;

@@ -1172,6 +1172,7 @@ actor DriverBridge {
     var validatedTransportState: [UInt8]?
     var transportDiagnosticResult: Data?
     var validatedDeckTimecode: [UInt8]?
+    var transportFailure: String?
     var queries: [InspectorQuery] = timecodeOnly ? [.tapeTimecode] : transportOnly ? [.tapeTransportState] : tapeStateOnly ? [.tapeMediumInfo, .tapeTransportState, .tapeAbsoluteTrackNumber] :
       [.unitInfo, .subunitInfo(page: 0), .unitPlugInfo]
     var currentQuery: InspectorQuery?
@@ -1250,6 +1251,7 @@ actor DriverBridge {
           } else if result.status != 0 {
             reason = "Transport failed (\(Self.ioReturnHex(result.status))) — support unknown"
           } else { reason = "Route authority unknown — no interpretation" }
+          transportFailure = reason
           entries.append(.init(query: query, disposition: reason,
             facts: [], response: response))
           completion = "Inventory stopped after a transport/route failure. Remaining queries were not sent."
@@ -1321,7 +1323,7 @@ actor DriverBridge {
       entries: entries, completion: completion, controlLockedOut: permanentlyLockedOut,
       route: route, validatedTransportState: validatedTransportState,
       observationID: passiveTransport ? receipt.observationID : nil,
-      validatedDeckTimecode: validatedDeckTimecode)
+      validatedDeckTimecode: validatedDeckTimecode, transportFailure: transportFailure)
   }
 
   /// Explicit idle-only closed SPECIFIC INQUIRY catalog. No CONTROL, retries,

@@ -564,7 +564,7 @@ final class RewindDVCommandBridge {
             WorkspaceCapabilities(source: .deck, fileReady: false, filePlaying: false,
               deckSelected: true, busy: false, lockedOut: false,
               requiresSupervisedStop: model.requiresSupervisedStop, fastForwardSupported: model.fastForwardAvailable,
-              liveMonitoring: live.active, ingestActive: live.ingestRequested,
+              liveMonitoring: live.active && !live.busy, ingestActive: live.ingestActive,
               shuttleForwardSupported: model.capabilityReport?.permits(.shuttleForward, on: route) == true,
               shuttleReverseSupported: model.capabilityReport?.permits(.shuttleReverse, on: route) == true)
               .allows(action.monitorAction) else {
@@ -573,7 +573,7 @@ final class RewindDVCommandBridge {
       model.monitorSource = .deck
       switch action {
       case .play:
-        guard !live.busy, !live.ingestRequested else { throw CommandFailure.invalid("PLAY unavailable during ingest") }
+        guard !live.busy, !live.ingestActive else { throw CommandFailure.invalid("PLAY unavailable during ingest") }
         if live.active {
           model.send(.play, duringLiveMonitoring: true,
             onAccepted: { live.observeCaptureTransportPlaying(bridge: model.bridge, deck: deck, route: route) })

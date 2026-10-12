@@ -1,7 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// Modified by Rewind Digital, LLC, 2026: host-only regression support.
-// Retained ASFireWire baseline attribution: see ASFireWire-NOTICE.txt.
-// SPDX-License-Identifier: Apache-2.0
 // Copyright (c) 2024 ASFireWire Project
 //
 // BusManagerElectionTests.cpp — Unit tests for Bus Manager election (FW-18).
@@ -46,9 +43,9 @@ public:
     ASFW::Async::AsyncHandle Read(const ASFW::Async::ReadParams&, ASFW::Async::CompletionCallback) override { return {}; }
     ASFW::Async::AsyncHandle ReadWithRetry(const ASFW::Async::ReadParams&, const ASFW::Async::RetryPolicy&, ASFW::Async::CompletionCallback) override { return {}; }
     ASFW::Async::AsyncHandle Write(const ASFW::Async::WriteParams&, ASFW::Async::CompletionCallback) override { return {}; }
-
+    
     ASFW::Async::AsyncHandle Lock(const ASFW::Async::LockParams&, uint16_t, ASFW::Async::CompletionCallback) override { return {}; }
-
+    
     ASFW::Async::AsyncHandle CompareSwap(const ASFW::Async::CompareSwapParams& params, ASFW::Async::CompareSwapCallback callback) override {
         lastCompareSwapParams = params;
         compareSwapCount++;
@@ -64,13 +61,13 @@ public:
     ASFW::Async::AsyncHandle PhyRequest(const ASFW::Async::PhyParams&, ASFW::Async::CompletionCallback) override { return {}; }
 
     bool Cancel(ASFW::Async::AsyncHandle) override { ++cancelCount; return true; }
-
+    
     [[nodiscard]] ASFW::Debug::BusResetPacketCapture* GetBusResetCapture() const override { return nullptr; }
     [[nodiscard]] ASFW::Debug::AsyncTraceCapture* GetAsyncTraceCapture() const override { return nullptr; }
     [[nodiscard]] ASFW::Shared::DMAMemoryManager* GetDMAManager() override { return nullptr; }
     [[nodiscard]] ASFWDiagInboundCSRStats* GetInboundCSRStats() const override { return nullptr; }
     [[nodiscard]] std::optional<ASFW::Async::AsyncStatusSnapshot> GetStatusSnapshot() const override { return std::nullopt; }
-
+    
     kern_return_t ArmARContextsOnly() override { return 0; }
     void PostToWorkloop(void (^block)()) override { if (block) block(); }
     void OnTxInterrupt() override {}
@@ -85,7 +82,7 @@ public:
     void RearmATContexts() override {}
     void OnTimeoutTick() override {}
     [[nodiscard]] ASFW::Async::AsyncWatchdogStats GetWatchdogStats() const override { return {}; }
-
+    
     [[nodiscard]] ASFW::Async::AsyncBusStateSnapshot GetBusStateSnapshot() const override {
         return ASFW::Async::AsyncBusStateSnapshot{
             .generation16 = currentGen16,
@@ -181,13 +178,13 @@ TEST(BusManagerElection, FsmDecisions) {
 
 TEST(BusManagerElection, FsmOldValueInterpretation) {
     BusManagerElection fsm;
-
+    
     // Case 1: Value is 0x3F (No BM)
     EXPECT_EQ(fsm.InterpretOldValue(0x3F, 0), ElectionOutcome::WonBM);
-
+    
     // Case 2: Value is our own ID
     EXPECT_EQ(fsm.InterpretOldValue(0, 0), ElectionOutcome::IncumbentReestablished);
-
+    
     // Case 3: Value is another ID
     EXPECT_EQ(fsm.InterpretOldValue(1, 0), ElectionOutcome::RemoteBM);
 }
@@ -246,7 +243,7 @@ TEST(BusManagerElectionDriver, IncumbentImmediateContention) {
 
     // Setup wasIncumbent = true
     // Mimic winning previous election
-    (void)driver->FSM().InterpretOldValue(0x3F, 0);
+    (void)driver->FSM().InterpretOldValue(0x3F, 0); 
     driver->OnBusReset();
     EXPECT_TRUE(driver->WasIncumbent());
 
@@ -507,7 +504,7 @@ TEST(BusManagerElectionDriver, DelayedResetAfterLocalBMWonDoesNotArmStormYield) 
 TEST(BusManagerElectionDriver, ChallengerGracePeriod) {
     OSSharedPtr<IODispatchQueue> queue(new IODispatchQueue(), OSNoRetain);
     queue->SetManualDispatchForTesting(true);
-
+    
     auto scheduler = std::make_shared<ASFW::Driver::Scheduler>();
     scheduler->Bind(queue);
 
@@ -553,7 +550,7 @@ TEST(BusManagerElectionDriver, ChallengerGracePeriod) {
 TEST(BusManagerElectionDriver, GenerationSafetyChecks) {
     OSSharedPtr<IODispatchQueue> queue(new IODispatchQueue(), OSNoRetain);
     queue->SetManualDispatchForTesting(true);
-
+    
     auto scheduler = std::make_shared<ASFW::Driver::Scheduler>();
     scheduler->Bind(queue);
 
@@ -597,7 +594,7 @@ TEST(BusManagerElectionDriver, GenerationSafetyChecks) {
 TEST(BusManagerElectionDriver, MaxOneAttemptPerGeneration) {
     OSSharedPtr<IODispatchQueue> queue(new IODispatchQueue(), OSNoRetain);
     queue->SetManualDispatchForTesting(true);
-
+    
     auto scheduler = std::make_shared<ASFW::Driver::Scheduler>();
     scheduler->Bind(queue);
 
@@ -627,44 +624,44 @@ TEST(BusManagerElectionDriver, MaxOneAttemptPerGeneration) {
 
     // First call: attempt starts
     driver->OnTopologyReady(snap, now);
-
+    
     // In our manual scheduler stub, if delay is 0 it might run immediately
     // or if the gate is OPEN it contends immediately.
     // timing.OnSelfIDComplete(generation, now) makes the gate OPEN immediately for incumbents
     // but CLOSED (+125ms) for challengers.
-
+    
     // Challenger case: should be CLOSED
-    EXPECT_EQ(mockAsync->compareSwapCount, 0);
-
+    EXPECT_EQ(mockAsync->compareSwapCount, 0); 
+    
     // Call again before task executes: should do nothing (inFlight guard)
     driver->OnTopologyReady(snap, now);
     EXPECT_EQ(mockAsync->compareSwapCount, 0);
-
+    
     // ADVANCE CLOCK
     {
         ScopedMockClock clock([now]() { return now + 126000000ULL; });
         queue->DrainAllForTesting();
     }
     EXPECT_EQ(mockAsync->compareSwapCount, 1);
-
+    
     // Attempt finished. Now call OnTopologyReady again for same generation.
     // Throttling guard should prevent 2nd attempt.
     driver->OnTopologyReady(snap, now + 126000000ULL);
     // Even if we drain, count should stay 1
     queue->DrainAllForTesting();
-    EXPECT_EQ(mockAsync->compareSwapCount, 1);
+    EXPECT_EQ(mockAsync->compareSwapCount, 1); 
 }
 
 TEST(BusManagerElection, RejectsInvalidOldValues) {
     BusManagerElection fsm;
-
+    
     // Case 1: All bits set (0xFFFFFFFF)
     EXPECT_EQ(fsm.InterpretOldValue(0xFFFFFFFF, 0), ElectionOutcome::ElectionFailed);
     EXPECT_EQ(fsm.Owner(), ASFW::Bus::BmOwner::Unknown);
-
+    
     // Case 2: Bit 6 set (0x40)
     EXPECT_EQ(fsm.InterpretOldValue(0x40, 0), ElectionOutcome::ElectionFailed);
-
+    
     // Case 3: Sane 6-bit value still works
     EXPECT_EQ(fsm.InterpretOldValue(0x10, 0), ElectionOutcome::RemoteBM);
     EXPECT_EQ(fsm.Owner(), ASFW::Bus::BmOwner::Remote);
@@ -674,7 +671,7 @@ TEST(BusManagerElection, RejectsInvalidOldValues) {
 TEST(BusManagerElectionDriver, DeferredElectionSuppressedByPolicyChange) {
     OSSharedPtr<IODispatchQueue> queue(new IODispatchQueue(), OSNoRetain);
     queue->SetManualDispatchForTesting(true);
-
+    
     auto scheduler = std::make_shared<ASFW::Driver::Scheduler>();
     scheduler->Bind(queue);
 
@@ -719,7 +716,7 @@ TEST(BusManagerElectionDriver, DeferredElectionSuppressedByPolicyChange) {
 TEST(BusManagerElectionDriver, DeferredElectionSuppressedByActivityChangedToObserveOnly) {
     OSSharedPtr<IODispatchQueue> queue(new IODispatchQueue(), OSNoRetain);
     queue->SetManualDispatchForTesting(true);
-
+    
     auto scheduler = std::make_shared<ASFW::Driver::Scheduler>();
     scheduler->Bind(queue);
 
@@ -755,7 +752,7 @@ TEST(BusManagerElectionDriver, DeferredElectionSuppressedByActivityChangedToObse
     driver->SetRolePolicy(RolePolicy{RoleMode::FullBusManager, FullBMActivityLevel::ObserveOnly});
 
     // Execute task
-    {
+    { 
         ScopedMockClock clock([now]() { return now + 126000000ULL; });
         queue->DrainAllForTesting();
     }
@@ -767,7 +764,7 @@ TEST(BusManagerElectionDriver, DeferredElectionSuppressedByActivityChangedToObse
 TEST(BusManagerElectionDriver, DeferredElectionSuppressedAfterDriverStop) {
     OSSharedPtr<IODispatchQueue> queue(new IODispatchQueue(), OSNoRetain);
     queue->SetManualDispatchForTesting(true);
-
+    
     auto scheduler = std::make_shared<ASFW::Driver::Scheduler>();
     scheduler->Bind(queue);
 
@@ -803,7 +800,7 @@ TEST(BusManagerElectionDriver, DeferredElectionSuppressedAfterDriverStop) {
     driver->Stop();
 
     // Execute task
-    {
+    { 
         ScopedMockClock clock([now]() { return now + 126000000ULL; });
         queue->DrainAllForTesting();
     }

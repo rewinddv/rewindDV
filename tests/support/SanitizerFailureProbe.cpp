@@ -1,4 +1,3 @@
-// Copyright 2026 Rewind Digital, LLC. SPDX-License-Identifier: Apache-2.0
 // Test-only negative control. Never linked into the app or driver.
 // The runner requires a sanitizer diagnostic AND a nonzero exit for each mode.
 #include <climits>

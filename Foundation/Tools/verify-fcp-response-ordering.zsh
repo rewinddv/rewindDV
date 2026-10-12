@@ -12,7 +12,7 @@ xcrun --sdk macosx clang++ \
   -Wall -Wextra -Werror \
   -Wno-unused-parameter -Wno-unused-private-field -Wno-missing-field-initializers \
   -Wno-unused-lambda-capture \
-  -DASFW_HOST_TEST \
+  -DASFW_HOST_TEST -fno-access-control -fblocks -ffunction-sections -fdata-sections \
   -g \
   -fsanitize=address,undefined \
   -fno-sanitize-recover=all \
@@ -30,6 +30,15 @@ xcrun --sdk macosx clang++ \
   Foundation/DriverPolicy/FoundationDriverPolicy.cpp \
   Foundation/DriverPolicy/Tests/FoundationFCPQuadletPipelineTests.cpp \
   ASFWDriver/Async/Rx/ARPacketParser.cpp \
+  ASFWDriver/Async/Rx/RxPath.cpp \
+  ASFWDriver/Async/Core/Transaction.cpp \
+  ASFWDriver/Async/Core/TransactionManager.cpp \
+  ASFWDriver/Async/Track/LabelAllocator.cpp \
+  ASFWDriver/Async/Track/PayloadRegistry.cpp \
+  ASFWDriver/Bus/GenerationTracker.cpp \
+  ASFWDriver/Debug/BusResetPacketCapture.cpp \
+  ASFWDriver/Shared/Rings/BufferRing.cpp \
+  ASFWDriver/Shared/Memory/PayloadHandle.cpp \
   ASFWDriver/Async/Rx/PacketRouter.cpp \
   ASFWDriver/Async/Rx/LocalRequestDispatch.cpp \
   ASFWDriver/Protocols/AVC/FCPTransport.cpp \
@@ -42,11 +51,18 @@ xcrun --sdk macosx clang++ \
   ASFWDriver/Shared/Rings/DescriptorRing.cpp \
   ASFWDriver/Shared/Memory/DMAMemoryManager.cpp \
   ASFWDriver/Common/BarrierUtils.cpp \
-  tests/support/ResponseSenderProductionDependenciesStub.cpp \
+  ASFWDriver/Async/AsyncSubsystemLifecycle.cpp \
+  ASFWDriver/Async/AsyncSubsystemBusReset.cpp \
+  ASFWDriver/Async/AsyncSubsystemDiagnostics.cpp \
+  ASFWDriver/Async/AsyncSubsystemInterrupts.cpp \
+  ASFWDriver/Async/DMAMemoryImpl.cpp \
+  ASFWDriver/Async/Engine/ContextManager.cpp \
+  ASFWDriver/Async/Tx/Submitter.cpp \
+  tests/support/AsyncRecoveryOffPathStub.cpp \
   tests/support/HardwareInterfaceStub.cpp \
   tests/support/LoggingStubs.cpp \
   tests/support/SanitizerDefaults.cpp \
   ASFWDriver/Logging/LogRing.cpp \
-  -o "$audit_output/fcp-response-ordering"
+  -Wl,-dead_strip -o "$audit_output/fcp-response-ordering"
 ASAN_OPTIONS=abort_on_error=1:halt_on_error=1:detect_stack_use_after_return=1 UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 "$audit_output/fcp-response-ordering"
 print "FCP response submission ordering and failure regressions passed (host only)."

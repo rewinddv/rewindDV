@@ -14,9 +14,9 @@ with tempfile.TemporaryDirectory(prefix='rewinddv-cli-regression-') as tmp:
         exe = str(Path(tmp) / name)
         subprocess.run(['xcrun','swiftc','-parse-as-library','-O',*flag,
                         str(root/'Foundation/Tools/RewindDVCommandCLI/main.swift'),str(root/'Foundation/Sources/RewindDVMonitorCore/ProductIdentity.swift'),'-o',exe], env=env,check=True)
-        assert subprocess.check_output([exe, '--version'], text=True).strip() == 'rewindDV 0.1.22 (Beta) · App 212 · Driver 203'
+        assert subprocess.check_output([exe, '--version'], text=True).strip() == 'rewindDV 0.1.23 (Beta) · App 213 · Driver 204'
         identity_response = subprocess.run([exe, 'mcp'], input=json.dumps({'jsonrpc':'2.0','id':0,'method':'initialize'})+'\n', text=True, capture_output=True, check=True)
-        assert json.loads(identity_response.stdout)['result']['serverInfo']['version'] == '0.1.22'
+        assert json.loads(identity_response.stdout)['result']['serverInfo']['version'] == '0.1.23'
         response = subprocess.run([exe,'mcp'], input=json.dumps({'jsonrpc':'2.0','id':1,'method':'tools/list'})+'\n',
                                   text=True,capture_output=True,check=True)
         tools = json.loads(response.stdout)['result']['tools']

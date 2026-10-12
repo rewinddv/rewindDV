@@ -4142,6 +4142,12 @@
       "path" = "../ASFWDriver/Audio/Wire/AMDTP/AmdtpPacketTimeline.hpp";
       "sourceTree" = "SOURCE_ROOT";
     };
+    "000000000000000000000766" = {
+      "isa" = "PBXFileReference";
+      "lastKnownFileType" = "sourcecode.cpp.h";
+      "path" = "../ASFWDriver/Audio/Wire/AMDTP/TimingUtils.hpp";
+      "sourceTree" = "SOURCE_ROOT";
+    };
     "000000000000000000000767" = {
       "isa" = "PBXFileReference";
       "lastKnownFileType" = "sourcecode.cpp.h";
@@ -5366,6 +5372,7 @@
         "000000000000000000000763",
         "000000000000000000000764",
         "000000000000000000000765",
+        "000000000000000000000766",
         "000000000000000000000767",
         "000000000000000000000768",
         "000000000000000000000769",
@@ -5544,6 +5551,7 @@
         "MACOSX_DEPLOYMENT_TARGET" = "26.0";
         "SWIFT_VERSION" = "6.0";
         "CODE_SIGNING_ALLOWED" = "NO";
+        "DEVELOPMENT_TEAM" = "7G6V2MQ4D7";
         "OTHER_CFLAGS" = (
           "$(inherited)",
           "-ffile-prefix-map=$(SRCROOT:dir)=/rewindDV/",
@@ -5571,6 +5579,7 @@
         "MACOSX_DEPLOYMENT_TARGET" = "26.0";
         "SWIFT_VERSION" = "6.0";
         "CODE_SIGNING_ALLOWED" = "YES";
+        "DEVELOPMENT_TEAM" = "7G6V2MQ4D7";
         "OTHER_CFLAGS" = (
           "$(inherited)",
           "-ffile-prefix-map=$(SRCROOT:dir)=/rewindDV/",

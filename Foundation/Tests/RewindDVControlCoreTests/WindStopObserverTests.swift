@@ -104,6 +104,26 @@ private actor WindFixture {
   }
 }
 
+@Test @MainActor func transportFailureStopsPassivePollingInsteadOfRetryingForever() async throws {
+  let route = try windRoute()
+  var failedReport = observation(route, bytes: nil)
+  failedReport.transportFailure = "Transport status timed out"
+  let report = failedReport
+  let observer = ExternalDeckTransportObserver()
+  var failures = 0
+  var updates = 0
+  observer.start(route: route, interval: .milliseconds(1), sample: { report },
+    update: { _, _ in updates += 1 }, idle: { _ in updates += 1 },
+    failed: { _ in failures += 1 })
+  for _ in 0..<500 where failures == 0 { try await Task.sleep(for: .milliseconds(2)) }
+  await observer.stopAndJoin()
+  #expect(failures == 1 && updates == 0)
+  var wind = WindStopEvidenceGate(route: route)
+  #expect(throws: ControlWireError.self) { try wind.observe(report) }
+  var forward = ForwardPlayEvidenceGate(route: route)
+  #expect(throws: ControlWireError.self) { try forward.observe(report) }
+}
+
 @Test @MainActor func windObserverEndsAfterTwoStopsWithoutSendingControl() async throws {
   let route = try windRoute()
   let fixture = WindFixture(route: route)

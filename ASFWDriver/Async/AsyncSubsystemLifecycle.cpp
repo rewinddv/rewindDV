@@ -740,6 +740,35 @@ void AsyncSubsystem::OnTimeoutTick() {
 
     const uint64_t nowUsec = GetCurrentMonotonicTimeUsec();
 
+    // IRQ, this watchdog and FCP timers all use ServiceContext::workQueue.
+    // Native notification delivery can stall after IR stop while both AR DMA
+    // streams keep receiving. ARRsp-only pre-expiry service rescued the write
+    // ACK but stranded FCP in ARReq, after its async label was already gone.
+    // Service BOTH normal parsers independently of the expired-label list.
+    // Do not invent a bus boundary when reset/fault notification is pending.
+    uint32_t receiveEvents = 0;
+    const bool eventsAvailable = hardware_ && hardware_->ReadIntEvent(receiveEvents);
+    if (!CanServiceReceiveBeforeTimeout(isRunning_,
+            is_bus_reset_in_progress_.load(std::memory_order_acquire) != 0,
+            eventsAvailable, receiveEvents)) return;
+    if (rxPath_ && (nowUsec < lastReceiveServiceUsec_ ||
+                    nowUsec - lastReceiveServiceUsec_ >= 10'000)) {
+        lastReceiveServiceUsec_ = nowUsec;
+        const auto received = rxPath_->ProcessWatchdogReceive(isRunning_, busResetCapture_.get());
+        if (received.request.packetsFound || received.response.packetsFound ||
+            received.request.bufferBudgetExhausted || received.response.bufferBudgetExhausted) {
+            // Keep lines below the retained ring's 232-byte message capacity.
+            ASFW_LOG(Async,
+                "[WatchdogAR] events=0x%08x reqUnread=%zu rspUnread=%zu reqPackets=%u rspPackets=%u reqBudget=%u rspBudget=%u replay=0",
+                receiveEvents, received.requestUnreadBefore, received.responseUnreadBefore,
+                received.request.packetsFound, received.response.packetsFound,
+                received.request.bufferBudgetExhausted, received.response.bufferBudgetExhausted);
+        }
+    }
+    if (!CanServiceResponsesBeforeTimeout(
+            isRunning_, is_bus_reset_in_progress_.load(std::memory_order_acquire) != 0) ||
+        (generationTracker_ && !generationTracker_->GetCurrentState().requestGenerationValid)) return;
+
     if (tracking_) {
         const auto expiredBeforeService = tracking_->CopyExpiredSnapshots(nowUsec);
         if (!expiredBeforeService.empty()) {

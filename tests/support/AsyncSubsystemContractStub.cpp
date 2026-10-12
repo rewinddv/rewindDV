@@ -1,6 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Modified by Rewind Digital, LLC, 2026: host-only regression support.
-// Retained ASFireWire baseline attribution: see ASFireWire-NOTICE.txt.
 #include "ASFWDriver/Async/AsyncSubsystem.hpp"
 
 // Stub definitions for unique_ptr-owned forward-declared types so AsyncSubsystem's

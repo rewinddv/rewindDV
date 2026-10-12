@@ -101,12 +101,129 @@
         "source_revision": "1e9688fb882ea0b249f36fb1c8500a9789a0c3ff",
         "bundle_manifest_sha256": "48282aa966126575550b88a02e9a9634d175950736825c12c574e6b4bbfc87e7"
       },
-      "meaning": "Published public Beta App202; exact signed public-source Driver203 (0.1.11) retained byte for byte."
+      "meaning": "Published Beta 0.1.12/App202 retained public Driver203. Local app-only successor retains already installed Driver202 by its immutable historical binding; no new driver artifact or driver downgrade installation."
     },
     {
       "product_version": "0.1.13",
       "channel": "beta",
       "app_build": 203,
+      "driver_build": 202,
+      "driver_reuse": {
+        "product_version": "0.1.9",
+        "channel": "beta",
+        "source_revision": "ab976378f035c6cfc4195f96da142104be0bae8d",
+        "bundle_manifest_sha256": "ff34d5fd4346a7412524e931817bd2f417c6b0b39478b05f86a4bb0f6dc92670"
+      },
+      "meaning": "Local signed notarized Beta0.1.13 App203 retaining exact Driver202; immutable delivered identity"
+    },
+    {
+      "product_version": "0.1.14",
+      "channel": "beta",
+      "app_build": 204,
+      "driver_build": 202,
+      "driver_reuse": {
+        "product_version": "0.1.9",
+        "channel": "beta",
+        "source_revision": "ab976378f035c6cfc4195f96da142104be0bae8d",
+        "bundle_manifest_sha256": "ff34d5fd4346a7412524e931817bd2f417c6b0b39478b05f86a4bb0f6dc92670"
+      },
+      "meaning": "Local signed notarized App204 installed; accessibility bottom jump failed native UI qualification; retained evidence"
+    },
+    {
+      "product_version": "0.1.15",
+      "channel": "beta",
+      "app_build": 205,
+      "driver_build": 202,
+      "driver_reuse": {
+        "product_version": "0.1.9",
+        "channel": "beta",
+        "source_revision": "ab976378f035c6cfc4195f96da142104be0bae8d",
+        "bundle_manifest_sha256": "ff34d5fd4346a7412524e931817bd2f417c6b0b39478b05f86a4bb0f6dc92670"
+      },
+      "meaning": "Local signed notarized App205; grouping alone did not prevent macOS27 AXScrollToBottom trap; not UI qualified"
+    },
+    {
+      "product_version": "0.1.16",
+      "channel": "beta",
+      "app_build": 206,
+      "driver_build": 202,
+      "driver_reuse": {
+        "product_version": "0.1.9",
+        "channel": "beta",
+        "source_revision": "ab976378f035c6cfc4195f96da142104be0bae8d",
+        "bundle_manifest_sha256": "ff34d5fd4346a7412524e931817bd2f417c6b0b39478b05f86a4bb0f6dc92670"
+      },
+      "meaning": "Local signed notarized App206; eager layout removes unsafe jump but full expanded accessibility queries too slow; not UI qualified"
+    },
+    {
+      "product_version": "0.1.17",
+      "channel": "beta",
+      "app_build": 207,
+      "driver_build": 202,
+      "driver_reuse": {
+        "product_version": "0.1.9",
+        "channel": "beta",
+        "source_revision": "ab976378f035c6cfc4195f96da142104be0bae8d",
+        "bundle_manifest_sha256": "ff34d5fd4346a7412524e931817bd2f417c6b0b39478b05f86a4bb0f6dc92670"
+      },
+      "meaning": "Local signed notarized App207; ordered expandable Overview and actual offline UI checks passed; exact retained Driver202"
+    },
+    {
+      "product_version": "0.1.18",
+      "channel": "beta",
+      "app_build": 208,
+      "driver_build": 202,
+      "driver_reuse": {
+        "product_version": "0.1.9",
+        "channel": "beta",
+        "source_revision": "ab976378f035c6cfc4195f96da142104be0bae8d",
+        "bundle_manifest_sha256": "ff34d5fd4346a7412524e931817bd2f417c6b0b39478b05f86a4bb0f6dc92670"
+      },
+      "meaning": "Signed notarized App208 installed; actual catalogue UI test revealed false conflicts between complementary catalogue forms; retained evidence, not accepted as final UI qualification"
+    },
+    {
+      "product_version": "0.1.19",
+      "channel": "beta",
+      "app_build": 209,
+      "driver_build": 202,
+      "driver_reuse": {
+        "product_version": "0.1.9",
+        "channel": "beta",
+        "source_revision": "ab976378f035c6cfc4195f96da142104be0bae8d",
+        "bundle_manifest_sha256": "ff34d5fd4346a7412524e931817bd2f417c6b0b39478b05f86a4bb0f6dc92670"
+      },
+      "meaning": "Signed App209 retained but not installed; superseded before final delivery to also scope complementary coordinate and shading metadata correctly"
+    },
+    {
+      "product_version": "0.1.20",
+      "channel": "beta",
+      "app_build": 210,
+      "driver_build": 202,
+      "driver_reuse": {
+        "product_version": "0.1.9",
+        "channel": "beta",
+        "source_revision": "ab976378f035c6cfc4195f96da142104be0bae8d",
+        "bundle_manifest_sha256": "ff34d5fd4346a7412524e931817bd2f417c6b0b39478b05f86a4bb0f6dc92670"
+      },
+      "meaning": "Signed/notarized App210 installed; saved-file metadata verified with responsive inspector state loss and intermittent chooser failure. Retained unchanged as rollback."
+    },
+    {
+      "product_version": "0.1.21",
+      "channel": "beta",
+      "app_build": 211,
+      "driver_build": 202,
+      "driver_reuse": {
+        "product_version": "0.1.9",
+        "channel": "beta",
+        "source_revision": "ab976378f035c6cfc4195f96da142104be0bae8d",
+        "bundle_manifest_sha256": "ff34d5fd4346a7412524e931817bd2f417c6b0b39478b05f86a4bb0f6dc92670"
+      },
+      "meaning": "Preserved previously circulated identity; immutable original component artifacts remain retained."
+    },
+    {
+      "product_version": "0.1.22",
+      "channel": "beta",
+      "app_build": 212,
       "driver_build": 203,
       "driver_reuse": {
         "product_version": "0.1.11",
@@ -114,7 +231,7 @@
         "source_revision": "1e9688fb882ea0b249f36fb1c8500a9789a0c3ff",
         "bundle_manifest_sha256": "48282aa966126575550b88a02e9a9634d175950736825c12c574e6b4bbfc87e7"
       },
-      "meaning": "Preserved previously circulated identity; immutable original component artifacts remain retained."
+      "meaning": "Published exact App212/retained Driver203 preserved; bounded capture exposed host IRQ receive-service failure and reentry defects. Superseding development candidate is not physically qualified."
     }
   ]
 }

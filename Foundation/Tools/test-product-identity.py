@@ -10,7 +10,7 @@ import sys
 sys.dont_write_bytecode = True
 import product_identity as p
 
-EXPECTED = {'product_version': '0.1.22', 'channel': 'beta', 'app_build': 212, 'driver_build': 203, 'driver_reuse': {'product_version': '0.1.11', 'channel': 'beta', 'source_revision': '1e9688fb882ea0b249f36fb1c8500a9789a0c3ff', 'bundle_manifest_sha256': '48282aa966126575550b88a02e9a9634d175950736825c12c574e6b4bbfc87e7'}}
+EXPECTED = {'product_version': '0.1.23', 'channel': 'beta', 'app_build': 213, 'driver_build': 204}
 HISTORY = [{'product_version':'0.1.4', 'app_build':194, 'driver_build':197}]
 BASE = {'product_version':'0.1.9','channel':'beta','app_build':199,'driver_build':202}
 
@@ -78,19 +78,17 @@ class IdentityTests(unittest.TestCase):
     def bundle(self, root):
         app = root/'RewindDV.app'; driver=app/'Contents/Library/SystemExtensions/net.rewinddigital.RewindDV.Driver.dext'
         driver.mkdir(parents=True); (app/'Contents/MacOS').mkdir()
-        a={'CFBundleIdentifier':'net.rewinddigital.RewindDV','CFBundleShortVersionString':'0.1.22','CFBundleVersion':'212','RewindDVAlphaVersion':'0.1.22','RewindDVProductVersion':'0.1.22','RewindDVReleaseChannel':'beta','RewindDVRequiredDriverBuild':'203','RewindDVRequiredDriverVersion':'0.1.11'}
-        d={'CFBundleIdentifier':'net.rewinddigital.RewindDV.Driver','CFBundleShortVersionString':'0.1.11','CFBundleVersion':'203','IOKitPersonalities':{'RewindDVFoundationController':{'FoundationBuildNumber':'203'}}}
+        a={'CFBundleIdentifier':'net.rewinddigital.RewindDV','CFBundleShortVersionString':'0.1.23','CFBundleVersion':'213','RewindDVAlphaVersion':'0.1.23','RewindDVProductVersion':'0.1.23','RewindDVReleaseChannel':'beta','RewindDVRequiredDriverBuild':'204','RewindDVRequiredDriverVersion':'0.1.23'}
+        d={'CFBundleIdentifier':'net.rewinddigital.RewindDV.Driver','CFBundleShortVersionString':'0.1.23','CFBundleVersion':'204','IOKitPersonalities':{'RewindDVFoundationController':{'FoundationBuildNumber':'204'}}}
         (app/'Contents/Info.plist').write_bytes(plistlib.dumps(a));(driver/'Info.plist').write_bytes(plistlib.dumps(d))
         (app/'Contents/MacOS/RewindDV').write_bytes(b'app fixture');(driver/'net.rewinddigital.RewindDV.Driver').write_bytes(b'driver fixture')
         return app,a
     def test_actual_bundle_contract(self):
         with tempfile.TemporaryDirectory() as tmp:
-            import driver_reuse
             app,a=self.bundle(Path(tmp));identity=copy.deepcopy(EXPECTED)
             driver=app/'Contents/Library/SystemExtensions/net.rewinddigital.RewindDV.Driver.dext'
-            identity['driver_reuse']['bundle_manifest_sha256']=driver_reuse.bundle_manifest_digest(driver)
             result=p.bundle_identity(app,identity)
-            self.assertEqual(result['package_name'],'rewindDV-beta-0.1.22-App212-Driver203.zip')
+            self.assertEqual(result['package_name'],'rewindDV-beta-0.1.23-App213-Driver204.zip')
             for key,bad in [('RewindDVRequiredDriverBuild','194'),('CFBundleShortVersionString','0.1.0'),('CFBundleVersion','195'),('RewindDVReleaseChannel','alpha')]:
                 with self.subTest(key=key):
                     (app/'Contents/Info.plist').write_bytes(plistlib.dumps(dict(a,**{key:bad})))
