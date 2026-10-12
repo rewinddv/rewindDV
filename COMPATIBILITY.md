@@ -1,9 +1,9 @@
 # Bounded compatibility evidence
 
 <!-- project-status:start -->
-**Current development:** rewindDV 0.1.22 (Beta). App build 212; driver build 203. [Reviewed public source](https://github.com/rewinddv/rewindDV/tree/7e1ce4b50e05115ba652e4d17485b29fcdd3bb2c).
+**Current development:** rewindDV 0.1.22 (Beta). App build 212; driver build 203. [Reviewed public source](https://github.com/rewinddv/rewindDV/tree/49fb52b93b6f144dd5d6b11a393b7900819b9d60).
 
-**Latest public download:** [Beta 0.1.13 / Driver B203](https://github.com/rewinddv/rewindDV/releases/tag/beta-0.1.13) — engineering prerelease, Developer ID-signed and notarized. App build 203 retains Driver B203 (driver version 0.1.11) unchanged. Use normal macOS approval; no SIP change is required. Offline playback, Surgery and inspection require no driver activation. Hardware qualification remains bounded.
+**Latest public download:** [Beta 0.1.22 / Driver B203](https://github.com/rewinddv/rewindDV/releases/tag/beta-0.1.22) — engineering prerelease, Developer ID-signed and notarized. App build 212 retains Driver B203 (driver version 0.1.11) unchanged. Use normal macOS approval; no SIP change is required. Offline playback, Surgery and inspection require no driver activation. Hardware qualification remains bounded.
 
 Development source and downloads have separate identities and qualification. Application versions and driver builds advance independently. [Machine-readable status](PROJECT-STATUS.json).
 <!-- project-status:end -->
