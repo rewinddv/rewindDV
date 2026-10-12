@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "source_revision": "2ed7245de91358331156a316e5652ad14ed7fcfa",
+  "source_revision": "28a500cb57f9f3f1ffeab16386cf9f1943d4d8ab",
   "files": [
     {
       "path": "ACKNOWLEDGMENTS.md",
@@ -4343,8 +4343,8 @@
     {
       "path": "Foundation/App/UnifiedMonitorWorkspace.swift",
       "mode": "100644",
-      "git_blob": "d184c6a9907360cf60afad0dd5796779eeb5f167",
-      "sha256": "3ae42fa700255b8e030e6a1fe2e71d2cc84d5671d2fda38487c44c4664f59546"
+      "git_blob": "27c85a02f03a68f859c4d01f1bba920896a403ab",
+      "sha256": "3951e9d1a0711e800b7168452eb23ebd79ae599d1886b8d3a3dc1d227fd74543"
     },
     {
       "path": "Foundation/App/WholeTapeCaptureModel.swift",
@@ -4373,8 +4373,8 @@
     {
       "path": "Foundation/Config/AlphaVersion.txt",
       "mode": "100644",
-      "git_blob": "0e24a92ffa1ffd7aafabe715b03c964cb7661632",
-      "sha256": "0a6c8dc4148eed841498d2c2be544947a62f8f50c381b2e64bcd7ce40461cf34"
+      "git_blob": "7ac4e5e38f1e39e79557565a854f377c71d12766",
+      "sha256": "976e7492a0ab4e0e742f1c8af5c345fde0d450bfb22c01b0e40c4cf80a42cd10"
     },
     {
       "path": "Foundation/Config/App.entitlements",
@@ -4421,8 +4421,8 @@
     {
       "path": "Foundation/Config/IdentityHistory.json",
       "mode": "100644",
-      "git_blob": "0ad9021949b36700d954ebe96fd2c35ad96c9483",
-      "sha256": "b43604cd268f504b3bab9406219faf3ca4e94b069037d3892e8fdb8fa5f20790"
+      "git_blob": "a19ac622400ccaf67e966283bc21fcf7eeed2837",
+      "sha256": "9697dceb364608347382d442b488e9d4ad22dfcaec111d04662d38ea6e528a25"
     },
     {
       "path": "Foundation/Config/OfflineApp.entitlements",
@@ -4439,14 +4439,14 @@
     {
       "path": "Foundation/Config/ProductIdentity.json",
       "mode": "100644",
-      "git_blob": "c1730b0fc45e2f16e613f816529e957ab71c17d3",
-      "sha256": "de4de5fc2cca99ca21229228d97c408c91de65e1f9e7c1036aaf52c3b4c77336"
+      "git_blob": "ec96d5fd0bdda441bbe34b92d7b73b740c36128f",
+      "sha256": "15cb81e64079d5edca8886b32a68afa66908a39562395b521af4bbae60d08902"
     },
     {
       "path": "Foundation/Config/ProductIdentity.xcconfig",
       "mode": "100644",
-      "git_blob": "97e41166507c691596661ee4b60c1ab971e84d15",
-      "sha256": "9e1978dbee5907b3f68614b978526fac328077cb9b3edda3b90612b4794b62f3"
+      "git_blob": "dd9cc1290ac6172c4e3fb64862a359c442ab99a9",
+      "sha256": "a59ef5c58d44147e5dae5d2b40b820d1cdb38f46755d48fbea50a6eab8c13f44"
     },
     {
       "path": "Foundation/DEVELOPMENT.md",
@@ -5153,8 +5153,8 @@
     {
       "path": "Foundation/Sources/RewindDVMonitorCore/ProductIdentity.swift",
       "mode": "100644",
-      "git_blob": "bde924099fdcc47b066124bd6154f10154bdf441",
-      "sha256": "48ea90ab8fd3077370a1e603ae37765bea9bba7cf9fb9dc9e6aad443de893b96"
+      "git_blob": "80a1e3ae5bf6be619ee96af26d8e89a4ddbd14f5",
+      "sha256": "efe058ac21f8177d419f15c8aeadec3b0398557f9fc368012a9bcca87c9b542e"
     },
     {
       "path": "Foundation/Sources/RewindDVMonitorCore/ReceiveMediaFormatEvidence.swift",
@@ -5573,8 +5573,8 @@
     {
       "path": "Foundation/Tests/RewindDVMonitorCoreTests/ProductIdentityTests.swift",
       "mode": "100644",
-      "git_blob": "a3904b690f9dd09838ede45048365c1785ea58fa",
-      "sha256": "06c89b0e66174824a6ce1a4b291a6401a0ccf87f9910305bcef4c31bc3f8d489"
+      "git_blob": "a8730c0654c04f2d22fc0578e5c083ac89e81040",
+      "sha256": "3d6121f40451b690ecdd35cd1f42778693e836b7fda402bfc284b90948f51d55"
     },
     {
       "path": "Foundation/Tests/RewindDVMonitorCoreTests/ReceiveMediaFormatEvidenceTests.swift",
@@ -6143,8 +6143,8 @@
     {
       "path": "Foundation/Tools/test-product-identity.py",
       "mode": "100644",
-      "git_blob": "95c073da9d2efd5b7f898ac2ad35b978e2efa3b0",
-      "sha256": "2d93a589d99fae1d2cf3d9483cbf0939ec1e0631f4bffa6cb996aac79840f1e5"
+      "git_blob": "ab9cb54c08ff508b261057e0e4b89d4bce75d71b",
+      "sha256": "b91b9c46ee8b22d3591947736a221ef4fa0c88335bedecf7c7c608b2f3318e08"
     },
     {
       "path": "Foundation/Tools/test-signature-comparison.rb",

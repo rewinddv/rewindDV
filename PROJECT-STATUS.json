@@ -1,12 +1,12 @@
 {
   "schema_version": 1,
   "development": {
-    "application_version": "0.1.12",
+    "application_version": "0.1.13",
     "driver_build": 203,
-    "source_revision": "2ed7245de91358331156a316e5652ad14ed7fcfa",
-    "state": "All accepted runtime work integrated and published as Beta0.1.12/App202 with exact retained public-source Driver203. Source, release bytes and website status are independently bound.",
-    "updated_utc": "2026-10-11T19:34:54.604162+00:00",
-    "application_build": 202,
+    "source_revision": "28a500cb57f9f3f1ffeab16386cf9f1943d4d8ab",
+    "state": "Current reviewed public source is Beta 0.1.13 / App203 with retained public Driver203. Application and driver identities remain independently versioned.",
+    "updated_utc": "2026-10-12T17:00:00+00:00",
+    "application_build": 203,
     "release_channel": "beta"
   },
   "public_release": {
