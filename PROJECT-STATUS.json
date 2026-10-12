@@ -3,9 +3,9 @@
   "development": {
     "application_version": "0.1.22",
     "driver_build": 203,
-    "source_revision": "1b715b2a7e8f0b7d15e8caa48cdb7c0abae53554",
+    "source_revision": "7e1ce4b50e05115ba652e4d17485b29fcdd3bb2c",
     "state": "Complete reviewed Beta 0.1.22 / App212 feature source, with exact retained signed Driver203 (original 0.1.11). New public package signing and validation are in progress.",
-    "updated_utc": "2026-10-12T19:01:54.685260+00:00",
+    "updated_utc": "2026-10-12T19:13:15.207211+00:00",
     "application_build": 212,
     "release_channel": "beta"
   },

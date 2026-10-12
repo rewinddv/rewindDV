@@ -6,6 +6,13 @@ Driver203 was built and signed from clean public source `1e9688fb882ea0b249f36fb
 
 Use `Foundation/Tools/build-app-only.py` for retained-driver builds. Source-input and driver-contract gates reject changed driver implementation, entitlements or build graph. It builds only the host and signs only its outer bundle. A new driver uses the full archive workflow in [DeveloperIDSigning](Foundation/Docs/DeveloperIDSigning.md). Compile and Developer ID-sign the normal CLI separately with hardened runtime and a secure timestamp. Stage the full app, driver, CLI and notices, submit the complete stage to Apple, staple only the outer app, and repeat signatures, profiles, PCI, Gatekeeper and distribution assessments. Recheck the full retained-driver manifest after notarization and extraction.
 
+Release CLI builds select native `arm64` and explicitly pass
+`-Xswiftc -parse-as-library`, `-Xswiftc -gnone`, supported source/debug prefix
+mappings, and `-Xlinker -S`. Apple's linker documents `-S` as omitting STABS/DWARF
+debug information; this prevents object/module build paths in its debug map.
+Retain debugging artifacts privately. Inspect the freshly linked and signed
+bytes; never patch paths inside a signed executable after the fact.
+
 Use `tools/release_candidate.py ingest-signed` with an external hash-bound private
 distribution receipt. Its `provenance` schema2 records explicit full/signing flags,
 app/driver/CLI hashes, the two exact embedded profile hashes, architecture and native

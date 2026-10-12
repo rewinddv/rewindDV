@@ -13,7 +13,7 @@ This host-only update fixes two inspector and file-opening issues: Capture and P
 This is a software/UI update only. It does not add physical capture qualification. PAL and whole-tape results remain tied to the earlier builds listed in [COMPATIBILITY.md](COMPATIBILITY.md#successful-pal-and-whole-tape-captures).
 
 <!-- project-status:start -->
-**Current development:** rewindDV 0.1.22 (Beta). App build 212; driver build 203. [Reviewed public source](https://github.com/rewinddv/rewindDV/tree/1b715b2a7e8f0b7d15e8caa48cdb7c0abae53554).
+**Current development:** rewindDV 0.1.22 (Beta). App build 212; driver build 203. [Reviewed public source](https://github.com/rewinddv/rewindDV/tree/7e1ce4b50e05115ba652e4d17485b29fcdd3bb2c).
 
 **Latest public download:** [Beta 0.1.13 / Driver B203](https://github.com/rewinddv/rewindDV/releases/tag/beta-0.1.13) — engineering prerelease, Developer ID-signed and notarized. App build 203 retains Driver B203 (driver version 0.1.11) unchanged. Use normal macOS approval; no SIP change is required. Offline playback, Surgery and inspection require no driver activation. Hardware qualification remains bounded.
 
