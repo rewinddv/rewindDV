@@ -55,7 +55,12 @@
     "historical_b190_startup": "stable final generation before capture; no reset observed during these bounded captures; broader startup/reset coverage remains open",
     "m1_preview": "App189 inspector layout correction and bounded paced offline replay passed on the earlier M1 setup. Physical live-preview retest outstanding. App189 chooser visibility over Screen Sharing unresolved; MacBook Air unavailable for local comparison. Neither result qualifies rebuilt App190/Driver193.",
     "development": "Beta0.1.22/App212 reuses exact signed public-source Driver203(original0.1.11); source-input, build-contract and complete signed-bundle retention gates passed.",
-    "software_validation": "590 Swift tests and14XCTest cases passed in complete private/public suites;328driver host tests and native offline ownership/DMA/drain/storage/archive/media/recovery regressions passed. A supplemental optimized small-input progress test coalesced intermediate telemetry; its original raw/DV bytes matched expectations and unchanged larger-input/debug assertions passed. Offline checks do not establish physical transport qualification."
+    "software_validation": "590 Swift tests and14XCTest cases passed in complete private/public suites;328driver host tests and native offline ownership/DMA/drain/storage/archive/media/recovery regressions passed. A supplemental optimized small-input progress test coalesced intermediate telemetry; its original raw/DV bytes matched expectations and unchanged larger-input/debug assertions passed. Offline checks do not establish physical transport qualification.",
+    "platform_requirements": "Apple silicon only. macOS 26 Tahoe or macOS 27 Golden Gate is required. Older macOS versions and Intel Macs are unsupported; this app will not run on macOS 25 or earlier. Later macOS releases are not currently supported or qualified.",
+    "supported_macos": [
+      "macOS 26 Tahoe",
+      "macOS 27 Golden Gate"
+    ]
   },
   "links": {
     "source": "https://github.com/rewinddv/rewindDV",

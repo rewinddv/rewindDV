@@ -1,5 +1,11 @@
 # Bounded compatibility evidence
 
+## Required Mac and operating system
+
+Apple silicon only. macOS 26 Tahoe or macOS 27 Golden Gate is required. Older macOS versions and Intel Macs are unsupported; this app will not run on macOS 25 or earlier. Later macOS releases are not currently supported or qualified.
+
+Runtime observations on macOS 26.6.2 and 27.0.1 are bounded to the recorded builds and workflows. These requirements do not imply universal deck or adapter qualification.
+
 <!-- project-status:start -->
 **Current development:** rewindDV 0.1.22 (Beta). App build 212; driver build 203. [Reviewed public source](https://github.com/rewinddv/rewindDV/tree/49fb52b93b6f144dd5d6b11a393b7900819b9d60).
 

@@ -3,7 +3,7 @@
 </p>
 
 <h1 align="center">rewindDV</h1>
-<p align="center"><strong>Preserve the tape. Inspect the evidence.</strong><br>Native FireWire DV/HDV preservation for modern macOS.</p>
+<p align="center"><strong>Preserve the tape. Inspect the evidence.</strong><br>Native FireWire DV preservation for Apple silicon on macOS 26 Tahoe and macOS 27 Golden Gate.</p>
 
 <p align="center">
   <a href="https://github.com/rewinddv/rewindDV/releases">Engineering releases</a> ·
@@ -80,13 +80,14 @@ transport or successful recovery. Preserve original tapes and acquisition eviden
 
 ## Compatibility and limits
 
-Apple silicon is the supported architecture; Intel is unsupported. The app's
-deployment floor is macOS 26 and source builds use Xcode 27. Bounded runtime
-evidence covers macOS 27.0.1, NTSC DV and one Sony HVR-M15U setup using the
+Apple silicon only. macOS 26 Tahoe or macOS 27 Golden Gate is required. Older macOS versions and Intel Macs are unsupported; this app will not run on macOS 25 or earlier. Later macOS releases are not currently supported or qualified.
+
+The app deployment floor is macOS 26.0; source builds use Xcode 27.
+Bounded runtime observations cover macOS 26.6.2 Tahoe and 27.0.1 Golden Gate,
+with their tested-build scopes in COMPATIBILITY.md, and one Sony HVR-M15U setup using the
 supported PCI 11c1:5901 controller and tested adapter chain.
 
-Broader OS, deck, adapter and storage compatibility, physical PAL/HDV capture,
-HDV playback and full-length endurance remain unqualified. Offline source and
+Broader OS, deck, adapter and storage compatibility, broader PAL/deck coverage, HDV capture/playback and new-package endurance remain unqualified. Offline source and
 exporter tests do not extend hardware qualification. The new package has not been physically qualified. See
 [compatibility](COMPATIBILITY.md) and [known limitations](KNOWN-LIMITATIONS.md).
 No RECORD or tape-erasure control is provided.
