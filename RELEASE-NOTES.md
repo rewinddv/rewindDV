@@ -1,5 +1,15 @@
 # Development and releases
 
+## Beta 0.1.23 — App213 / Driver204
+
+This release includes the completed-capture CLI admission correction and recovery for queued FireWire Control Protocol replies when interrupt delivery stalls. The normal STOP, finalization and readiness paths retain their recovery instrumentation.
+
+On the tested Sony MiniDV setup, two short PLAY/STOP monitor cycles, a 15-second GUI capture and a second short CLI-initiated capture finalized; both saved files opened in playback. The bounded session recorded 19 watchdog receive recoveries, one routed command-reply recovery and two startup bus resets. Each capture reported two CIP discontinuities and one incomplete frame. The known dropped-packet counter reported zero, which does not establish continuity. No post-STOP lockout, command timeout or reset storm was observed in this session. Driver start was delayed by about two minutes after boot; its cause is unknown. Capture continuity, long-duration endurance, broad deck/controller compatibility, HDV, live unload and surprise removal remain unqualified.
+
+The exact signed App213 and Driver204 binaries are retained unchanged from the bounded qualified candidate, with implementation correspondence to the reviewed public source. The normal CLI is built from that reviewed public source.
+
+The release is Apple silicon only and requires macOS 26 Tahoe or macOS 27 Golden Gate. Intel Macs and older macOS versions are unsupported; later macOS versions are not currently supported or qualified. The complete package is Developer ID signed and notarized. Original recordings were not modified.
+
 ## Beta 0.1.22 — App212 / retained Driver203
 
 This release completes the camera and supplemental metadata decoder, human-readable field names and searchable inspector browser in Capture and Playback. Inspector tabs, filters and searches survive resizing; the file chooser supports repeated cancel and reopen. The accepted capture, recovery, archive and playback implementation is included. Reserved, absent, manufacturer-specific and disputed values remain explicit; catalog coverage is not a claim of complete IEC certification. See [recorded metadata](Foundation/Docs/RecordedMetadata.md) and [decoding limits](Foundation/Docs/MetadataDecodingLimits.md).
@@ -13,9 +23,9 @@ This host-only update fixes two inspector and file-opening issues: Capture and P
 This is a software/UI update only. It does not add physical capture qualification. PAL and whole-tape results remain tied to the earlier builds listed in [COMPATIBILITY.md](COMPATIBILITY.md#successful-pal-and-whole-tape-captures).
 
 <!-- project-status:start -->
-**Current development:** rewindDV 0.1.22 (Beta). App build 212; driver build 203. [Reviewed public source](https://github.com/rewinddv/rewindDV/tree/49fb52b93b6f144dd5d6b11a393b7900819b9d60).
+**Current development:** rewindDV 0.1.23 (Beta). App build 213; driver build 204. [Reviewed public source](https://github.com/rewinddv/rewindDV/tree/8013570bd3ad84275a9006aff50b07a668ceda2f).
 
-**Latest public download:** [Beta 0.1.22 / Driver B203](https://github.com/rewinddv/rewindDV/releases/tag/beta-0.1.22) — engineering prerelease, Developer ID-signed and notarized. App build 212 retains Driver B203 (driver version 0.1.11) unchanged. Use normal macOS approval; no SIP change is required. Offline playback, Surgery and inspection require no driver activation. Hardware qualification remains bounded.
+**Latest public download:** [Beta 0.1.23 / Driver B204](https://github.com/rewinddv/rewindDV/releases/tag/beta-0.1.23) — engineering prerelease, Developer ID-signed and notarized. App build 213 includes the matching driver. Use normal macOS approval; no SIP change is required. Offline playback, Surgery and inspection require no driver activation. Hardware qualification remains bounded.
 
 Development source and downloads have separate identities and qualification. Application versions and driver builds advance independently. [Machine-readable status](PROJECT-STATUS.json).
 <!-- project-status:end -->

@@ -7,9 +7,9 @@ Apple silicon only. macOS 26 Tahoe or macOS 27 Golden Gate is required. Older ma
 Runtime observations on macOS 26.6.2 and 27.0.1 are bounded to the recorded builds and workflows. These requirements do not imply universal deck or adapter qualification.
 
 <!-- project-status:start -->
-**Current development:** rewindDV 0.1.22 (Beta). App build 212; driver build 203. [Reviewed public source](https://github.com/rewinddv/rewindDV/tree/49fb52b93b6f144dd5d6b11a393b7900819b9d60).
+**Current development:** rewindDV 0.1.23 (Beta). App build 213; driver build 204. [Reviewed public source](https://github.com/rewinddv/rewindDV/tree/8013570bd3ad84275a9006aff50b07a668ceda2f).
 
-**Latest public download:** [Beta 0.1.22 / Driver B203](https://github.com/rewinddv/rewindDV/releases/tag/beta-0.1.22) — engineering prerelease, Developer ID-signed and notarized. App build 212 retains Driver B203 (driver version 0.1.11) unchanged. Use normal macOS approval; no SIP change is required. Offline playback, Surgery and inspection require no driver activation. Hardware qualification remains bounded.
+**Latest public download:** [Beta 0.1.23 / Driver B204](https://github.com/rewinddv/rewindDV/releases/tag/beta-0.1.23) — engineering prerelease, Developer ID-signed and notarized. App build 213 includes the matching driver. Use normal macOS approval; no SIP change is required. Offline playback, Surgery and inspection require no driver activation. Hardware qualification remains bounded.
 
 Development source and downloads have separate identities and qualification. Application versions and driver builds advance independently. [Machine-readable status](PROJECT-STATUS.json).
 <!-- project-status:end -->
@@ -20,8 +20,16 @@ The current Beta source includes the accepted reconnection and app-readiness fix
 
 The capture and playback inspectors show every observed pack using a classifier/catalog covering 256 allocations and 274 layout variants, with decoded labels, field validity, interpretation provenance, references and raw bytes. Inventory coverage includes reserved, unassigned and opaque entries; it is not a claim of complete semantic decoding or IEC certification. Mixed NTSC/PAL recording epochs and lossless segmented exports preserve source ordering and unknown regions. HDV remains separately represented and physically unqualified.
 
-Successful PAL captures and a completed whole-tape workflow are documented below with their actual earlier builds. Later Driver199 reconnect/capture and Driver200 reread checks, plus Driver202 idle stability, have separate bounded evidence. The current public package has its own software, signing and distribution validation; these earlier results do not establish a fresh physical test of Driver203.
+Historical PAL captures, a completed whole-tape NTSC workflow and later reconnect/reread/idle observations retain their actual tested-build scope. The exact App213/Driver204 binaries in Beta 0.1.23 have bounded Sony STOP, capture reentry, finalized capture and saved-playback evidence. Watchdog recoveries, CIP discontinuities, incomplete frames and unexplained startup delay remain recorded; pristine continuity and endurance are not qualified.
 
+
+## Beta 0.1.23 — bounded App213 / Driver204 qualification
+
+**EMPIRICAL_EVIDENCE — retained Sony MiniDV qualification, reviewed 2026-10-12.** The exact signed App213 and Driver204 executables included in this release passed two short PLAY/STOP monitor cycles, a 15-second GUI capture and a second short CLI-initiated capture on the tested setup. Both captures finalized and opened in playback; the app returned to ready state without post-STOP lockout. No reported command timeout or reset storm was observed in this bounded session.
+
+The session recorded 19 watchdog receive recoveries, one routed command-reply recovery and two startup bus resets. Each capture reported two CIP discontinuities and one incomplete frame. The known dropped-packet counter reported zero, which does not prove complete continuity. Their exact cause is not established; capture continuity remains unresolved. Driver process start was delayed by approximately two minutes after boot, followed by comparatively quick Sony discovery; the cause of that delay remains unknown.
+
+This evidence qualifies bounded STOP and capture reentry on the tested setup. It does not qualify pristine or loss-free capture, long-duration endurance, broad deck/controller compatibility, HDV, live extension unload, surprise controller removal or universal startup timing. Publication recovery performed no new physical tests and retained the qualified executable bytes unchanged. Exact component hashes and public-source correspondence are recorded in the release provenance.
 
 ## Successful PAL and whole-tape captures
 

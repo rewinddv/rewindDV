@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "source_revision": "49fb52b93b6f144dd5d6b11a393b7900819b9d60",
+  "source_revision": "8013570bd3ad84275a9006aff50b07a668ceda2f",
   "files": [
     {
       "path": "ACKNOWLEDGMENTS.md",
@@ -11,8 +11,8 @@
     {
       "path": "ASFWDriver/ASFWDriver.cpp",
       "mode": "100644",
-      "git_blob": "9e26f77f422bd2fb116bc5dfc93bca0df8746653",
-      "sha256": "63a17db35b66afc34f57337b48968c015f4d67f1f08c129f0ade69f3b35d99ca"
+      "git_blob": "bf60fb96313b82c50e807c861edf0d2291e0907f",
+      "sha256": "4d9135092b6e42853a0961858732b95e7ddedf5126f17d58839ee59c4fda03c3"
     },
     {
       "path": "ASFWDriver/ASFWDriver.iig",
@@ -29,8 +29,8 @@
     {
       "path": "ASFWDriver/Async/AsyncSubsystem.hpp",
       "mode": "100644",
-      "git_blob": "f4503cd8ac9e8f9602eef4aa0b8766013bc8bbd5",
-      "sha256": "fc9912bddbeb0c7b4ab67585e4d0a2c3e4f5329abe93774e7f897c9a3ba19e57"
+      "git_blob": "1d030f4a4223b0cb4e76bca9581bd2a917fd64a7",
+      "sha256": "9dfe1feb2650ab853d3db809e1b9ed8acace27f9092fa0fd5a313dfe65e2b9b0"
     },
     {
       "path": "ASFWDriver/Async/AsyncSubsystemBusReset.cpp",
@@ -59,8 +59,8 @@
     {
       "path": "ASFWDriver/Async/AsyncSubsystemLifecycle.cpp",
       "mode": "100644",
-      "git_blob": "9cd04490eeaf3effd420c4ba1b3c1e783ee6598d",
-      "sha256": "7aa1f0f63bf7120db9da7d8b77886f986234cc7e100310d79bf429b88226e9a1"
+      "git_blob": "98734a28e5a7742daa850173cd1b50e11a50fe68",
+      "sha256": "f078923fb039657dba8e9481c8c3af62b3056f8277df51a514c21fd38f13ab6d"
     },
     {
       "path": "ASFWDriver/Async/AsyncTypes.hpp",
@@ -407,14 +407,14 @@
     {
       "path": "ASFWDriver/Async/Rx/RxPath.cpp",
       "mode": "100644",
-      "git_blob": "c27ed2b03e9358f5aff8d19a37b0bbc30f5aea82",
-      "sha256": "9b43bda77db1c9654843c66e7fceeadd4e3e22dbb329319965d1469f2e57e777"
+      "git_blob": "8b2fbf74590d5673af2223406b11dc12cf0f817e",
+      "sha256": "7c8c142e9327db542aae7ad03ecf078d5bd6f20625bdfc8f3053abed1b20bd47"
     },
     {
       "path": "ASFWDriver/Async/Rx/RxPath.hpp",
       "mode": "100644",
-      "git_blob": "34444e32790a083431ebeadd28f6e8acfd011f88",
-      "sha256": "2e205e96997c5466df5309509c7cafd1892347abc57a2fd8fab67ee2b4a29741"
+      "git_blob": "f5b94a7ca3b1e4e4393ec9eee05f7d063b80a8e7",
+      "sha256": "ea523ef73c33cf0638a45ea66a5ad53f6d0527d22ef64268cec3f7b785ed059f"
     },
     {
       "path": "ASFWDriver/Async/Track/CompletionQueue.hpp",
@@ -449,8 +449,8 @@
     {
       "path": "ASFWDriver/Async/Track/PreExpiryResponseService.hpp",
       "mode": "100644",
-      "git_blob": "37614d20095d0afe4ce4bed57ee36cbddf806b37",
-      "sha256": "f90d8fbafe65ec0f16f74aa8c4dc30bc1e206eeb7fdae007702d7d407e0956f4"
+      "git_blob": "4b97fe6931687daef2edd7a55b785d58f42408c4",
+      "sha256": "9a3c2169729381cee1fbac48acb9c0c72fe549c4dfa1d016b6030eb6b166afe2"
     },
     {
       "path": "ASFWDriver/Async/Track/QueuedHandleSequence.hpp",
@@ -3179,14 +3179,14 @@
     {
       "path": "ASFWDriver/Protocols/AVC/FCPTransport.cpp",
       "mode": "100644",
-      "git_blob": "1286cbd3488fc63ff385b3260d259dd78f28cadd",
-      "sha256": "2c85f385644302b93e260551f79d85246318f062abf077b56c3e21155a171852"
+      "git_blob": "ea90086f8c3222614c9ea50cff590d325b009054",
+      "sha256": "86120a2ddb39b15bc8c60b177cf3377dfe1e093790ccd7dbcce89fc28f40bb86"
     },
     {
       "path": "ASFWDriver/Protocols/AVC/FCPTransport.hpp",
       "mode": "100644",
-      "git_blob": "45948502b62d0ec3df2fbd8ad6d69e52bb14dff0",
-      "sha256": "5ad2cab2aed17d0212e82610a94553f86689dec51577ade115c440155360c868"
+      "git_blob": "be8d40b9ea0980e803ee002930891045cb49d8ae",
+      "sha256": "22ba57011b2ad21fb818eeead75d625eaf60321ed0aac79ac72a5b0196cf11ee"
     },
     {
       "path": "ASFWDriver/Protocols/AVC/IAVCCommandSubmitter.hpp",
@@ -4013,8 +4013,8 @@
     {
       "path": "Foundation/App/AutomationCommandBridge.swift",
       "mode": "100644",
-      "git_blob": "dd5897093585e5ba682a34493d812d3afec1bd95",
-      "sha256": "349acd787de002a51db011eb1a0723e7b538964cb4ca5454d2dac761786376fc"
+      "git_blob": "a87d938943ae84dc65d0fe9b69e86876ea989e3a",
+      "sha256": "5fd61890614928cb9156432f0b25b9521a00106c5c33b7f4c6ff5da2f61adfc2"
     },
     {
       "path": "Foundation/App/AutomationStatusSnapshot.swift",
@@ -4091,8 +4091,8 @@
     {
       "path": "Foundation/App/DriverBridge.swift",
       "mode": "100644",
-      "git_blob": "4853737958671d400a7904489b8c5f8b1212600a",
-      "sha256": "65e7a5d0f4a7eefc3e4a4c9339f4aae5fb5a408f818830dec27cc9d1ca75f511"
+      "git_blob": "f2fa314b1b25e54ea336d4708fbcd1cf3d802e2a",
+      "sha256": "97215a10441ea0efaefdeb43de876c6a5a0ab5c094bda17227fe1e4ba91448e0"
     },
     {
       "path": "Foundation/App/DriverReadiness.swift",
@@ -4127,8 +4127,8 @@
     {
       "path": "Foundation/App/InspectorWire.swift",
       "mode": "100644",
-      "git_blob": "59b0bfcb5b0df811e2e9cdecf6630b040dd4126c",
-      "sha256": "eaeb535562ae3386a90fa92a7fb84d97434d066ebb91892943727b9b1a557933"
+      "git_blob": "436ec1e57e4c898a18a4c64707f444bed6d67ee4",
+      "sha256": "5c710e2dfdb50b5cd01a0aeb6c8c2238af515f69e2f9b0f5669d2af006195b9f"
     },
     {
       "path": "Foundation/App/LiveAudioMonitor.swift",
@@ -4151,8 +4151,8 @@
     {
       "path": "Foundation/App/LiveMonitorModel.swift",
       "mode": "100644",
-      "git_blob": "84f3a7e80cff484312cbd4e4ec5a9c5951569c1b",
-      "sha256": "b4bc38fd6074341c26bc49b4686be0a19760c87eba9f9283776cbd173ee2f136"
+      "git_blob": "b30e6a888a32fa825017f3de93c8adbfa0b2c54d",
+      "sha256": "23fa9299054b2ff0190afc531f362548ca5ca965f08e9d16cb654b54c725f42a"
     },
     {
       "path": "Foundation/App/LiveReceiveAtomics.c",
@@ -4295,8 +4295,8 @@
     {
       "path": "Foundation/App/Resources/ThirdPartyNotices.txt",
       "mode": "100644",
-      "git_blob": "08a8cbd9163e1488762348c3b89a10c560981064",
-      "sha256": "2de49a45a5b00dc6d8a78406c06cca1b590e54aec12929717cb3a99d961455e9"
+      "git_blob": "d32744738ea983e85de86182a1559e7646209b61",
+      "sha256": "473d0c72d5028973dad99f8d6ed770a0d15ae3577a9e6726d64e2cfed28253d6"
     },
     {
       "path": "Foundation/App/ReviewedRangeModel.swift",
@@ -4349,20 +4349,20 @@
     {
       "path": "Foundation/App/UnifiedMonitorWorkspace.swift",
       "mode": "100644",
-      "git_blob": "db5f11aca036be3571eb81733f0d6f291bea744c",
-      "sha256": "53827803954952b037425d3c1db5595fac85aa42f827074bd144d0574642c67c"
+      "git_blob": "5e1f8d16dbef3538df0ca38e1cc1ff8f4ca0705c",
+      "sha256": "e1ae1ebc8b4e2986f7b46d11eea2b6ca5b4220b94a12d8cdec27748cd6f45ea7"
     },
     {
       "path": "Foundation/App/WholeTapeCaptureModel.swift",
       "mode": "100644",
-      "git_blob": "60849f938a197af7c5c450c6f3fd197ba38b3772",
-      "sha256": "0516d23ecf90d3eb1e15afc81995d66fd3c779b096532975dd42fee1c21982f6"
+      "git_blob": "1bd82ccef7fc3d317086c02a1e04efb6cb8979e0",
+      "sha256": "49a679a769e180d83a42e6b325db40ce004dc62e235bc2e593ebe920dd118ff1"
     },
     {
       "path": "Foundation/App/WindStopObserver.swift",
       "mode": "100644",
-      "git_blob": "3adc6bc40ee03e46d98d6d28d42a21b8f825238d",
-      "sha256": "efc38c3e817c26c8a76b1acf894d8f877e90ef25b71f14aba4d65e8a7af15ec6"
+      "git_blob": "cdf1863182b78257defa5e54d1bbfb94e025aa24",
+      "sha256": "2d1cfa18c5019f1471fcbd8735fd2ed31f8d81cbf6aa38743a824d4082e1bb18"
     },
     {
       "path": "Foundation/App/WorkspaceWindowPresentation.swift",
@@ -4379,8 +4379,8 @@
     {
       "path": "Foundation/Config/AlphaVersion.txt",
       "mode": "100644",
-      "git_blob": "7e72641b4bd1eeb711b63d83a55e913f24e3f6b8",
-      "sha256": "b0569383609842116bc78ee560cb5a7aee44bdbe59d85efc7b7316cb72389862"
+      "git_blob": "001d7528781e49d294602b0509bab9f9be0123c1",
+      "sha256": "76f75753f47c5f9a402427e4ee481b463e5a164edabccbfeab33964eea31913e"
     },
     {
       "path": "Foundation/Config/App.entitlements",
@@ -4427,8 +4427,8 @@
     {
       "path": "Foundation/Config/IdentityHistory.json",
       "mode": "100644",
-      "git_blob": "c6ac2790fdc474871570e85dc2b800fc9e5ed900",
-      "sha256": "26792ffb52eaf5a555c1b9621b876f5fc4054dffb05e30779128a2cc714b0a1f"
+      "git_blob": "969027ed991b1ba22411316de2b065c1935b94c8",
+      "sha256": "45b354b99ac38eeb84646c0f11f21da14599f00248ef6f5076fc9702012a4371"
     },
     {
       "path": "Foundation/Config/OfflineApp.entitlements",
@@ -4439,20 +4439,20 @@
     {
       "path": "Foundation/Config/ProductIdentity.hpp",
       "mode": "100644",
-      "git_blob": "131d3397ec3fffbb3bf290e2f26a0150659365a9",
-      "sha256": "4416e3d9656d2e82e4c88415056b4fbc068a724167a71899897c6e4f78602bee"
+      "git_blob": "c177ea8341ee3b3ca5418307648a747f9b8b0d64",
+      "sha256": "2e5ed98ddab1c310d7a732a0d161578e6771f5dd07bd222b34178e1986192b9c"
     },
     {
       "path": "Foundation/Config/ProductIdentity.json",
       "mode": "100644",
-      "git_blob": "d798e2e4494581ac2bf427e1e13b8a94c720fc8a",
-      "sha256": "45cd6135d203627495627c2515cf789d391841b8a5e39648ac5e8f5b9807765f"
+      "git_blob": "205a036b870480778d735610c5d60f11ca51956f",
+      "sha256": "e62f59510ac98e4722d76d5f82edfd58f1801251285981bb8c51374ad09d4170"
     },
     {
       "path": "Foundation/Config/ProductIdentity.xcconfig",
       "mode": "100644",
-      "git_blob": "13ba5843c283584671d71994c71b31aadfd0e7ff",
-      "sha256": "e429d5e1b50c5184d4007488762ab27c40bd07e8e46494555eff234d7c949d80"
+      "git_blob": "df44d5daec49f2745d9e73b8f04f52d94ac593cb",
+      "sha256": "76c1838d0f66182813fe8ead8c49516824ddc4b3a7966e66bd5f800b697b20f7"
     },
     {
       "path": "Foundation/DEVELOPMENT.md",
@@ -4487,8 +4487,8 @@
     {
       "path": "Foundation/Docs/MetadataDecodingLimits.md",
       "mode": "100644",
-      "git_blob": "bf8eed80d1de4f19688d7227d655046761fa2d20",
-      "sha256": "cd5992a2fd1c0266d31c91d4a49a4de5652d63a5809fe14503b5d0af25dc019c"
+      "git_blob": "aeeebd005bfbd810ee9cd3d9d6d6a074ace226cc",
+      "sha256": "bb7bcb75535083bbc59e4e6ffc14b7977e40d79980b86a5b34b4ab5e871f6653"
     },
     {
       "path": "Foundation/Docs/PostCaptureMemoryHotfix.md",
@@ -4631,14 +4631,14 @@
     {
       "path": "Foundation/DriverPolicy/Tests/FoundationFCPQuadletPipelineTests.cpp",
       "mode": "100644",
-      "git_blob": "e072e266b779d96e614a591776037811b7437fb8",
-      "sha256": "fc7c6b60662590715385fcaf7603895973d787f2ee095219b826d9b36535aebb"
+      "git_blob": "a133edb7be7bde4dc0e7ea74e6ea782bc0e56105",
+      "sha256": "c6667e3ac67f6c33fc67f314545e140043ca9e3efb90ee24af4639d344ca2680"
     },
     {
       "path": "Foundation/DriverPolicy/Tests/FoundationFCPTransportTests.cpp",
       "mode": "100644",
-      "git_blob": "7542bb3069930125a1295f4626677dd2567fe0ba",
-      "sha256": "e4448914ff45f555b6911cae9da910815e88575465fd9c0e0a30bd73eb0f51b9"
+      "git_blob": "29d6b4a2f22501666c17c7c077c5bfb591c131c4",
+      "sha256": "ebb3397b491697d9cec1e7d2eb52597e75f20b1619170aa8f4ca5cfae5e11418"
     },
     {
       "path": "Foundation/DriverPolicy/Tests/FoundationInspectorObserverSourceTests.rb",
@@ -4769,8 +4769,8 @@
     {
       "path": "Foundation/RewindDV.xcodeproj/project.pbxproj",
       "mode": "100644",
-      "git_blob": "41196d955857b47624e833bd61f8b1a6e5a047b5",
-      "sha256": "48d6767f1b61d97e0e4805939b73f12d74aa329ed0aead9f679eb34572753bcc"
+      "git_blob": "b5d895e697b2cc4e9c32ecef5248f18023f72805",
+      "sha256": "37ecab326a00f1c901f615527c3628837373831262d1605dad393edf62c00423"
     },
     {
       "path": "Foundation/Sources/RewindDVArchiveCore/ArchiveAdmission.swift",
@@ -5183,8 +5183,8 @@
     {
       "path": "Foundation/Sources/RewindDVMonitorCore/ProductIdentity.swift",
       "mode": "100644",
-      "git_blob": "84b6bed25aaef8876b664d8d6f77555d77ae17d8",
-      "sha256": "db771d24eb63c31d2f8c24b99796b1475b31d9191db93f6de3be87da1ac60b66"
+      "git_blob": "cfc8826ced398495ff208906d3b6ae99ac89a768",
+      "sha256": "850d2910504250964dd6727ff3eb845e85b04248a5baab522efb270539cfb64f"
     },
     {
       "path": "Foundation/Sources/RewindDVMonitorCore/ReceiveMediaFormatEvidence.swift",
@@ -5195,8 +5195,8 @@
     {
       "path": "Foundation/Sources/RewindDVMonitorCore/WorkspacePolicy.swift",
       "mode": "100644",
-      "git_blob": "b8b6b4e0ebd0b66608039b7c8c00556abef75d91",
-      "sha256": "32296d1fc348c14617f4028eab8a56dd9f63657d8de5eee09f41ed8d7d4d30e7"
+      "git_blob": "a2283e0131942088a3d1adbf43491c1c5ed3774e",
+      "sha256": "e33c33df5f276d9f89e406cb391965588f091e516768af5714eb030c8d142ee1"
     },
     {
       "path": "Foundation/Tests/RewindDVArchiveCoreTests/CaptureDirectoryTests.swift",
@@ -5387,8 +5387,8 @@
     {
       "path": "Foundation/Tests/RewindDVArchiveCoreTests/Fixtures/DVRescue/PROVENANCE.md",
       "mode": "100644",
-      "git_blob": "4a9d3fb3dcd8c21afcc2e4df0632305901295f95",
-      "sha256": "4bcb6450450d733c2dd608da628b25572cf576aec12e5b744daa3bf6e7f5c2f8"
+      "git_blob": "a1cea6184beb0348578c71de636b0e109b68c0f0",
+      "sha256": "4fabf1332ba7fc176eaf86a31bf11167db77c8e9d5bbcb8e6f4c98f48d68213f"
     },
     {
       "path": "Foundation/Tests/RewindDVArchiveCoreTests/Fixtures/DVRescue/dvrescue.xsd",
@@ -5513,8 +5513,8 @@
     {
       "path": "Foundation/Tests/RewindDVControlCoreTests/WindStopObserverTests.swift",
       "mode": "100644",
-      "git_blob": "d0da5d3e2c9957c115642aa3d45f1ce006092346",
-      "sha256": "b6e13d9c9a7dabd41025e2accf4457887b4735d46d66d1625390a63bbd22eaea"
+      "git_blob": "891d958df72a62c30946c381d91158a5842069dc",
+      "sha256": "fa46c1ecafeb64bec8544d9258e80ddedcaf922ed27f757b80f1e8e42a13f850"
     },
     {
       "path": "Foundation/Tests/RewindDVMonitorCoreTests/AlphaDisclaimerTests.swift",
@@ -5615,8 +5615,8 @@
     {
       "path": "Foundation/Tests/RewindDVMonitorCoreTests/ProductIdentityTests.swift",
       "mode": "100644",
-      "git_blob": "136c29d075747f2ec0bf7b27c4d0585fb4fc2679",
-      "sha256": "27b6d325c46eddc2edf938dcee95cf1504e8a6fd81e4c5cfb7eb04298b674abf"
+      "git_blob": "7c38e33ee880c6f0325dee57b0444359be03da64",
+      "sha256": "6b848a597a3a9e26b77174a37360ddd05a83df872a347e1183f9a1fc66115189"
     },
     {
       "path": "Foundation/Tests/RewindDVMonitorCoreTests/ReceiveMediaFormatEvidenceTests.swift",
@@ -5627,8 +5627,8 @@
     {
       "path": "Foundation/Tests/RewindDVMonitorCoreTests/WorkspacePolicyTests.swift",
       "mode": "100644",
-      "git_blob": "c701ddea933ae4f2c4bfe8173fccb3fcee84f6a3",
-      "sha256": "9004e35c2b2de526aa2b1d54cc927646c3babaabafc80258cf4811d132519125"
+      "git_blob": "035fabf2371c4a7b21e830bccfe7c6d9dcca6c06",
+      "sha256": "27f71fddfa0022834b666a50f609262fe50e3ab62f220f7d163660322c8cba72"
     },
     {
       "path": "Foundation/Tools/AccessibilityIsolationHarness/AccessibilityIsolationHarness.swift",
@@ -6173,8 +6173,8 @@
     {
       "path": "Foundation/Tools/test-command-cli.py",
       "mode": "100644",
-      "git_blob": "40c01c5c06d356b27da8b442acb2b458639936e8",
-      "sha256": "2d6cb758f843940ecfcf5dc908b6f8b91d21f006845054aa8d7316d7f7f701ac"
+      "git_blob": "18ef8fd3b99a0c8a02849ccfb7a0d38b38c4a3f1",
+      "sha256": "d67530d7655c031594c7bb723e8ccda5287b216079a4e3228ab92ae5034f9b36"
     },
     {
       "path": "Foundation/Tools/test-developer-id-verification.py",
@@ -6191,8 +6191,8 @@
     {
       "path": "Foundation/Tools/test-product-identity.py",
       "mode": "100644",
-      "git_blob": "9fb7fef777231dadba50a2f8c3aae03d54277930",
-      "sha256": "3c68ec7a4d5ecc007afc32fe96045865cb1c95a38226120cf53db6809f21e194"
+      "git_blob": "2b15dcf350b8930de105f099d20c031cd3d83138",
+      "sha256": "2f59218930ece5a1804c577470984f7a25cb4733c3a21d14a51f4da17e7fc5e5"
     },
     {
       "path": "Foundation/Tools/test-signature-comparison.rb",
@@ -6215,8 +6215,8 @@
     {
       "path": "Foundation/Tools/verify-dv-metadata-registry.py",
       "mode": "100644",
-      "git_blob": "f4a631c9dfae3adcc18d16da66252ccd981159d5",
-      "sha256": "045b6ce1c5988b026dad94334d5750f938b4b09d23dd67227a0086d02de23a4a"
+      "git_blob": "e3659f274dbcda83d17084c4a646a767d9b76260",
+      "sha256": "cdbd3318d45c312f40be2f11162171634a2c2cb97e5b71ceed7d3e1bf68a10a3"
     },
     {
       "path": "Foundation/Tools/verify-dv-nonregular-input.py",
@@ -6227,8 +6227,8 @@
     {
       "path": "Foundation/Tools/verify-fcp-response-ordering.zsh",
       "mode": "100755",
-      "git_blob": "d39dbf34c8e108aabc87fb44fafdd5bc679f5145",
-      "sha256": "7f33c7ec9e7fca9df34b7a70b2242d949f836755ee15dd1b61933a8a4f6bbfc6"
+      "git_blob": "9a039a8a1abc41fa1d8d19e888b7bddd2d6c4e38",
+      "sha256": "e01933571dd4274c99fba366835f9fb3f753cc52cfbb7e45ce52b92bf57c7883"
     },
     {
       "path": "Foundation/Tools/verify-iec-field-inventory.py",
@@ -6263,8 +6263,8 @@
     {
       "path": "NOTICE",
       "mode": "100644",
-      "git_blob": "fd22565be170d313b214112f86555caa9792d63b",
-      "sha256": "19f77cc7dd9a3e98f1ad56b42e4c81870c1754027156bc911944b6b4a491136c"
+      "git_blob": "037de08604eefae985fe5eea287a627674bd7322",
+      "sha256": "d95ace5e550f2216db96ef1e2ace5663ae3cb8064a4a55b0852798b87d1cd431"
     },
     {
       "path": "ThirdPartyNotices.txt",
@@ -6341,8 +6341,8 @@
     {
       "path": "tests/async/CompletionRefactorPlanTests.cpp",
       "mode": "100644",
-      "git_blob": "2f1b798e42084e9e16c75287a136047bb5a5bd5f",
-      "sha256": "886a63b66f57b5a93dbf6f915cf26dc54f4357c9b3021beeb2474776516a86b1"
+      "git_blob": "ea5acb300bb26de8e9467834059cb84917c2d6ce",
+      "sha256": "9cb8d0d8d5eadc787b013b256a4a210070d45d99ef8051c188d6daba8454a833"
     },
     {
       "path": "tests/async/ContextControlTests.cpp",
@@ -6413,8 +6413,8 @@
     {
       "path": "tests/core/BusManagerElectionTests.cpp",
       "mode": "100644",
-      "git_blob": "b2babacda8c921cf53574e58cc421197af4c622c",
-      "sha256": "4230cab4ae403b1c636576d9b489273e9174c0b9bd630929b679892178d1e041"
+      "git_blob": "171d6366c46ce314948cfe11a1f57d85df8bccb0",
+      "sha256": "5e1cb23b2bfc179d54eeff93fa9f697ee04fbf6d38d7aa410a2d2fec3d7fb087"
     },
     {
       "path": "tests/core/BusResetCoordinatorTests.cpp",
@@ -6461,8 +6461,8 @@
     {
       "path": "tests/core/GenerationTrackerTests.cpp",
       "mode": "100644",
-      "git_blob": "7f6ff28fe667f295d314685525c3db857c8dddc0",
-      "sha256": "1072f0dff357ee4b9d5a1366c2a874b47f7a55f5eba84649ab1db49077e0805a"
+      "git_blob": "e65d25d213e21ebd1e5bd9620cffc6f2c17e5da9",
+      "sha256": "13ea99bf1c744c91bad3552e863d6e0ccc7955d75d9552fb84362114d46fa623"
     },
     {
       "path": "tests/core/HardwareInterfaceOrderTests.cpp",
@@ -6509,20 +6509,20 @@
     {
       "path": "tests/discovery/ROMReaderLifetimeTests.cpp",
       "mode": "100644",
-      "git_blob": "9b78ad9463f9511858cb31bae047876516e469f5",
-      "sha256": "76cb7dd952693474ffcd7a75b6af802cc3491eff76b450cf79cdaf09910d5d4c"
+      "git_blob": "06059566bb9ab068dcb366b30346822ab66c54f6",
+      "sha256": "388f4fc6db614553899ce3df29897760a55d5fe719d65cdd5795b9d5920ce5e1"
     },
     {
       "path": "tests/discovery/ROMScannerIRMVerifyTests.cpp",
       "mode": "100644",
-      "git_blob": "27ed3f32ba8a2ab89f281d2abda379aacd2c0929",
-      "sha256": "ec4cec00e899c9a08b5594f5b9faaa6d38261b967caf16012dae19c715a726dc"
+      "git_blob": "b7a25b5e861582a5781b065e0c094b06794cb746",
+      "sha256": "583ecbd6945278263188212b1392e90f96e458d2f1bcfbeea8dc7ae7f58c8ebf"
     },
     {
       "path": "tests/discovery/ROMScannerLifetimeTests.cpp",
       "mode": "100644",
-      "git_blob": "749d6fa6ceec5942da445cf350cb9759deaca2c7",
-      "sha256": "73c0f5f29c11e3ed9b3c33ad2067ebe6696d355356e0477b19b866021b4c7d26"
+      "git_blob": "97d7c763d81cbc6607859c5033cf53cd731691ec",
+      "sha256": "eb95ef513af75506def965314d22201ef2ba5cc6b6c36a9b32e7495105341ec6"
     },
     {
       "path": "tests/irm/IRMClientHardeningTests.cpp",
@@ -6783,6 +6783,12 @@
       "sha256": "4ef455111ad6acecb6969e1e0eeb9d75dd8726a0314bec33406d914ef5451602"
     },
     {
+      "path": "tests/offline/Build168DriverRegression.cpp",
+      "mode": "100644",
+      "git_blob": "217b9ca3b469123ab4c1670ba4dedff39fb0bb13",
+      "sha256": "f1969a47e299e802cd6321c8f3b7c184971e7a4ac8d8fe6133227250aadfcb66"
+    },
+    {
       "path": "tests/protocols/AVCHandlerTests.cpp",
       "mode": "100644",
       "git_blob": "abb0ecf3c00371cbace0050d0882157efcd0bc7b",
@@ -6797,8 +6803,8 @@
     {
       "path": "tests/protocols/CMPConnectionTests.cpp",
       "mode": "100644",
-      "git_blob": "5de4d2a1daab305910b2964c9c15888bc68f9a9e",
-      "sha256": "b501258fad8e090154fbd66b5798e9cd30d8942f71024b4f4808073238450dee"
+      "git_blob": "a453f66c17a7cd45de8b2a619cfafe6dfb1dbb23",
+      "sha256": "e9923ec9155b83010607b2f05dc8788aacd797b4a20b3702c80d52e1498b5e22"
     },
     {
       "path": "tests/protocols/FCPHandleLifetimeTests.cpp",
@@ -6827,8 +6833,8 @@
     {
       "path": "tests/support/AsyncSubsystemContractStub.cpp",
       "mode": "100644",
-      "git_blob": "d9ed25aaf56974b90f6f0bc39f9cfc74588dac0f",
-      "sha256": "dadbddf597075413c0f00a2f6d776c34b8417a5c7a1e34c724f54994a1b6cc8e"
+      "git_blob": "65c47867669b9df829ddfc8e234a91def70761e8",
+      "sha256": "285111cbf350dedd8ec84d451ea3c6ec1099dceb21602ff734c2c5d2533ddc9b"
     },
     {
       "path": "tests/support/BusResetCoordinatorDepsStubs.cpp",
@@ -6845,8 +6851,8 @@
     {
       "path": "tests/support/ControllerLifetimeOffPathStub.cpp",
       "mode": "100644",
-      "git_blob": "b33d1daef249d9f3a42eddedf21ef663bfdaa718",
-      "sha256": "6b8dcc3be9f76b1a0f21ccdffa500ba8f9852c206f14b6e850b55f6cc3fd4ed8"
+      "git_blob": "52a65b6781aef26c88da83624397da67a801ac21",
+      "sha256": "f588e0a9af920fc770e9553128775c91de5145d1cc02e7bbd1ab39948acd929f"
     },
     {
       "path": "tests/support/HardwareInterfaceStub.cpp",
@@ -6869,8 +6875,8 @@
     {
       "path": "tests/support/PostedWorkEpochTests.cpp",
       "mode": "100644",
-      "git_blob": "583bce9f214d1c52d877228b9e727b52edc9ed4d",
-      "sha256": "6e5cb9a5ea5e5b1507e69b7b32dc98ab2f43b71150f200bc4f93be6a4030428d"
+      "git_blob": "f83e9786454e07dfea9a35a294dfe23aab3cb8c4",
+      "sha256": "3c4306d99ea1af836ce273f54de4756029c508f66afcb056c61316c3ce0e40ee"
     },
     {
       "path": "tests/support/ResponseSenderProductionDependenciesStub.cpp",
@@ -6893,8 +6899,8 @@
     {
       "path": "tests/support/SanitizerFailureProbe.cpp",
       "mode": "100644",
-      "git_blob": "f10007d6105ab45c312d8ea194637bb39fc6f74a",
-      "sha256": "bbd32fdbd5725ef9b134e0de2ede96030a4a1f500a5b1f17d0cc298508f13014"
+      "git_blob": "5ba7feeccbd8b0e2c3471e50ab6fe6ce703cafa3",
+      "sha256": "2b005eabbc31e2e493ccfb348167f233db5971146b93a2b692429c9132cf40c9"
     }
   ]
 }
