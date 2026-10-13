@@ -18,7 +18,10 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       - run: python3 -B tools/test_project_status.py
+      - run: python3 -B tools/test_release_candidate.py
       - run: python3 -B tools/project_status.py
       - name: Verify newest public download
         if: github.event_name != 'pull_request'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: python3 -B tools/project_status.py --live

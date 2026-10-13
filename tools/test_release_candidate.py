@@ -40,6 +40,53 @@ def fake_app(stage):
     return app
 
 
+class ApiTests(unittest.TestCase):
+    def metadata(self, environment):
+        with patch.dict(os.environ, environment, clear=True), \
+                patch.object(r.urllib.request, "build_opener") as build:
+            build.return_value.open.return_value.__enter__.return_value = io.StringIO('{"id": 123}')
+            self.assertEqual(r.api("repos/" + r.REPOSITORY), {"id": 123})
+            request = build.return_value.open.call_args.args[0]
+            self.assertEqual(request.full_url, "https://api.github.com/repos/" + r.REPOSITORY)
+            self.assertEqual(request.get_method(), "GET")
+            self.assertIsNone(request.data)
+            self.assertEqual(build.return_value.open.call_args.kwargs, {"timeout": 30})
+            self.assertIs(build.call_args.args[0], r.NoRedirect)
+            return request
+
+    def test_workflow_token_authenticates_metadata(self):
+        request = self.metadata({"GITHUB_TOKEN": "synthetic-workflow-token"})
+        self.assertEqual(request.get_header("Authorization"), "Bearer synthetic-workflow-token")
+
+    def test_public_metadata_without_token(self):
+        for environment in [{}, {"GITHUB_TOKEN": ""}]:
+            with self.subTest(environment=environment):
+                self.assertIsNone(self.metadata(environment).get_header("Authorization"))
+
+    def test_authenticated_failures_still_fail_closed(self):
+        for code in [302, 401, 403, 404]:
+            with self.subTest(code=code), \
+                    patch.dict(os.environ, {"GITHUB_TOKEN": "synthetic-workflow-token"}, clear=True), \
+                    patch.object(r.urllib.request, "build_opener") as build:
+                build.return_value.open.side_effect = r.urllib.error.HTTPError(
+                    "https://api.github.com/repos/" + r.REPOSITORY, code, "unavailable", {}, None)
+                with self.assertRaisesRegex(r.GateError, "fail closed") as caught:
+                    r.api("repos/" + r.REPOSITORY, missing=(code != 404))
+                self.assertNotIn("synthetic-workflow-token", str(caught.exception))
+
+    def test_optional_missing_metadata(self):
+        with patch.object(r.urllib.request, "build_opener") as build:
+            build.return_value.open.side_effect = r.urllib.error.HTTPError(
+                "https://api.github.com/repos/" + r.REPOSITORY, 404, "missing", {}, None)
+            self.assertIsNone(r.api("repos/" + r.REPOSITORY, missing=True))
+
+    def test_redirects_are_rejected(self):
+        request = r.urllib.request.Request("https://api.github.com/repos/" + r.REPOSITORY,
+                                           headers={"Authorization": "Bearer synthetic-workflow-token"})
+        self.assertIsNone(r.NoRedirect().redirect_request(
+            request, None, 302, "redirect", {}, "https://example.com/metadata"))
+
+
 class IdentityTests(unittest.TestCase):
     def test_adhoc_keeps_independent_app_driver_identity(self):
         values = {"application_version":"0.0.89", "driver_build":"190", "app_bundle_build":"188"}

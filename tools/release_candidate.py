@@ -82,10 +82,15 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 
 
 def api(path, missing=False):
-    # Only public metadata GETs. No assets, credentials, writes or redirects.
-    req = urllib.request.Request("https://api.github.com/" + path, headers={
+    # Only metadata GETs. The optional workflow token stays on api.github.com;
+    # no assets, writes or redirects.
+    headers = {
         "Accept": "application/vnd.github+json", "User-Agent": "rewindDV-release-validation",
-        "X-GitHub-Api-Version": "2026-03-10"})
+        "X-GitHub-Api-Version": "2026-03-10"}
+    token = os.environ.get("GITHUB_TOKEN")
+    if token:
+        headers["Authorization"] = "Bearer " + token
+    req = urllib.request.Request("https://api.github.com/" + path, headers=headers)
     try:
         with urllib.request.build_opener(NoRedirect).open(req, timeout=30) as response:
             return json.load(response)
